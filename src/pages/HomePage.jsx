@@ -48,10 +48,10 @@ function HomePage() {
       </header>
 
       <main id="main-content" data-route-focus tabIndex={-1} className="outline-none">
-        <section id="top" className="relative overflow-hidden bg-white" aria-labelledby="hero-title">
+        <section id="top" className="ga-hero relative overflow-hidden bg-white" aria-labelledby="hero-title">
           <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-page to-transparent" />
           <div className="relative mx-auto grid max-w-7xl items-center gap-12 px-5 py-14 sm:px-6 sm:py-18 lg:grid-cols-[0.92fr_1.08fr] lg:px-8 lg:py-22">
-            <div>
+            <div data-motion-stagger>
               <p className="ga-eyebrow">Government social assistance operations</p>
               <h1 id="hero-title" className="mt-4 max-w-3xl text-4xl font-bold leading-[1.08] tracking-[-0.035em] text-ink sm:text-5xl lg:text-[3.5rem]">Clearer aid distribution. Accountable at every step.</h1>
               <p className="mt-6 max-w-2xl text-lg leading-8 text-copy">GarantiyAid helps authorized government personnel schedule assistance, verify claims, and maintain reliable operational records in one secure platform.</p>
@@ -64,12 +64,12 @@ function HomePage() {
               </ul>
             </div>
 
-            <figure className="relative mx-auto w-full max-w-2xl">
+            <figure data-motion-reveal className="ga-hero-visual relative mx-auto w-full max-w-2xl">
               <div className="absolute -inset-3 rounded-[1.35rem] bg-info-soft ring-1 ring-blue-100" />
               <div className="relative overflow-hidden rounded-xl border border-line bg-white shadow-lg">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
                   <p className="text-sm font-bold text-ink">Operations overview</p>
-                  <span className="inline-flex items-center gap-2 rounded-full bg-success-soft px-3 py-1 text-xs font-bold text-brand-green"><span aria-hidden="true" className="size-2 rounded-full bg-emerald-500" />Protected view</span>
+                  <span className="inline-flex items-center gap-2 rounded-full bg-success-soft px-3 py-1 text-xs font-bold text-brand-green"><span aria-hidden="true" className="ga-live-dot size-2 rounded-full bg-emerald-500" />Protected view</span>
                 </div>
                 <img src="/garantiyaid-admin-overview.png" alt="Illustrative GarantiyAid administrator overview showing operational status, summary cards, and recent activity" width="1168" height="655" fetchPriority="high" className="w-full" />
               </div>
@@ -79,7 +79,7 @@ function HomePage() {
         </section>
 
         <section id="how-it-works" className="scroll-mt-24 bg-brand-navy py-16 text-white lg:py-20" aria-labelledby="process-title">
-          <div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-8">
+          <div data-motion-stagger className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-8">
             <div className="max-w-3xl">
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-blue-200">Distribution workflow</p>
               <h2 id="process-title" className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">One clear path from enrollment to verified assistance.</h2>
@@ -98,7 +98,7 @@ function HomePage() {
         </section>
 
         <section id="roles" className="scroll-mt-24 bg-page py-16 lg:py-20" aria-labelledby="roles-title">
-          <div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-8">
+          <div data-motion-stagger className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-8">
             <div className="max-w-3xl">
               <p className="ga-eyebrow">Role-based service</p>
               <h2 id="roles-title" className="mt-3 text-3xl font-bold tracking-tight text-ink sm:text-4xl">The right workspace for each responsibility.</h2>
@@ -117,7 +117,7 @@ function HomePage() {
         </section>
 
         <section id="features" className="scroll-mt-24 border-y border-line bg-white py-16 lg:py-20" aria-labelledby="features-title">
-          <div className="mx-auto grid max-w-7xl gap-10 px-5 sm:px-6 lg:grid-cols-[0.72fr_1.28fr] lg:px-8">
+          <div data-motion-stagger className="mx-auto grid max-w-7xl gap-10 px-5 sm:px-6 lg:grid-cols-[0.72fr_1.28fr] lg:px-8">
             <div>
               <p className="ga-eyebrow">Operational capabilities</p>
               <h2 id="features-title" className="mt-3 text-3xl font-bold tracking-tight text-ink sm:text-4xl">Built for accountable public service.</h2>
@@ -135,7 +135,7 @@ function HomePage() {
         </section>
 
         <section id="security" className="scroll-mt-24 bg-page py-16 lg:py-20" aria-labelledby="security-title">
-          <div className="mx-auto grid max-w-7xl gap-8 px-5 sm:px-6 lg:grid-cols-[1fr_1fr] lg:items-center lg:px-8">
+          <div data-motion-stagger className="mx-auto grid max-w-7xl gap-8 px-5 sm:px-6 lg:grid-cols-[1fr_1fr] lg:items-center lg:px-8">
             <div>
               <p className="ga-eyebrow">Security and privacy</p>
               <h2 id="security-title" className="mt-3 text-3xl font-bold tracking-tight text-ink sm:text-4xl">Public information stays public. Operational records stay protected.</h2>
@@ -154,7 +154,7 @@ function HomePage() {
         </section>
 
         <section className="bg-white py-14" aria-labelledby="portal-title">
-          <div className="mx-auto flex max-w-5xl flex-col gap-5 px-5 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
+          <div data-motion-stagger className="mx-auto flex max-w-5xl flex-col gap-5 px-5 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
             <div><p className="ga-eyebrow">Authorized personnel</p><h2 id="portal-title" className="mt-2 text-2xl font-bold text-ink sm:text-3xl">Continue to the secure staff portal.</h2><p className="mt-2 text-base text-muted-copy">Use your official credentials and authenticator.</p></div>
             <a href="/login" className="ga-btn-primary shrink-0 px-7">Staff Login</a>
           </div>

@@ -213,6 +213,44 @@ export async function requestDistributionTransactions(token, distributionId, fil
   return data
 }
 
+export async function requestCreditableClaims(token, distributionId, filters = {}) {
+  const data = await requestJson(`/distributions/${distributionId}/creditable-claims${queryString(filters)}`, { token, method: 'GET' })
+  if (!Array.isArray(data?.claims) || !data?.summary || !data?.pagination) throw new Error('The server returned an unexpected creditable-claim response.')
+  return data
+}
+
+export async function creditVerifiedClaim(token, distributionId, claimId, description = '', idempotencyKey = crypto.randomUUID()) {
+  const data = await requestJson(`/distributions/${distributionId}/claims/${claimId}/credit`, {
+    token,
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: { ...(description.trim() ? { description: description.trim() } : {}) },
+  })
+  if (!data?.transaction || !data?.wallet || !data?.lifecycle) throw new Error('The server returned an unexpected simulated-credit response.')
+  return data
+}
+
+export async function requestDistributionReconciliation(token, distributionId) {
+  const data = await requestJson(`/distributions/${distributionId}/reconciliation`, { token, method: 'GET' })
+  if (!data?.reconciliation || !data?.simulation) throw new Error('The server returned an unexpected reconciliation response.')
+  return data
+}
+
+export async function requestTransactionReceipt(token, walletId, transactionId) {
+  const data = await requestJson(`/wallets/${walletId}/transactions/${transactionId}/receipt`, { token, method: 'GET' })
+  if (!data?.receiptVersion || !data?.transaction || !data?.simulation) throw new Error('The server returned an unexpected receipt response.')
+  return data
+}
+
+export async function reverseBenefitCredit(token, walletId, transactionId, reason, idempotencyKey = crypto.randomUUID()) {
+  const data = await requestJson(`/wallets/${walletId}/transactions/${transactionId}/reverse`, {
+    token,
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: { reason: reason.trim() },
+  })
+  if (!data?.originalTransaction || !data?.reversalTransaction || !data?.wallet || !data?.lifecycle) throw new Error('The server returned an unexpected reversal response.')
+  return data
+}
+
 const distributionReportPaths = Object.freeze({
   SUMMARY: 'summary',
   CLAIMS: 'claims',
@@ -704,6 +742,7 @@ const dashboardNavigation = Object.freeze({
     overviewItem,
     { label: 'Distribution setup', icon: 'distributions', href: '/distributions/manage' },
     { label: 'Biometric identity', icon: 'biometrics', href: '/biometrics' },
+    { label: 'Claim settlement', icon: 'ledger', href: '/dswd/ledger' },
     { label: 'Notifications', icon: 'notifications', href: '/notifications' },
     { label: 'Beneficiaries', icon: 'beneficiaries', href: '/beneficiaries' },
     { label: 'Staff & barangays', icon: 'administration', href: '/admin/administration' },

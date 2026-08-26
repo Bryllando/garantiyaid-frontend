@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
+import { LoadingLabel } from '../components/ui/spinner.jsx'
 import {
   getAuthErrorMessage,
   isSessionExpiredError,
@@ -336,7 +337,7 @@ function QrVerificationView({ distribution, qrToken, setQrToken, error, result, 
 
           {error && <div id="qr-token-error" role="alert" className={`mt-4 rounded-lg border p-4 ${duplicateError ? 'border-red-200 bg-danger-soft' : 'border-amber-200 bg-warning-soft'}`}><p className={`font-bold ${duplicateError ? 'text-brand-red' : 'text-brand-amber'}`}>{duplicateError ? 'Possible duplicate claim' : 'Verification not completed'}</p><p className="mt-1 text-sm leading-6 text-copy">{error.message}</p><p className="mt-2 text-xs text-muted-copy">Confirm the selected event and token before trying again. Contact the System Administrator if the problem continues.</p></div>}
 
-          <button type="submit" disabled={isVerifying || !qrToken.trim()} className="ga-btn-primary mt-5 w-full">{isVerifying ? 'Verifying securely…' : 'Verify QR claim'}</button>
+          <button type="submit" disabled={isVerifying || !qrToken.trim()} className="ga-btn-primary mt-5 w-full">{isVerifying ? <LoadingLabel>Verifying securely...</LoadingLabel> : 'Verify QR claim'}</button>
         </form>
       </section>
 

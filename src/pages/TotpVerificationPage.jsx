@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import AuthShell from '../components/auth/AuthShell.jsx'
 import { InputOTP, InputOTPGroup, InputOTPSlot, REGEXP_ONLY_DIGITS } from '../components/ui/input-otp.jsx'
+import { LoadingLabel } from '../components/ui/spinner.jsx'
 import { getAuthErrorMessage, getLoginOutcome, requestStaffLogin, storeStaffSession } from '../auth/staffAuth.js'
 
 function formatRecoveryCode(value) {
@@ -89,7 +90,7 @@ function TotpVerificationPage({ credentials, onBackToLogin, onVerified }) {
 
               {error && <p role="alert" className="rounded-lg border border-red-200 bg-danger-soft px-4 py-3 text-sm leading-6 text-brand-red">{error}</p>}
 
-              <button type="submit" disabled={isSubmitting || !canSubmit} className="ga-btn-primary w-full">{isSubmitting ? 'Verifying…' : 'Verify and continue'}</button>
+              <button type="submit" disabled={isSubmitting || !canSubmit} className="ga-btn-primary w-full">{isSubmitting ? <LoadingLabel>Verifying...</LoadingLabel> : 'Verify and continue'}</button>
               {isRecovery && <button type="button" onClick={() => switchMethod('totp')} className="min-h-11 w-full text-sm font-bold text-brand-blue hover:text-brand-blue-hover">Use authenticator app instead</button>}
               <button type="button" onClick={onBackToLogin} className="min-h-11 w-full text-sm font-bold text-muted-copy hover:text-brand-blue">Use a different account</button>
             </form>

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import AuthShell from '../components/auth/AuthShell.jsx'
 import { InputOTP, InputOTPGroup, InputOTPSlot, REGEXP_ONLY_DIGITS } from '../components/ui/input-otp.jsx'
+import { LoadingLabel } from '../components/ui/spinner.jsx'
 import { confirmTotpSetup, getAuthErrorMessage, requestTotpSetup, storeStaffSession } from '../auth/staffAuth.js'
 
 function TotpSetupPage({ onAuthenticated, onBackToLogin }) {
@@ -133,7 +134,7 @@ function TotpSetupPage({ onAuthenticated, onBackToLogin }) {
                   disabled={isLoading}
                   className="ga-btn-primary mt-5 w-full"
                 >
-                  {isLoading ? 'Preparing setup...' : 'Start authenticator setup'}
+                  {isLoading ? <LoadingLabel>Preparing setup...</LoadingLabel> : 'Start authenticator setup'}
                 </button>
               </div>
             ) : (
@@ -186,7 +187,7 @@ function TotpSetupPage({ onAuthenticated, onBackToLogin }) {
                     disabled={isLoading || code.length !== 6}
                     className="mt-5 inline-flex min-h-12 w-full cursor-pointer items-center justify-center rounded-lg bg-brand-green px-5 text-base font-bold text-white shadow-sm hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-green disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {isLoading ? 'Confirming...' : 'Confirm and activate'}
+                    {isLoading ? <LoadingLabel>Confirming...</LoadingLabel> : 'Confirm and activate'}
                   </button>
                 </form>
               </div>

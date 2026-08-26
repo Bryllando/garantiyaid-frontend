@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import AuthShell from '../components/auth/AuthShell.jsx'
+import { LoadingLabel } from '../components/ui/spinner.jsx'
 import { getAuthErrorMessage, getLoginOutcome, requestStaffLogin, storeStaffSession } from '../auth/staffAuth.js'
 
 function LoginPage({ onAuthenticated, onTotpRequired, onTotpEnrollmentRequired }) {
@@ -99,7 +100,7 @@ function LoginPage({ onAuthenticated, onTotpRequired, onTotpEnrollmentRequired }
               {error && <p id="login-error" role="alert" className="rounded-lg border border-red-200 bg-danger-soft px-4 py-3 text-sm leading-6 text-brand-red">{error}</p>}
 
               <button type="submit" disabled={isSubmitting} className="ga-btn-primary w-full">
-                {isSubmitting ? 'Signing in…' : 'Sign in securely'}
+                {isSubmitting ? <LoadingLabel>Signing in...</LoadingLabel> : 'Sign in securely'}
               </button>
             </form>
           </>

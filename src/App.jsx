@@ -5,7 +5,6 @@ import LoginPage from './pages/LoginPage.jsx'
 import ReportsAuditPage from './pages/ReportsAuditPage.jsx'
 import AdminStaffSecurityPage from './pages/AdminStaffSecurityPage.jsx'
 import DashboardPage from './pages/DashboardPage.jsx'
-import DswdOperationsPage from './pages/DswdOperationsPage.jsx'
 import FacilitatorOperationsPage from './pages/FacilitatorOperationsPage.jsx'
 import BeneficiaryManagementPage from './pages/BeneficiaryManagementPage.jsx'
 import EnrollmentReviewPage from './pages/EnrollmentReviewPage.jsx'
@@ -14,12 +13,14 @@ import TotpVerificationPage from './pages/TotpVerificationPage.jsx'
 import { NotFoundPage, PrivacyPage, SessionExpiredPage } from './pages/SystemPages.jsx'
 import { clearStaffSession, getStoredStaffSession, requestStaffLogout } from './auth/staffAuth.js'
 import { Toaster } from './components/ui/sonner.jsx'
+import { PageLoader } from './components/ui/spinner.jsx'
 
 const ProgramManagementPage = lazy(() => import('./pages/ProgramManagementPage.jsx'))
 const DistributionManagementPage = lazy(() => import('./pages/DistributionManagementPage.jsx'))
 const StaffBarangayAdministrationPage = lazy(() => import('./pages/StaffBarangayAdministrationPage.jsx'))
 const NotificationManagementPage = lazy(() => import('./pages/NotificationManagementPage.jsx'))
 const BiometricIdentityPage = lazy(() => import('./pages/BiometricIdentityPage.jsx'))
+const DswdOperationsPage = lazy(() => import('./pages/DswdOperationsPage.jsx'))
 
 function currentPath() {
   return window.location.pathname.replace(/\/$/, '') || '/'
@@ -120,7 +121,7 @@ function App() {
     )
   } else if (path === '/admin/administration') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<div className="grid min-h-[100dvh] place-items-center bg-page p-6 text-center"><p className="font-bold text-brand-navy" role="status">Loading secure workspace…</p></div>}>
+      <Suspense fallback={<PageLoader />}>
         <StaffBarangayAdministrationPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
       </Suspense>
     ) : (
@@ -128,7 +129,7 @@ function App() {
     )
   } else if (path === '/notifications') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<div className="grid min-h-[100dvh] place-items-center bg-page p-6 text-center"><p className="font-bold text-brand-navy" role="status">Loading secure workspaceâ€¦</p></div>}>
+      <Suspense fallback={<PageLoader />}>
         <NotificationManagementPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
       </Suspense>
     ) : (
@@ -136,7 +137,7 @@ function App() {
     )
   } else if (path === '/biometrics') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<div className="grid min-h-[100dvh] place-items-center bg-page p-6 text-center"><p className="font-bold text-brand-navy" role="status">Loading secure workspace…</p></div>}>
+      <Suspense fallback={<PageLoader />}>
         <BiometricIdentityPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
       </Suspense>
     ) : (
@@ -157,14 +158,16 @@ function App() {
     )
   } else if (path === '/dswd/live-dashboard' || path === '/dswd/ledger') {
     page = session.accessToken && session.user ? (
-      <DswdOperationsPage
-        key={path}
-        view={path === '/dswd/live-dashboard' ? 'live' : 'ledger'}
-        session={session}
-        onLogout={logout}
-        onNavigate={navigate}
-        onSessionExpired={expireSession}
-      />
+      <Suspense fallback={<PageLoader />}>
+        <DswdOperationsPage
+          key={path}
+          view={path === '/dswd/live-dashboard' ? 'live' : 'ledger'}
+          session={session}
+          onLogout={logout}
+          onNavigate={navigate}
+          onSessionExpired={expireSession}
+        />
+      </Suspense>
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
     )
@@ -193,7 +196,7 @@ function App() {
     )
   } else if (path === '/programs' || path === '/distributions/manage') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<div className="grid min-h-[100dvh] place-items-center bg-page p-6 text-center"><p className="font-bold text-brand-navy" role="status">Loading secure workspace…</p></div>}>
+      <Suspense fallback={<PageLoader />}>
         {path === '/programs' ? (
           <ProgramManagementPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
         ) : (

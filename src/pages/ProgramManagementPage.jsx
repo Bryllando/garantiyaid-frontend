@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
+import { LoadingLabel } from '../components/ui/spinner.jsx'
 import {
   activateProgram,
   cancelProgram,
@@ -87,7 +88,7 @@ function ProgramFormDialog({ program, onClose, onSave }) {
           <div className="sm:col-span-2"><label htmlFor="program-description" className="ga-label">Public-service description</label><textarea id="program-description" rows="4" maxLength="5000" value={form.description} onChange={(event) => change('description', event.target.value)} className="ga-input mt-2 min-h-28 resize-y py-3" /></div>
         </div>
         <fieldset className="mt-6 rounded-xl border border-line bg-slate-50 p-4"><legend className="px-1 text-sm font-bold text-ink">Required documents</legend><p className="mb-4 mt-1 text-sm text-muted-copy">Select only documents necessary to establish eligibility.</p><div className="grid gap-2 sm:grid-cols-2">{documentTypes.map((type) => <label key={type} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-sm font-semibold text-copy hover:border-blue-200 hover:bg-info-soft"><input type="checkbox" checked={form.requiredDocumentTypes.includes(type)} onChange={() => toggleDocument(type)} className="size-4 accent-brand-blue" /><span>{humanize(type)}</span></label>)}</div></fieldset>
-        <div className="mt-7 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end"><button type="button" onClick={() => dialogRef.current?.close()} disabled={isSaving} className="ga-btn-secondary">Cancel</button><button type="submit" disabled={isSaving} className="ga-btn-primary">{isSaving ? 'Saving…' : program ? 'Save program' : 'Create draft program'}</button></div>
+        <div className="mt-7 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end"><button type="button" onClick={() => dialogRef.current?.close()} disabled={isSaving} className="ga-btn-secondary">Cancel</button><button type="submit" disabled={isSaving} className="ga-btn-primary">{isSaving ? <LoadingLabel>Saving...</LoadingLabel> : program ? 'Save program' : 'Create draft program'}</button></div>
       </form>
     </dialog>
   )
@@ -130,7 +131,7 @@ function CriterionDialog({ criterion, onClose, onSave }) {
           {form.operator !== 'REQUIRED' && <div className="sm:col-span-2"><Field id="criterion-value" label={['IN', 'NOT_IN'].includes(form.operator) ? 'Expected values (comma separated)' : 'Expected value'} required value={form.expectedInput} onChange={(value) => change('expectedInput', value)} /></div>}
         </div>
         <label className="mt-5 flex min-h-11 cursor-pointer items-center gap-3 rounded-lg bg-slate-50 px-4 text-sm font-semibold text-copy"><input type="checkbox" checked={form.isRequired} onChange={(event) => change('isRequired', event.target.checked)} className="size-4 accent-brand-blue" />This is a mandatory eligibility criterion</label>
-        <div className="mt-6 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end"><button type="button" onClick={() => dialogRef.current?.close()} className="ga-btn-secondary">Cancel</button><button type="submit" disabled={isSaving} className="ga-btn-primary">{isSaving ? 'Saving…' : criterion ? 'Save criterion' : 'Add criterion'}</button></div>
+        <div className="mt-6 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end"><button type="button" onClick={() => dialogRef.current?.close()} className="ga-btn-secondary">Cancel</button><button type="submit" disabled={isSaving} className="ga-btn-primary">{isSaving ? <LoadingLabel>Saving...</LoadingLabel> : criterion ? 'Save criterion' : 'Add criterion'}</button></div>
       </form>
     </dialog>
   )

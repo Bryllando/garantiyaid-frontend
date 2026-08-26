@@ -20,6 +20,7 @@ const moduleDescriptions = {
   'QR verification': 'Validate single-use claim references at distribution sites.',
   Notifications: 'Monitor simulated SMS delivery and follow up on failed reminders.',
   'Biometric identity': 'Manage consent, protected enrollment, claim checks, and verification history.',
+  'Claim settlement': 'Credit verified claims and reconcile the simulated aid ledger.',
 }
 
 const roleContent = {
@@ -147,7 +148,7 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
           <button type="button" onClick={() => { setError(''); setIsLoading(true); setReloadCount((count) => count + 1) }} className="ga-btn-primary mt-5">Try again</button>
         </section>
       ) : (
-        <>
+        <div className="ga-dashboard-ready">
           <header className="flex flex-col gap-5 border-b border-line pb-7 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="ga-eyebrow">{content.eyebrow}</p>
@@ -167,7 +168,7 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
             </div>
             <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {dashboardMetrics(overview, role).map(([label, value, detail, tone]) => (
-                <article key={label} className={`ga-card border-l-4 p-5 ${metricStyles[tone]}`}>
+                <article key={label} className={`ga-card ga-metric-card border-l-4 p-5 ${metricStyles[tone]}`}>
                   <p className="text-sm font-semibold text-muted-copy">{label}</p>
                   <p className="mt-3 text-3xl font-bold tracking-tight tabular-nums text-ink">{value}</p>
                   <p className="mt-2 text-sm text-muted-copy">{detail}</p>
@@ -183,12 +184,12 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
               <p className="mt-2 text-base leading-7 text-muted-copy">These are the working modules available for your signed-in role.</p>
               <div className="mt-5 divide-y divide-line border-y border-line">
                 {modules.map((item) => (
-                  <a key={item.href} href={item.href} onClick={(event) => { event.preventDefault(); onNavigate(item.href) }} className="group flex min-h-24 items-center justify-between gap-5 py-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">
+                  <a key={item.href} href={item.href} onClick={(event) => { event.preventDefault(); onNavigate(item.href) }} className="group -mx-3 flex min-h-24 items-center justify-between gap-5 rounded-lg px-3 py-4 transition-colors hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">
                     <span className="min-w-0">
                       <span className="block font-bold text-ink group-hover:text-brand-blue">{item.label}</span>
                       <span className="mt-1 block text-sm leading-6 text-muted-copy">{moduleDescriptions[item.label]}</span>
                     </span>
-                    <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-full bg-info-soft text-lg text-brand-blue transition-colors group-hover:bg-brand-blue group-hover:text-white">→</span>
+                    <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-full bg-info-soft text-lg text-brand-blue transition-[background-color,color,transform] duration-200 group-hover:translate-x-1 group-hover:bg-brand-blue group-hover:text-white">→</span>
                   </a>
                 ))}
               </div>
@@ -208,7 +209,7 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
               </section>
             </div>
           </div>
-        </>
+        </div>
       )}
     </DashboardShell>
   )

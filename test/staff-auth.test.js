@@ -5,6 +5,7 @@ import {
   approveEnrollment,
   activateProgram,
   buildStaffAccountPayload,
+  creditVerifiedClaim,
   createBarangay,
   createStaffUser,
   createDistribution,
@@ -29,11 +30,13 @@ import {
   requestBiometricAttempts,
   requestBiometricConsents,
   requestBiometricStatus,
+  requestCreditableClaims,
   requestDashboardOverview,
   requestDistributionDashboard,
   requestDistributionCsv,
   requestDistributionList,
   requestDistributionQueue,
+  requestDistributionReconciliation,
   requestDistributionReport,
   requestDistributionTransactions,
   requestFundUtilizationReport,
@@ -47,8 +50,10 @@ import {
   requestStaffUserList,
   requestStaffUsers,
   requestTotpSetup,
+  requestTransactionReceipt,
   recordBiometricConsent,
   resetStaffTotp,
+  reverseBenefitCredit,
   revokeBiometricConsent,
   retryNotification,
   saveBiometricEnrollment,
@@ -145,6 +150,7 @@ test('dashboard navigation is limited to the signed-in staff role', () => {
   assert.ok(dswdLabels.includes('Enrollment review'))
   assert.ok(dswdLabels.includes('Assistance programs'))
   assert.ok(adminLabels.includes('Notifications'))
+  assert.ok(adminLabels.includes('Claim settlement'))
   assert.ok(dswdLabels.includes('Notifications'))
   assert.ok(facilitatorLabels.includes('Notifications'))
   assert.equal(getDashboardNavigation('DSWD_STAFF').find(({ label }) => label === 'Live monitoring').href, '/dswd/live-dashboard')
@@ -438,6 +444,40 @@ test('DSWD live dashboard and ledger preserve authenticated backend contracts', 
     assert.equal(options.method, 'GET')
     assert.equal(options.headers.Authorization, 'Bearer dswd-token')
   })
+})
+
+test('verified claim settlement preserves credit, receipt, reversal, and reconciliation contracts', async (context) => {
+  const originalFetch = globalThis.fetch
+  const requests = []
+  context.after(() => { globalThis.fetch = originalFetch })
+  const responses = [
+    { claims: [{ claimId: 'claim-1' }], summary: { creditableClaimCount: 1 }, pagination: { page: 1, total: 1 } },
+    { transaction: { transactionId: 'transaction-1' }, wallet: { walletId: 'wallet-1' }, lifecycle: { claimStatus: 'CLAIMED' } },
+    { reconciliation: { distributionId: 'distribution-1', readyToClose: true }, simulation: { realFundsMoved: false } },
+    { receiptVersion: 'GYA-SIM-1', transaction: { transactionId: 'transaction-1' }, simulation: { realFundsMoved: false } },
+    { originalTransaction: { transactionId: 'transaction-1', status: 'REVERSED' }, reversalTransaction: { transactionId: 'transaction-2' }, wallet: { walletId: 'wallet-1' }, lifecycle: { claimStatus: 'VOIDED' } },
+  ]
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options })
+    return { ok: true, json: async () => ({ data: responses[requests.length - 1] }) }
+  }
+
+  await requestCreditableClaims('oversight-token', 'distribution-1', { page: 1, pageSize: 100 })
+  await creditVerifiedClaim('oversight-token', 'distribution-1', 'claim-1', '', '11111111-1111-4111-8111-111111111111')
+  await requestDistributionReconciliation('oversight-token', 'distribution-1')
+  await requestTransactionReceipt('oversight-token', 'wallet-1', 'transaction-1')
+  await reverseBenefitCredit('oversight-token', 'wallet-1', 'transaction-1', 'Incorrect beneficiary record', '22222222-2222-4222-8222-222222222222')
+
+  assert.match(requests[0].url, /\/distributions\/distribution-1\/creditable-claims\?page=1&pageSize=100$/)
+  assert.match(requests[1].url, /\/distributions\/distribution-1\/claims\/claim-1\/credit$/)
+  assert.equal(requests[1].options.headers['Idempotency-Key'], '11111111-1111-4111-8111-111111111111')
+  assert.deepEqual(JSON.parse(requests[1].options.body), {})
+  assert.match(requests[2].url, /\/distributions\/distribution-1\/reconciliation$/)
+  assert.match(requests[3].url, /\/wallets\/wallet-1\/transactions\/transaction-1\/receipt$/)
+  assert.match(requests[4].url, /\/wallets\/wallet-1\/transactions\/transaction-1\/reverse$/)
+  assert.equal(requests[4].options.headers['Idempotency-Key'], '22222222-2222-4222-8222-222222222222')
+  assert.deepEqual(JSON.parse(requests[4].options.body), { reason: 'Incorrect beneficiary record' })
+  requests.forEach(({ options }) => assert.equal(options.headers.Authorization, 'Bearer oversight-token'))
 })
 
 test('DSWD realtime client authenticates once and forwards subscribed events', () => {

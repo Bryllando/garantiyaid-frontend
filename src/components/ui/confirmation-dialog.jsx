@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { LoadingLabel } from './spinner.jsx'
 
-export function ConfirmationDialog({ actionLabel, description, destructive = false, onCancel, onConfirm, open, reasonLabel, title }) {
+export function ConfirmationDialog({ actionLabel, description, destructive = false, onCancel, onConfirm, open, reasonLabel, reasonMaxLength = 2000, title }) {
   const dialogRef = useRef(null)
   const [reason, setReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -33,13 +34,13 @@ export function ConfirmationDialog({ actionLabel, description, destructive = fal
         {reasonLabel && (
           <div className="mt-5">
             <label htmlFor="confirmation-reason" className="ga-label">{reasonLabel}</label>
-            <textarea id="confirmation-reason" autoFocus required minLength="5" maxLength="2000" rows="4" value={reason} onChange={(event) => setReason(event.target.value)} className="ga-input mt-2 min-h-28 resize-y py-3" />
+            <textarea id="confirmation-reason" autoFocus required minLength="5" maxLength={reasonMaxLength} rows="4" value={reason} onChange={(event) => setReason(event.target.value)} className="ga-input mt-2 min-h-28 resize-y py-3" />
             <p className="mt-2 text-xs text-muted-copy">Use at least 5 characters. This note becomes part of the review record.</p>
           </div>
         )}
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <button type="button" onClick={onCancel} disabled={isSubmitting} className="ga-btn-secondary">Cancel</button>
-          <button type="submit" disabled={isSubmitting || Boolean(reasonLabel && reason.trim().length < 5)} className={destructive ? 'ga-btn-danger' : 'ga-btn-primary'}>{isSubmitting ? 'Saving…' : actionLabel}</button>
+          <button type="submit" disabled={isSubmitting || Boolean(reasonLabel && reason.trim().length < 5)} className={destructive ? 'ga-btn-danger' : 'ga-btn-primary'}>{isSubmitting ? <LoadingLabel>Saving...</LoadingLabel> : actionLabel}</button>
         </div>
       </form>
     </dialog>

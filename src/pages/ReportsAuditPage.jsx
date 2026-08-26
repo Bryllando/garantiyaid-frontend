@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
+import { LoadingLabel } from '../components/ui/spinner.jsx'
 import {
   getAuthErrorMessage,
   isSessionExpiredError,
@@ -159,7 +160,7 @@ function ReportsPage({ session, onLogout, onNavigate, onSessionExpired }) {
     <DashboardShell breadcrumbs={['Operations', 'Oversight', 'Reports']} currentPath="/reports" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Reports" user={session.user}>
       <header className="flex flex-col gap-5 border-b border-line pb-6 xl:flex-row xl:items-end xl:justify-between">
         <div><p className="ga-eyebrow">Authorized reporting</p><h1 className="ga-page-title mt-2">Operational reports</h1><p className="ga-page-copy">Generate privacy-conscious operational reports from current GarantiyAid records. Every generated report and export is audited.</p></div>
-        <button type="button" onClick={exportCsv} disabled={!distributionId || isExporting} className="ga-btn-secondary">{isExporting ? 'Preparing CSV…' : 'Export compliance CSV'}</button>
+        <button type="button" onClick={exportCsv} disabled={!distributionId || isExporting} className="ga-btn-secondary">{isExporting ? <LoadingLabel>Preparing CSV...</LoadingLabel> : 'Export compliance CSV'}</button>
       </header>
 
       <section className="mt-6 rounded-xl border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy" aria-label="Report limitation"><strong className="text-ink">Prototype compliance review:</strong> Reports are not COA-certified. Simulated fund reports do not represent actual government disbursements.</section>
@@ -170,7 +171,7 @@ function ReportsPage({ session, onLogout, onNavigate, onSessionExpired }) {
           <div><label htmlFor="report-distribution" className="ga-label">Distribution event</label><select id="report-distribution" value={distributionId} required={reportType !== 'FUNDS'} onChange={(event) => { setDistributionId(event.target.value); setReport(null) }} disabled={isLoadingDistributions} className="ga-input mt-2 cursor-pointer font-semibold">{reportType === 'FUNDS' && <option value="">All distributions</option>}{distributions.map((distribution) => <option key={distribution.distributionId} value={distribution.distributionId}>{distribution.title} · {distribution.distributionDate}</option>)}</select></div>
           {filtersSupported && <><div><label htmlFor="report-status" className="ga-label">Status</label><select id="report-status" value={status} onChange={(event) => setStatus(event.target.value)} disabled={statusOptions.length === 0} className="ga-input mt-2 cursor-pointer font-semibold"><option value="">All statuses</option>{statusOptions.map((value) => <option key={value} value={value}>{humanize(value)}</option>)}</select></div><div className="grid grid-cols-2 gap-3"><div><label htmlFor="report-date-from" className="ga-label">Date from</label><input id="report-date-from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="ga-input mt-2 px-2" /></div><div><label htmlFor="report-date-to" className="ga-label">Date to</label><input id="report-date-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="ga-input mt-2 px-2" /></div></div></>}
         </div>
-        <div className="mt-5 flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm leading-5 text-muted-copy">Only authorized operational fields are returned; government IDs, contact details, tokens, and biometric templates are excluded.</p><button type="submit" disabled={isGenerating || isLoadingDistributions || (reportType !== 'FUNDS' && !distributionId)} className="ga-btn-primary shrink-0">{isGenerating ? 'Generating report…' : 'Generate report'}</button></div>
+        <div className="mt-5 flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm leading-5 text-muted-copy">Only authorized operational fields are returned; government IDs, contact details, tokens, and biometric templates are excluded.</p><button type="submit" disabled={isGenerating || isLoadingDistributions || (reportType !== 'FUNDS' && !distributionId)} className="ga-btn-primary shrink-0">{isGenerating ? <LoadingLabel>Generating report...</LoadingLabel> : 'Generate report'}</button></div>
       </form>
 
       <div aria-live="polite" aria-atomic="true">{exportMessage && <p className="mt-4 rounded-lg border border-emerald-200 bg-success-soft px-4 py-3 text-sm font-semibold text-brand-green">{exportMessage}</p>}</div>

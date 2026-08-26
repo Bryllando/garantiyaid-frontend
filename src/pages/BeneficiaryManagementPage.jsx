@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
+import { LoadingLabel } from '../components/ui/spinner.jsx'
 import {
   createBeneficiary,
   downloadBeneficiaryDocument,
@@ -95,7 +96,7 @@ function BeneficiaryFormDialog({ barangays, beneficiary, isFacilitator, onClose,
           {beneficiary && !isFacilitator && <div><label htmlFor="beneficiary-status" className="ga-label">Record status</label><select id="beneficiary-status" value={form.status} onChange={(event) => change('status', event.target.value)} className="ga-input mt-2">{beneficiaryStatuses.slice(1).map((value) => <option key={value} value={value}>{humanize(value)}</option>)}</select></div>}
           <div className="sm:col-span-2"><label htmlFor="beneficiary-address" className="ga-label">Complete address</label><textarea id="beneficiary-address" required rows="3" maxLength="2000" value={form.address} onChange={(event) => change('address', event.target.value)} className="ga-input mt-2 min-h-24 resize-y py-3" /></div>
         </div>
-        <div className="mt-7 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end"><button type="button" onClick={() => dialogRef.current?.close()} disabled={isSaving} className="ga-btn-secondary">Cancel</button><button type="submit" disabled={isSaving} className="ga-btn-primary">{isSaving ? 'Saving…' : beneficiary ? 'Save changes' : 'Register beneficiary'}</button></div>
+        <div className="mt-7 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end"><button type="button" onClick={() => dialogRef.current?.close()} disabled={isSaving} className="ga-btn-secondary">Cancel</button><button type="submit" disabled={isSaving} className="ga-btn-primary">{isSaving ? <LoadingLabel>Saving...</LoadingLabel> : beneficiary ? 'Save changes' : 'Register beneficiary'}</button></div>
       </form>
     </dialog>
   )

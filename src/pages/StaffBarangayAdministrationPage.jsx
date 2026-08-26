@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
+import { LoadingLabel } from '../components/ui/spinner.jsx'
 import {
   buildStaffAccountPayload,
   createBarangay,
@@ -17,6 +18,20 @@ import {
 } from '../auth/staffAuth.js'
 
 const roles = ['', 'SYSTEM_ADMIN', 'DSWD_STAFF', 'BARANGAY_FACILITATOR']
+const creatableStaffRoles = [
+  {
+    role: 'DSWD_STAFF',
+    eyebrow: 'National operations',
+    description: 'Review enrollments, manage assistance programs, monitor distributions, and prepare oversight reports.',
+    login: 'Signs in using an official Employee ID',
+  },
+  {
+    role: 'BARANGAY_FACILITATOR',
+    eyebrow: 'Local service delivery',
+    description: 'Manage assigned beneficiaries, distribution queues, and claim verification within one barangay.',
+    login: 'Requires a username and active barangay assignment',
+  },
+]
 const emptyStaff = { employeeId: '', username: '', fullName: '', email: '', contactNumber: '', password: '', role: 'DSWD_STAFF', barangayId: '' }
 const emptyBarangay = { barangayCode: '', barangayName: '', city: '', province: '' }
 const dateFormatter = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeZone: 'Asia/Manila' })
@@ -34,15 +49,64 @@ function Field({ description, id, label, onChange, ...inputProps }) {
   return <div><label htmlFor={id} className="ga-label">{label}</label><input id={id} aria-describedby={description ? `${id}-description` : undefined} onChange={(event) => onChange(event.target.value)} className="ga-input mt-2" {...inputProps} />{description && <p id={`${id}-description`} className="mt-2 text-xs leading-5 text-muted-copy">{description}</p>}</div>
 }
 
-function StaffFormDialog({ activeBarangays, currentUserId, onClose, onSave, user }) {
+function RoleIcon({ role, className = 'size-7' }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      {role === 'DSWD_STAFF'
+        ? <><path d="M3 21h18M5 21V7l7-4 7 4v14" /><path d="M9 9h1M14 9h1M9 13h1M14 13h1M10 21v-4h4v4" /></>
+        : <><path d="M3 21h18M5 21V10l7-6 7 6v11" /><path d="M9 21v-6h6v6M8 11h8" /></>}
+    </svg>
+  )
+}
+
+function StaffRoleDialog({ onClose, onSelect }) {
+  const dialogRef = useRef(null)
+  useEffect(() => { dialogRef.current?.showModal() }, [])
+
+  return (
+    <dialog ref={dialogRef} onClose={onClose} aria-labelledby="staff-role-title" aria-describedby="staff-role-description" className="m-auto max-h-[calc(100dvh-2rem)] w-[min(58rem,calc(100%-2rem))] overflow-y-auto rounded-2xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/55 backdrop:backdrop-blur-[3px]">
+      <div className="p-5 sm:p-7 lg:p-8">
+        <header className="flex items-start justify-between gap-5">
+          <div>
+            <p className="ga-eyebrow">Staff account setup · Step 1 of 2</p>
+            <h2 id="staff-role-title" className="mt-2 text-2xl font-extrabold tracking-tight sm:text-3xl">Choose the staff account type</h2>
+            <p id="staff-role-description" className="mt-2 max-w-2xl text-sm leading-6 text-muted-copy">Select the role that matches the staff member’s official responsibility. Access is limited automatically by this choice.</p>
+          </div>
+          <button type="button" onClick={() => dialogRef.current?.close()} aria-label="Close staff type selection" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-xl text-copy transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">×</button>
+        </header>
+
+        <div data-dialog-stagger className="mt-7 grid gap-4 md:grid-cols-2">
+          {creatableStaffRoles.map((option, index) => (
+            <button key={option.role} type="button" autoFocus={index === 0} onClick={() => onSelect(option.role)} className="group flex min-h-64 cursor-pointer flex-col rounded-2xl border border-line bg-white p-5 text-left transition-[border-color,background-color,box-shadow] hover:border-brand-blue hover:bg-info-soft hover:shadow-sm active:bg-blue-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue sm:p-6">
+              <span className="grid size-14 place-items-center rounded-xl bg-brand-navy text-white transition-colors group-hover:bg-brand-blue"><RoleIcon role={option.role} /></span>
+              <span className="mt-5 text-xs font-bold uppercase tracking-[0.11em] text-brand-blue">{option.eyebrow}</span>
+              <span className="mt-2 text-xl font-extrabold text-ink">{STAFF_ROLE_LABELS[option.role]}</span>
+              <span className="mt-2 flex-1 text-sm leading-6 text-muted-copy">{option.description}</span>
+              <span className="mt-5 flex items-center justify-between gap-4 border-t border-line pt-4 text-sm font-bold text-brand-blue"><span>{option.login}</span><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-5 shrink-0 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none"><path d="m9 18 6-6-6-6" /></svg></span>
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-6 flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="max-w-2xl text-xs leading-5 text-muted-copy">System Administrator accounts are intentionally excluded from routine staff creation. Existing administrators can still be maintained from the account list.</p>
+          <button type="button" onClick={() => dialogRef.current?.close()} className="ga-btn-secondary shrink-0">Cancel</button>
+        </div>
+      </div>
+    </dialog>
+  )
+}
+
+function StaffFormDialog({ activeBarangays, currentUserId, initialRole, onBack, onClose, onSave, user }) {
   const dialogRef = useRef(null)
   const [form, setForm] = useState(() => user ? {
     employeeId: user.employeeId, username: user.username ?? '', fullName: user.fullName, email: user.email,
     contactNumber: user.contactNumber ?? '', password: '', role: user.role, barangayId: user.barangayId ?? '',
-  } : emptyStaff)
+  } : { ...emptyStaff, role: initialRole ?? emptyStaff.role })
   const [showPassword, setShowPassword] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const isSelf = user?.userId === currentUserId
+  const roleLabel = STAFF_ROLE_LABELS[form.role]
+  const selectedRole = creatableStaffRoles.find((option) => option.role === form.role)
   useEffect(() => { dialogRef.current?.showModal() }, [])
   function change(field, value) { setForm((current) => ({ ...current, [field]: value })) }
   async function submit(event) {
@@ -52,14 +116,50 @@ function StaffFormDialog({ activeBarangays, currentUserId, onClose, onSave, user
     setIsSaving(true)
     try { await onSave(payload); dialogRef.current?.close() } catch { /* The page reports the API error. */ } finally { setIsSaving(false) }
   }
-  return <dialog ref={dialogRef} onClose={onClose} className="m-auto max-h-[calc(100dvh-2rem)] w-[min(48rem,calc(100%-2rem))] overflow-y-auto rounded-2xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/55"><form onSubmit={submit} className="p-5 sm:p-7"><div className="flex items-start justify-between gap-5"><div><p className="ga-eyebrow">Authorized personnel</p><h2 className="mt-2 text-2xl font-extrabold">{user ? 'Edit staff account' : 'Create staff account'}</h2><p className="mt-2 text-sm leading-6 text-muted-copy">Assign only the role and service area required for the staff member’s official responsibility.</p></div><button type="button" onClick={() => dialogRef.current?.close()} aria-label="Close staff form" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-xl text-copy hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-blue">×</button></div>
-      {isSelf && <p className="mt-5 rounded-lg border border-blue-200 bg-info-soft p-3 text-sm text-copy">You can update your contact details here, but another administrator must change your role or active status.</p>}
-      <div className="mt-6 grid gap-5 sm:grid-cols-2"><Field id="staff-employee-id" label="Employee ID" required maxLength="30" disabled={Boolean(user)} value={form.employeeId} onChange={(value) => change('employeeId', value)} description={user ? 'Employee IDs are permanent account identifiers.' : 'Use the official agency or LGU staff identifier.'} /><Field id="staff-full-name" label="Full name" required maxLength="150" autoComplete="name" value={form.fullName} onChange={(value) => change('fullName', value)} /><Field id="staff-email" label="Official email" type="email" required maxLength="150" autoComplete="email" value={form.email} onChange={(value) => change('email', value)} /><Field id="staff-contact" label="Contact number" type="tel" maxLength="20" autoComplete="tel" value={form.contactNumber} onChange={(value) => change('contactNumber', value)} />
-        <div><label htmlFor="staff-role" className="ga-label">System role</label><select id="staff-role" required disabled={isSelf} value={form.role} onChange={(event) => change('role', event.target.value)} className="ga-input mt-2">{roles.slice(1).map((role) => <option key={role} value={role}>{STAFF_ROLE_LABELS[role]}</option>)}</select><p className="mt-2 text-xs leading-5 text-muted-copy">Role changes revoke the staff member’s active sessions.</p></div>
-        {form.role === 'DSWD_STAFF' ? <div className="rounded-lg border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">Login identifier:</strong> DSWD Staff sign in using their official employee ID.</div> : <Field id="staff-username" label="Username" required minLength="4" maxLength="30" pattern="[a-zA-Z][a-zA-Z0-9._]{3,29}" autoComplete="username" value={form.username} onChange={(value) => change('username', value)} description="Starts with a letter; lowercase letters, numbers, dots, and underscores only." />}
-        {form.role === 'BARANGAY_FACILITATOR' && <div className="sm:col-span-2"><label htmlFor="staff-barangay" className="ga-label">Assigned barangay</label><select id="staff-barangay" required value={form.barangayId} onChange={(event) => change('barangayId', event.target.value)} className="ga-input mt-2"><option value="">Select an active barangay</option>{activeBarangays.map((barangay) => <option key={barangay.barangayId} value={barangay.barangayId}>{barangay.barangayName}, {barangay.city}</option>)}</select><p className="mt-2 text-xs leading-5 text-muted-copy">Facilitators can access beneficiary and distribution records only for this barangay.</p></div>}
-        {!user && <div className="sm:col-span-2"><label htmlFor="staff-password" className="ga-label">Temporary password</label><div className="relative mt-2"><input id="staff-password" type={showPassword ? 'text' : 'password'} required minLength="12" maxLength="72" autoComplete="new-password" value={form.password} onChange={(event) => change('password', event.target.value)} className="ga-input pr-20" /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-pressed={showPassword} className="absolute inset-y-0 right-1 min-w-16 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">{showPassword ? 'Hide' : 'Show'}</button></div><p className="mt-2 text-xs leading-5 text-muted-copy">Minimum 12 characters. Communicate it through an approved channel; it is not shown again after creation.</p></div>}
-      </div><div className="mt-7 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end"><button type="button" disabled={isSaving} onClick={() => dialogRef.current?.close()} className="ga-btn-secondary">Cancel</button><button type="submit" disabled={isSaving} className="ga-btn-primary">{isSaving ? 'Saving…' : user ? 'Save account' : 'Create staff account'}</button></div></form></dialog>
+  return (
+    <dialog ref={dialogRef} onClose={onClose} aria-labelledby="staff-form-title" aria-describedby="staff-form-description" className="m-auto max-h-[calc(100dvh-2rem)] w-[min(48rem,calc(100%-2rem))] overflow-y-auto rounded-2xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/55 backdrop:backdrop-blur-[3px]">
+      <form onSubmit={submit} className="p-5 sm:p-7">
+        <header className="flex items-start justify-between gap-5">
+          <div>
+            <p className="ga-eyebrow">{user ? 'Authorized personnel' : 'Staff account setup · Step 2 of 2'}</p>
+            <h2 id="staff-form-title" className="mt-2 text-2xl font-extrabold tracking-tight">{user ? 'Edit staff account' : `Create ${roleLabel} account`}</h2>
+            <p id="staff-form-description" className="mt-2 text-sm leading-6 text-muted-copy">Enter the staff member’s official employment details. Their assigned role controls which records and operations they can access.</p>
+          </div>
+          <button type="button" onClick={() => dialogRef.current?.close()} aria-label="Close staff form" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-xl text-copy transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">×</button>
+        </header>
+
+        {isSelf && <p className="mt-5 rounded-lg border border-blue-200 bg-info-soft p-3 text-sm text-copy">You can update your contact details here, but another administrator must change your role or active status.</p>}
+
+        <div className="mt-6 grid gap-5 sm:grid-cols-2">
+          {!user && (
+            <div className="sm:col-span-2">
+              <p className="ga-label">Selected staff type</p>
+              <div className="mt-2 flex flex-col gap-4 rounded-xl border border-blue-200 bg-info-soft p-4 sm:flex-row sm:items-center">
+                <span className="grid size-11 shrink-0 place-items-center rounded-lg bg-brand-navy text-white"><RoleIcon role={form.role} className="size-6" /></span>
+                <div className="min-w-0 flex-1"><p className="font-extrabold text-ink">{roleLabel}</p><p className="mt-1 text-xs font-semibold text-brand-blue">{selectedRole?.eyebrow}</p></div>
+                <button type="button" onClick={onBack} disabled={isSaving} className="min-h-11 shrink-0 rounded-lg px-4 text-sm font-bold text-brand-blue transition-colors hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">Change type</button>
+              </div>
+            </div>
+          )}
+
+          <Field id="staff-employee-id" label="Employee ID" required maxLength="30" autoFocus={!user} disabled={Boolean(user)} value={form.employeeId} onChange={(value) => change('employeeId', value)} description={user ? 'Employee IDs are permanent account identifiers.' : 'Use the official agency or LGU staff identifier.'} />
+          <Field id="staff-full-name" label="Full name" required maxLength="150" autoComplete="name" value={form.fullName} onChange={(value) => change('fullName', value)} />
+          <Field id="staff-email" label="Official email" type="email" required maxLength="150" autoComplete="email" value={form.email} onChange={(value) => change('email', value)} />
+          <Field id="staff-contact" label="Contact number" type="tel" maxLength="20" autoComplete="tel" value={form.contactNumber} onChange={(value) => change('contactNumber', value)} />
+
+          {user && <div><label htmlFor="staff-role" className="ga-label">System role</label><select id="staff-role" required disabled={isSelf} value={form.role} onChange={(event) => change('role', event.target.value)} className="ga-input mt-2">{roles.slice(1).map((role) => <option key={role} value={role}>{STAFF_ROLE_LABELS[role]}</option>)}</select><p className="mt-2 text-xs leading-5 text-muted-copy">Role changes revoke the staff member’s active sessions.</p></div>}
+          {form.role === 'DSWD_STAFF' ? <div className="rounded-lg border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">Login identifier:</strong> DSWD Staff sign in using their official employee ID.</div> : <Field id="staff-username" label="Username" required minLength="4" maxLength="30" pattern="[a-zA-Z][a-zA-Z0-9._]{3,29}" autoComplete="username" value={form.username} onChange={(value) => change('username', value)} description="Starts with a letter; lowercase letters, numbers, dots, and underscores only." />}
+          {form.role === 'BARANGAY_FACILITATOR' && <div className="sm:col-span-2"><label htmlFor="staff-barangay" className="ga-label">Assigned barangay</label><select id="staff-barangay" required value={form.barangayId} onChange={(event) => change('barangayId', event.target.value)} className="ga-input mt-2"><option value="">Select an active barangay</option>{activeBarangays.map((barangay) => <option key={barangay.barangayId} value={barangay.barangayId}>{barangay.barangayName}, {barangay.city}</option>)}</select><p className="mt-2 text-xs leading-5 text-muted-copy">Facilitators can access beneficiary and distribution records only for this barangay.</p></div>}
+          {!user && <div className="sm:col-span-2"><label htmlFor="staff-password" className="ga-label">Temporary password</label><div className="relative mt-2"><input id="staff-password" type={showPassword ? 'text' : 'password'} required minLength="12" maxLength="72" autoComplete="new-password" value={form.password} onChange={(event) => change('password', event.target.value)} className="ga-input pr-20" /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-pressed={showPassword} className="absolute inset-y-0 right-1 min-w-16 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">{showPassword ? 'Hide' : 'Show'}</button></div><p className="mt-2 text-xs leading-5 text-muted-copy">Minimum 12 characters. Communicate it through an approved channel; it is not shown again after creation.</p></div>}
+        </div>
+
+        <div className="mt-7 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end">
+          <button type="button" disabled={isSaving} onClick={() => dialogRef.current?.close()} className="ga-btn-secondary">Cancel</button>
+          <button type="submit" disabled={isSaving} className="ga-btn-primary">{isSaving ? <LoadingLabel>{user ? 'Saving changes...' : 'Creating account...'}</LoadingLabel> : user ? 'Save account' : `Create ${roleLabel} account`}</button>
+        </div>
+      </form>
+    </dialog>
+  )
 }
 
 function BarangayFormDialog({ barangay, onClose, onSave }) {
@@ -72,7 +172,7 @@ function BarangayFormDialog({ barangay, onClose, onSave }) {
     event.preventDefault(); setIsSaving(true)
     try { await onSave(form); dialogRef.current?.close() } catch { /* The page reports the API error. */ } finally { setIsSaving(false) }
   }
-  return <dialog ref={dialogRef} onClose={onClose} className="m-auto w-[min(38rem,calc(100%-2rem))] rounded-2xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/55"><form onSubmit={submit} className="p-5 sm:p-7"><div className="flex items-start justify-between gap-5"><div><p className="ga-eyebrow">Service-area registry</p><h2 className="mt-2 text-2xl font-extrabold">{barangay ? 'Edit barangay' : 'Add barangay'}</h2><p className="mt-2 text-sm leading-6 text-muted-copy">Use the official barangay name and local-government jurisdiction.</p></div><button type="button" onClick={() => dialogRef.current?.close()} aria-label="Close barangay form" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-xl hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-blue">×</button></div><div className="mt-6 grid gap-5 sm:grid-cols-2"><Field id="barangay-code" label="Barangay code" maxLength="20" value={form.barangayCode} onChange={(value) => change('barangayCode', value)} /><div className="sm:col-span-2"><Field id="barangay-name" label="Official barangay name" required maxLength="100" value={form.barangayName} onChange={(value) => change('barangayName', value)} /></div><Field id="barangay-city" label="City or municipality" required maxLength="100" value={form.city} onChange={(value) => change('city', value)} /><Field id="barangay-province" label="Province" required maxLength="100" value={form.province} onChange={(value) => change('province', value)} /></div><div className="mt-7 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end"><button type="button" disabled={isSaving} onClick={() => dialogRef.current?.close()} className="ga-btn-secondary">Cancel</button><button type="submit" disabled={isSaving} className="ga-btn-primary">{isSaving ? 'Saving…' : barangay ? 'Save barangay' : 'Add barangay'}</button></div></form></dialog>
+  return <dialog ref={dialogRef} onClose={onClose} className="m-auto w-[min(38rem,calc(100%-2rem))] rounded-2xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/55"><form onSubmit={submit} className="p-5 sm:p-7"><div className="flex items-start justify-between gap-5"><div><p className="ga-eyebrow">Service-area registry</p><h2 className="mt-2 text-2xl font-extrabold">{barangay ? 'Edit barangay' : 'Add barangay'}</h2><p className="mt-2 text-sm leading-6 text-muted-copy">Use the official barangay name and local-government jurisdiction.</p></div><button type="button" onClick={() => dialogRef.current?.close()} aria-label="Close barangay form" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-xl hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-blue">×</button></div><div className="mt-6 grid gap-5 sm:grid-cols-2"><Field id="barangay-code" label="Barangay code" maxLength="20" value={form.barangayCode} onChange={(value) => change('barangayCode', value)} /><div className="sm:col-span-2"><Field id="barangay-name" label="Official barangay name" required maxLength="100" value={form.barangayName} onChange={(value) => change('barangayName', value)} /></div><Field id="barangay-city" label="City or municipality" required maxLength="100" value={form.city} onChange={(value) => change('city', value)} /><Field id="barangay-province" label="Province" required maxLength="100" value={form.province} onChange={(value) => change('province', value)} /></div><div className="mt-7 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end"><button type="button" disabled={isSaving} onClick={() => dialogRef.current?.close()} className="ga-btn-secondary">Cancel</button><button type="submit" disabled={isSaving} className="ga-btn-primary">{isSaving ? <LoadingLabel>Saving...</LoadingLabel> : barangay ? 'Save barangay' : 'Add barangay'}</button></div></form></dialog>
 }
 
 function StaffActions({ isSelf, onEdit, onToggle, user }) {
@@ -95,6 +195,7 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
   const [barangayError, setBarangayError] = useState('')
   const [staffReload, setStaffReload] = useState(0)
   const [barangayReload, setBarangayReload] = useState(0)
+  const [staffRolePickerOpen, setStaffRolePickerOpen] = useState(false)
   const [staffForm, setStaffForm] = useState(null)
   const [barangayForm, setBarangayForm] = useState(null)
   const [confirmation, setConfirmation] = useState(null)
@@ -172,7 +273,7 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
   if (!authorized) return <DashboardShell breadcrumbs={['Operations', 'Administration']} currentPath="/admin/administration" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Staff & barangays" user={session.user}><section className="ga-card mx-auto max-w-md p-8 text-center" role="alert"><h1 className="text-2xl font-extrabold">Administrator access required</h1><p className="mt-3 text-muted-copy">Only System Administrators can manage staff accounts and barangay service areas.</p><button type="button" onClick={() => onNavigate('/dashboard')} className="ga-btn-primary mt-6">Return to dashboard</button></section></DashboardShell>
 
   return <DashboardShell breadcrumbs={['Operations', 'Administration', view === 'staff' ? 'Staff accounts' : 'Barangays']} currentPath="/admin/administration" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Staff & barangays" user={session.user}>
-    <header className="flex flex-col gap-5 border-b border-line pb-6 sm:flex-row sm:items-end sm:justify-between"><div><p className="ga-eyebrow">Role and service-area governance</p><h1 className="ga-page-title">Staff and barangay administration</h1><p className="ga-page-copy">Maintain authorized personnel, least-privilege role assignments, and the official barangay registry used across GarantiyAid operations.</p></div><button type="button" onClick={() => view === 'staff' ? setStaffForm({ user: null }) : setBarangayForm({ barangay: null })} className="ga-btn-primary shrink-0">{view === 'staff' ? 'Create staff account' : 'Add barangay'}</button></header>
+    <header className="flex flex-col gap-5 border-b border-line pb-6 sm:flex-row sm:items-end sm:justify-between"><div><p className="ga-eyebrow">Role and service-area governance</p><h1 className="ga-page-title">Staff and barangay administration</h1><p className="ga-page-copy">Maintain authorized personnel, least-privilege role assignments, and the official barangay registry used across GarantiyAid operations.</p></div><button type="button" onClick={() => view === 'staff' ? setStaffRolePickerOpen(true) : setBarangayForm({ barangay: null })} className="ga-btn-primary shrink-0">{view === 'staff' ? 'Create staff account' : 'Add barangay'}</button></header>
     <section className="mt-6 rounded-xl border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">Administrator responsibility:</strong> account, role, status, barangay assignment, and registry changes are recorded in the audit log.</section>
     <div className="mt-5 inline-flex w-full rounded-xl border border-line bg-white p-1 shadow-sm sm:w-auto" role="group" aria-label="Administration section"><button type="button" aria-pressed={view === 'staff'} onClick={() => setView('staff')} className={`min-h-11 flex-1 rounded-lg px-5 text-sm font-bold transition-colors sm:flex-none ${view === 'staff' ? 'bg-brand-navy text-white' : 'text-copy hover:bg-slate-50'}`}>Staff accounts <span className="ml-1 opacity-75">{staffData?.pagination.total ?? '—'}</span></button><button type="button" aria-pressed={view === 'barangays'} onClick={() => setView('barangays')} className={`min-h-11 flex-1 rounded-lg px-5 text-sm font-bold transition-colors sm:flex-none ${view === 'barangays' ? 'bg-brand-navy text-white' : 'text-copy hover:bg-slate-50'}`}>Barangays <span className="ml-1 opacity-75">{barangays.length || '—'}</span></button></div>
 
@@ -183,7 +284,8 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
       <div className="ga-card mt-4 grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_12rem]" aria-label="Barangay filters"><div><label htmlFor="barangay-search" className="sr-only">Search barangays</label><input id="barangay-search" value={barangaySearch} onChange={(event) => setBarangaySearch(event.target.value)} placeholder="Search name, code, city, or province" className="ga-input" /></div><div><label htmlFor="barangay-status" className="sr-only">Barangay status</label><select id="barangay-status" value={barangayStatus} onChange={(event) => setBarangayStatus(event.target.value)} className="ga-input"><option value="">All statuses</option><option value="true">Active</option><option value="false">Inactive</option></select></div></div>
       <div className="ga-card mt-4 overflow-hidden">{barangayLoading ? <LoadingRows label="Loading barangays" /> : barangayError ? <div className="p-6" role="alert"><h2 className="font-extrabold">Barangays could not be loaded</h2><p className="mt-2 text-sm text-muted-copy">{barangayError}</p><button type="button" onClick={() => { setBarangayLoading(true); setBarangayReload((value) => value + 1) }} className="ga-btn-primary mt-4">Try again</button></div> : visibleBarangays.length === 0 ? <div className="p-10 text-center"><span className="mx-auto grid size-12 place-items-center rounded-full bg-info-soft font-black text-brand-blue">0</span><h2 className="mt-4 font-extrabold">No barangays found</h2><p className="mt-2 text-sm text-muted-copy">Adjust the search or add an official barangay record.</p></div> : <><div className="hidden overflow-x-auto md:block"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-copy"><tr><th className="px-5 py-3">Barangay</th><th className="px-5 py-3">Jurisdiction</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-line">{visibleBarangays.map((barangay) => <tr key={barangay.barangayId} className="hover:bg-slate-50"><td className="px-5 py-4"><p className="font-bold">{barangay.barangayName}</p><p className="mt-1 text-xs text-muted-copy">{barangay.barangayCode || 'No barangay code recorded'}</p></td><td className="px-5 py-4"><p>{barangay.city}</p><p className="mt-1 text-xs text-muted-copy">{barangay.province}</p></td><td className="px-5 py-4"><StatusBadge active={barangay.isActive} /></td><td className="px-5 py-4"><div className="flex justify-end gap-2"><button type="button" onClick={() => setBarangayForm({ barangay })} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft">Edit</button><button type="button" onClick={() => toggleBarangay(barangay)} className={`min-h-11 rounded-lg px-3 text-sm font-bold ${barangay.isActive ? 'text-brand-red hover:bg-danger-soft' : 'text-brand-green hover:bg-success-soft'}`}>{barangay.isActive ? 'Deactivate' : 'Reactivate'}</button></div></td></tr>)}</tbody></table></div><div className="divide-y divide-line md:hidden">{visibleBarangays.map((barangay) => <article key={barangay.barangayId} className="p-5"><div className="flex items-start justify-between gap-3"><div><h2 className="font-extrabold">{barangay.barangayName}</h2><p className="mt-1 text-sm text-muted-copy">{barangay.barangayCode || 'No code'} · {barangay.city}, {barangay.province}</p></div><StatusBadge active={barangay.isActive} /></div><div className="mt-4 flex gap-2 border-t border-line pt-3"><button type="button" onClick={() => setBarangayForm({ barangay })} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft">Edit</button><button type="button" onClick={() => toggleBarangay(barangay)} className={`min-h-11 rounded-lg px-3 text-sm font-bold ${barangay.isActive ? 'text-brand-red hover:bg-danger-soft' : 'text-brand-green hover:bg-success-soft'}`}>{barangay.isActive ? 'Deactivate' : 'Reactivate'}</button></div></article>)}</div></>}</div>
     </section>}
-    {staffForm && <StaffFormDialog activeBarangays={activeBarangays} currentUserId={session.user.userId} user={staffForm.user} onClose={() => setStaffForm(null)} onSave={saveStaff} />}
+    {staffRolePickerOpen && <StaffRoleDialog onClose={() => setStaffRolePickerOpen(false)} onSelect={(role) => { setStaffRolePickerOpen(false); setStaffForm({ user: null, role }) }} />}
+    {staffForm && <StaffFormDialog activeBarangays={activeBarangays} currentUserId={session.user.userId} initialRole={staffForm.role} user={staffForm.user} onBack={staffForm.user ? undefined : () => { setStaffForm(null); setStaffRolePickerOpen(true) }} onClose={() => setStaffForm(null)} onSave={saveStaff} />}
     {barangayForm && <BarangayFormDialog barangay={barangayForm.barangay} onClose={() => setBarangayForm(null)} onSave={saveBarangay} />}
     <ConfirmationDialog open={Boolean(confirmation)} title={confirmation?.title} description={confirmation?.description} actionLabel={confirmation?.actionLabel} destructive={confirmation?.destructive} onCancel={() => setConfirmation(null)} onConfirm={confirmStatusChange} />
   </DashboardShell>

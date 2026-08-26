@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
+import { LoadingLabel } from '../components/ui/spinner.jsx'
 import { getAuthErrorMessage, isSessionExpiredError, requestStaffUsers, resetStaffTotp, STAFF_ROLE_LABELS } from '../auth/staffAuth.js'
 
 const emptyVerification = {
@@ -184,7 +185,7 @@ function AdminStaffSecurityPage({ session, onLogout, onNavigate, onSessionExpire
                   disabled={!isVerified || isSubmitting}
                   className="ga-btn-danger"
                 >
-                  {isSubmitting ? 'Resetting...' : 'Confirm authenticator reset'}
+                  {isSubmitting ? <LoadingLabel>Resetting...</LoadingLabel> : 'Confirm authenticator reset'}
                 </button>
               </div>
             </form>

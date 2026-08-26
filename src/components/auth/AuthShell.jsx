@@ -15,7 +15,7 @@ function AuthShell({ children, navigationLabel = 'Authentication navigation' }) 
         </nav>
       </header>
 
-      <main id="main-content" data-route-focus tabIndex={-1} className="relative flex flex-1 items-center px-4 py-8 outline-none sm:px-6 sm:py-12 lg:px-8">
+      <main id="main-content" data-route-focus data-motion-page tabIndex={-1} className="relative flex flex-1 items-center px-4 py-8 outline-none sm:px-6 sm:py-12 lg:px-8">
         <div aria-hidden="true" className="absolute inset-x-0 top-0 h-64 bg-gradient-to-b from-info-soft to-transparent" />
         <div className="relative mx-auto grid w-full max-w-7xl overflow-hidden rounded-2xl border border-line bg-white shadow-lg lg:grid-cols-[minmax(19rem,0.72fr)_minmax(0,1.28fr)]">
           <aside className="hidden bg-brand-navy px-8 py-10 text-white lg:flex lg:flex-col lg:justify-between xl:px-10 xl:py-12" aria-label="Secure portal information">

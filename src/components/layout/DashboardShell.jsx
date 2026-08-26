@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { getDashboardNavigation, STAFF_ROLE_LABELS } from '../../auth/staffAuth.js'
+import { LoadingLabel } from '../ui/spinner.jsx'
 
 const navIcons = {
   overview: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
@@ -85,7 +86,7 @@ function DashboardShell({ breadcrumbs, children, currentPath, onLogout, onNaviga
               const active = currentPath === item.href
               return (
                 <li key={item.href}>
-                  <a href={item.href} onClick={(event) => navigate(event, item.href)} aria-current={active ? 'page' : undefined} title={collapsed ? item.label : undefined} className={`flex min-h-12 items-center gap-3 rounded-lg px-3 text-sm font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${active ? 'bg-brand-blue text-white shadow-sm' : 'text-slate-200 hover:bg-white/10 hover:text-white'} ${collapsed ? 'lg:justify-center lg:px-2' : ''}`}>
+                  <a href={item.href} onClick={(event) => navigate(event, item.href)} aria-current={active ? 'page' : undefined} title={collapsed ? item.label : undefined} className={`flex min-h-12 items-center gap-3 rounded-lg px-3 text-sm font-semibold transition-[background-color,color,transform] duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${active ? 'bg-brand-blue text-white shadow-sm' : 'text-slate-200 hover:translate-x-0.5 hover:bg-white/10 hover:text-white'} ${collapsed ? 'lg:justify-center lg:px-2' : ''}`}>
                     <Icon name={item.icon} className="size-5 shrink-0" />
                     <span className={collapsed ? 'lg:sr-only' : ''}>{item.label}</span>
                   </a>
@@ -132,7 +133,7 @@ function DashboardShell({ breadcrumbs, children, currentPath, onLogout, onNaviga
             </div>
 
             <span className="hidden items-center gap-2 rounded-full border border-emerald-200 bg-success-soft px-3 py-2 text-xs font-bold text-brand-green md:inline-flex">
-              <span aria-hidden="true" className="size-2 rounded-full bg-emerald-500" /> Secure session
+              <span aria-hidden="true" className="ga-live-dot size-2 rounded-full bg-emerald-500" /> Secure session
             </span>
 
             <details className="group relative">
@@ -148,16 +149,16 @@ function DashboardShell({ breadcrumbs, children, currentPath, onLogout, onNaviga
                 <p className="truncate font-bold text-ink">{user?.fullName}</p>
                 <p className="mt-1 text-sm text-muted-copy">{user?.employeeId} · {roleLabel}</p>
                 <div className="my-4 border-t border-line" />
-                <p className="flex items-center gap-2 text-sm font-semibold text-brand-green"><span aria-hidden="true" className="size-2 rounded-full bg-emerald-500" /> Authenticated staff session</p>
+                <p className="flex items-center gap-2 text-sm font-semibold text-brand-green"><span aria-hidden="true" className="ga-live-dot size-2 rounded-full bg-emerald-500" /> Authenticated staff session</p>
                 <button type="button" onClick={logout} disabled={isLoggingOut} className="mt-4 min-h-11 w-full cursor-pointer rounded-lg border border-line bg-white px-4 text-sm font-bold text-copy hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue disabled:cursor-not-allowed disabled:opacity-50">
-                  {isLoggingOut ? 'Signing out…' : 'Sign out securely'}
+                  {isLoggingOut ? <LoadingLabel>Signing out...</LoadingLabel> : 'Sign out securely'}
                 </button>
               </div>
             </details>
           </div>
         </header>
 
-        <main id="dashboard-content" data-route-focus tabIndex={-1} className="mx-auto w-full max-w-[1520px] px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-8">
+        <main id="dashboard-content" data-route-focus data-motion-page tabIndex={-1} className="mx-auto w-full max-w-[1520px] px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-8">
           {children}
         </main>
       </div>
