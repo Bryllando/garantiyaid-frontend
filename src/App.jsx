@@ -18,6 +18,8 @@ import { Toaster } from './components/ui/sonner.jsx'
 const ProgramManagementPage = lazy(() => import('./pages/ProgramManagementPage.jsx'))
 const DistributionManagementPage = lazy(() => import('./pages/DistributionManagementPage.jsx'))
 const StaffBarangayAdministrationPage = lazy(() => import('./pages/StaffBarangayAdministrationPage.jsx'))
+const NotificationManagementPage = lazy(() => import('./pages/NotificationManagementPage.jsx'))
+const BiometricIdentityPage = lazy(() => import('./pages/BiometricIdentityPage.jsx'))
 
 function currentPath() {
   return window.location.pathname.replace(/\/$/, '') || '/'
@@ -120,6 +122,22 @@ function App() {
     page = session.accessToken && session.user ? (
       <Suspense fallback={<div className="grid min-h-[100dvh] place-items-center bg-page p-6 text-center"><p className="font-bold text-brand-navy" role="status">Loading secure workspace…</p></div>}>
         <StaffBarangayAdministrationPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
+      </Suspense>
+    ) : (
+      <SessionExpiredPage onLogin={backToLogin} />
+    )
+  } else if (path === '/notifications') {
+    page = session.accessToken && session.user ? (
+      <Suspense fallback={<div className="grid min-h-[100dvh] place-items-center bg-page p-6 text-center"><p className="font-bold text-brand-navy" role="status">Loading secure workspaceâ€¦</p></div>}>
+        <NotificationManagementPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
+      </Suspense>
+    ) : (
+      <SessionExpiredPage onLogin={backToLogin} />
+    )
+  } else if (path === '/biometrics') {
+    page = session.accessToken && session.user ? (
+      <Suspense fallback={<div className="grid min-h-[100dvh] place-items-center bg-page p-6 text-center"><p className="font-bold text-brand-navy" role="status">Loading secure workspace…</p></div>}>
+        <BiometricIdentityPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
       </Suspense>
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />

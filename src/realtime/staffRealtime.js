@@ -14,12 +14,18 @@ export const DSWD_LIVE_EVENTS = Object.freeze([
   'anomaly.detected',
 ])
 
+export const NOTIFICATION_LIVE_EVENTS = Object.freeze([
+  'notification.queued',
+  'notification.sent',
+  'notification.failed',
+])
+
 export function realtimeServerUrl(apiUrl = API_BASE_URL) {
   const url = new URL(apiUrl, typeof window === 'undefined' ? 'http://localhost' : window.location.origin)
   return `${url.protocol}//${url.host}`
 }
 
-export function connectStaffRealtime(accessToken, handlers = {}, createSocket = io) {
+function connectRealtime(accessToken, events, handlers = {}, createSocket = io) {
   const socket = createSocket(realtimeServerUrl(), {
     auth: { accessToken },
     transports: ['websocket', 'polling'],
@@ -28,9 +34,17 @@ export function connectStaffRealtime(accessToken, handlers = {}, createSocket = 
   socket.on('realtime.ready', (payload) => handlers.onReady?.(payload))
   socket.on('connect_error', (error) => handlers.onError?.(error))
   socket.on('disconnect', (reason) => handlers.onDisconnect?.(reason))
-  DSWD_LIVE_EVENTS.forEach((eventName) => {
+  events.forEach((eventName) => {
     socket.on(eventName, (payload) => handlers.onUpdate?.(eventName, payload))
   })
 
   return () => socket.disconnect()
+}
+
+export function connectStaffRealtime(accessToken, handlers = {}, createSocket = io) {
+  return connectRealtime(accessToken, DSWD_LIVE_EVENTS, handlers, createSocket)
+}
+
+export function connectNotificationRealtime(accessToken, handlers = {}, createSocket = io) {
+  return connectRealtime(accessToken, NOTIFICATION_LIVE_EVENTS, handlers, createSocket)
 }

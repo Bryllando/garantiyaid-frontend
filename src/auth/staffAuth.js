@@ -27,6 +27,7 @@ async function requestJson(path, { body, headers, token, method = 'POST' } = {})
     error.status = response.status
     error.code = payload?.error?.code
     error.details = payload?.error?.details
+    error.data = payload?.data
     throw error
   }
 
@@ -272,6 +273,70 @@ export async function updateBeneficiary(token, beneficiaryId, beneficiary) {
   return data.beneficiary
 }
 
+export async function recordBiometricConsent(token, beneficiaryId, consent) {
+  const data = await requestJson(`/beneficiaries/${beneficiaryId}/biometric-consents`, { token, body: consent })
+  if (!data?.consent) throw new Error('The server returned an unexpected biometric-consent response.')
+  return data
+}
+
+export async function requestBiometricConsents(token, beneficiaryId, filters = {}) {
+  const data = await requestJson(`/beneficiaries/${beneficiaryId}/biometric-consents${queryString(filters)}`, { token, method: 'GET' })
+  if (!Array.isArray(data?.consents) || !data?.pagination) throw new Error('The server returned an unexpected biometric-consent response.')
+  return data
+}
+
+export async function revokeBiometricConsent(token, beneficiaryId, consentId) {
+  const data = await requestJson(`/beneficiaries/${beneficiaryId}/biometric-consents/${consentId}/revoke`, { token })
+  if (!data?.consent) throw new Error('The server returned an unexpected biometric-consent response.')
+  return data
+}
+
+export async function requestBiometricStatus(token, beneficiaryId) {
+  const data = await requestJson(`/beneficiaries/${beneficiaryId}/biometrics/status`, { token, method: 'GET' })
+  if (!data?.biometricProfile || !data?.processing) throw new Error('The server returned an unexpected biometric-status response.')
+  return data
+}
+
+function biometricCaptureForm(file, fields = {}) {
+  const body = new FormData()
+  body.set('faceCapture', file)
+  Object.entries(fields).forEach(([key, value]) => {
+    if (value !== '' && value !== undefined && value !== null) body.set(key, value)
+  })
+  return body
+}
+
+export async function saveBiometricEnrollment(token, beneficiaryId, file, consentId, reenroll = false) {
+  const data = await requestJson(`/beneficiaries/${beneficiaryId}/biometrics/${reenroll ? 're-enroll' : 'enroll'}`, {
+    token,
+    body: biometricCaptureForm(file, { consentId }),
+  })
+  if (!data?.biometricProfile || !data?.processing) throw new Error('The server returned an unexpected biometric-enrollment response.')
+  return data
+}
+
+export async function deleteBiometricEnrollment(token, beneficiaryId) {
+  const data = await requestJson(`/beneficiaries/${beneficiaryId}/biometrics`, { token, method: 'DELETE' })
+  if (data?.deleted !== true) throw new Error('The server returned an unexpected biometric-deletion response.')
+  return data
+}
+
+export async function verifyBiometricClaim(token, distributionId, beneficiaryId, file, idempotencyKey = crypto.randomUUID()) {
+  const data = await requestJson(`/distributions/${distributionId}/claims/verify-biometric`, {
+    token,
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: biometricCaptureForm(file, { beneficiaryId, deviceInfo: 'GarantiyAid Web Portal' }),
+  })
+  if (!data?.claim || typeof data.verificationComplete !== 'boolean') throw new Error('The server returned an unexpected biometric-verification response.')
+  return data
+}
+
+export async function requestBiometricAttempts(token, distributionId, filters = {}) {
+  const data = await requestJson(`/distributions/${distributionId}/biometric-attempts${queryString(filters)}`, { token, method: 'GET' })
+  if (!Array.isArray(data?.attempts) || !data?.pagination || !data?.privacy) throw new Error('The server returned an unexpected biometric-attempt response.')
+  return data
+}
+
 export async function requestBarangays(token) {
   return requestBarangayList(token, { activeOnly: true })
 }
@@ -484,6 +549,49 @@ export async function generateDistributionSchedules(token, distributionId, idemp
   return data
 }
 
+export async function requestNotificationList(token, filters = {}) {
+  const data = await requestJson(`/notifications${queryString(filters)}`, { token, method: 'GET' })
+  if (!Array.isArray(data?.notifications) || !data?.pagination) throw new Error('The server returned an unexpected notification-list response.')
+  return data
+}
+
+export async function requestNotificationSummary(token, filters = {}) {
+  const data = await requestJson(`/notifications/summary${queryString(filters)}`, { token, method: 'GET' })
+  if (typeof data?.total !== 'number' || !data?.byStatus) throw new Error('The server returned an unexpected notification-summary response.')
+  return data
+}
+
+export async function requestNotificationQueueHealth(token) {
+  try {
+    const data = await requestJson('/notifications/queue/health', { token, method: 'GET' })
+    if (!data?.status) throw new Error('The server returned an unexpected notification-queue response.')
+    return data
+  } catch (error) {
+    if (error.status === 503 && error.data?.status === 'unavailable') return error.data
+    throw error
+  }
+}
+
+export async function enqueueDistributionReminder(token, distributionId, sendAt, idempotencyKey = crypto.randomUUID()) {
+  const data = await requestJson(`/distributions/${distributionId}/notifications/enqueue`, {
+    token,
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: { notificationType: 'DISTRIBUTION_REMINDER', ...(sendAt ? { sendAt } : {}) },
+  })
+  if (!Array.isArray(data?.notifications) || typeof data?.queuedCount !== 'number') throw new Error('The server returned an unexpected notification-enqueue response.')
+  return data
+}
+
+export async function retryNotification(token, notificationId, idempotencyKey = crypto.randomUUID()) {
+  const data = await requestJson(`/notifications/${notificationId}/retry`, {
+    token,
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: {},
+  })
+  if (!data?.notification) throw new Error('The server returned an unexpected notification-retry response.')
+  return data
+}
+
 export async function openDistribution(token, distributionId) {
   const data = await requestJson(`/distributions/${distributionId}/open`, { token })
   if (!data?.distribution) throw new Error('The server returned an unexpected distribution response.')
@@ -595,6 +703,8 @@ const dashboardNavigation = Object.freeze({
   SYSTEM_ADMIN: [
     overviewItem,
     { label: 'Distribution setup', icon: 'distributions', href: '/distributions/manage' },
+    { label: 'Biometric identity', icon: 'biometrics', href: '/biometrics' },
+    { label: 'Notifications', icon: 'notifications', href: '/notifications' },
     { label: 'Beneficiaries', icon: 'beneficiaries', href: '/beneficiaries' },
     { label: 'Staff & barangays', icon: 'administration', href: '/admin/administration' },
     { label: 'Authenticator recovery', icon: 'security', href: '/admin/staff-security' },
@@ -605,6 +715,8 @@ const dashboardNavigation = Object.freeze({
     overviewItem,
     { label: 'Assistance programs', icon: 'programs', href: '/programs' },
     { label: 'Enrollment review', icon: 'enrollments', href: '/enrollments' },
+    { label: 'Biometric identity', icon: 'biometrics', href: '/biometrics' },
+    { label: 'Notifications', icon: 'notifications', href: '/notifications' },
     { label: 'Beneficiaries', icon: 'beneficiaries', href: '/beneficiaries' },
     { label: 'Live monitoring', icon: 'monitoring', href: '/dswd/live-dashboard' },
     { label: 'Ledger', icon: 'ledger', href: '/dswd/ledger' },
@@ -616,6 +728,8 @@ const dashboardNavigation = Object.freeze({
     { label: 'Beneficiaries', icon: 'beneficiaries', href: '/beneficiaries' },
     { label: 'Enrollments', icon: 'enrollments', href: '/enrollments' },
     { label: 'Queue & schedules', icon: 'queue', href: '/facilitator/queue' },
+    { label: 'Biometric identity', icon: 'biometrics', href: '/biometrics' },
+    { label: 'Notifications', icon: 'notifications', href: '/notifications' },
     { label: 'QR verification', icon: 'qr', href: '/facilitator/qr-verification' },
   ],
 })

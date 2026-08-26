@@ -12,6 +12,8 @@ import {
   createBeneficiary,
   createProgram,
   createProgramCriterion,
+  enqueueDistributionReminder,
+  deleteBiometricEnrollment,
   generateDistributionQrTokens,
   generateDistributionSchedules,
   generateDistributionSlots,
@@ -24,6 +26,9 @@ import {
   requestBarangayList,
   requestBeneficiaryDocuments,
   requestBeneficiaryList,
+  requestBiometricAttempts,
+  requestBiometricConsents,
+  requestBiometricStatus,
   requestDashboardOverview,
   requestDistributionDashboard,
   requestDistributionCsv,
@@ -33,20 +38,28 @@ import {
   requestDistributionTransactions,
   requestFundUtilizationReport,
   requestEnrollmentList,
+  requestNotificationList,
+  requestNotificationQueueHealth,
+  requestNotificationSummary,
   requestOpenDistributions,
   requestPrograms,
   requestStaffLogout,
   requestStaffUserList,
   requestStaffUsers,
   requestTotpSetup,
+  recordBiometricConsent,
   resetStaffTotp,
+  revokeBiometricConsent,
+  retryNotification,
+  saveBiometricEnrollment,
   startEnrollmentReview,
   uploadBeneficiaryDocument,
   updateBarangay,
   updateStaffUser,
   verifyDistributionQrClaim,
+  verifyBiometricClaim,
 } from '../src/auth/staffAuth.js'
-import { connectStaffRealtime, DSWD_LIVE_EVENTS, realtimeServerUrl } from '../src/realtime/staffRealtime.js'
+import { connectNotificationRealtime, connectStaffRealtime, DSWD_LIVE_EVENTS, NOTIFICATION_LIVE_EVENTS, realtimeServerUrl } from '../src/realtime/staffRealtime.js'
 
 test('login outcomes preserve the backend authentication handoff', () => {
   assert.equal(getLoginOutcome({ requiresTotp: true }), 'totp')
@@ -131,6 +144,9 @@ test('dashboard navigation is limited to the signed-in staff role', () => {
   assert.ok(dswdLabels.includes('Ledger'))
   assert.ok(dswdLabels.includes('Enrollment review'))
   assert.ok(dswdLabels.includes('Assistance programs'))
+  assert.ok(adminLabels.includes('Notifications'))
+  assert.ok(dswdLabels.includes('Notifications'))
+  assert.ok(facilitatorLabels.includes('Notifications'))
   assert.equal(getDashboardNavigation('DSWD_STAFF').find(({ label }) => label === 'Live monitoring').href, '/dswd/live-dashboard')
   assert.equal(getDashboardNavigation('DSWD_STAFF').find(({ label }) => label === 'Ledger').href, '/dswd/ledger')
   assert.equal(getDashboardNavigation('DSWD_STAFF').find(({ label }) => label === 'Reports').href, '/reports')
@@ -180,6 +196,40 @@ test('staff and barangay administration preserve scoped account contracts', asyn
   assert.match(requests[3].url, /\/barangays\?activeOnly=false$/)
   assert.match(requests[5].url, /\/barangays\/barangay-1$/)
   requests.forEach(({ options }) => assert.equal(options.headers.Authorization, 'Bearer admin-token'))
+})
+
+test('notification monitoring preserves scoped history, queue, enqueue, and retry contracts', async (context) => {
+  const originalFetch = globalThis.fetch
+  const requests = []
+  context.after(() => { globalThis.fetch = originalFetch })
+  const responses = [
+    { notifications: [], pagination: { page: 2, total: 0 }, simulatedSmsOnly: true },
+    { total: 3, byStatus: { SENT: 2, FAILED: 1 }, byType: {}, byChannel: { SMS: 3 }, simulatedSmsOnly: true },
+    { status: 'unavailable', counts: {}, simulatedSmsOnly: true },
+    { notifications: [{ notificationId: 'notification-1' }], queuedCount: 1, deduplicatedCount: 0, simulated: true },
+    { notification: { notificationId: 'notification-1', status: 'PENDING' }, simulated: true },
+  ]
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options })
+    const index = requests.length - 1
+    return { ok: index !== 2, status: index === 2 ? 503 : 200, json: async () => ({ success: index !== 2, data: responses[index] }) }
+  }
+
+  await requestNotificationList('staff-token', { page: 2, pageSize: 20, status: 'FAILED', dateFrom: '2026-08-01' })
+  await requestNotificationSummary('staff-token', { distributionId: 'distribution-1' })
+  const health = await requestNotificationQueueHealth('staff-token')
+  await enqueueDistributionReminder('staff-token', 'distribution-1', '2026-08-28T01:00:00.000Z', '11111111-1111-4111-8111-111111111111')
+  await retryNotification('staff-token', 'notification-1', '22222222-2222-4222-8222-222222222222')
+
+  assert.match(requests[0].url, /\/notifications\?page=2&pageSize=20&status=FAILED&dateFrom=2026-08-01$/)
+  assert.match(requests[1].url, /\/notifications\/summary\?distributionId=distribution-1$/)
+  assert.equal(health.status, 'unavailable')
+  assert.match(requests[3].url, /\/distributions\/distribution-1\/notifications\/enqueue$/)
+  assert.deepEqual(JSON.parse(requests[3].options.body), { notificationType: 'DISTRIBUTION_REMINDER', sendAt: '2026-08-28T01:00:00.000Z' })
+  assert.equal(requests[3].options.headers['Idempotency-Key'], '11111111-1111-4111-8111-111111111111')
+  assert.match(requests[4].url, /\/notifications\/notification-1\/retry$/)
+  assert.equal(requests[4].options.headers['Idempotency-Key'], '22222222-2222-4222-8222-222222222222')
+  requests.forEach(({ options }) => assert.equal(options.headers.Authorization, 'Bearer staff-token'))
 })
 
 test('program and distribution setup preserve lifecycle and idempotency contracts', async (context) => {
@@ -279,6 +329,53 @@ test('beneficiary document upload leaves the multipart boundary to the browser',
   assert.equal(request.options.headers['Content-Type'], undefined)
 })
 
+test('biometric identity workflow preserves consent, multipart capture, idempotency, and privacy contracts', async (context) => {
+  const originalFetch = globalThis.fetch
+  const requests = []
+  context.after(() => { globalThis.fetch = originalFetch })
+  const responses = [
+    { consent: { consentId: 'consent-1' }, biometricEnrollmentRequired: true },
+    { consents: [], pagination: { page: 1, total: 0 } },
+    { biometricProfile: { biometricStatus: 'NOT_ENROLLED' }, processing: { rawCaptureStored: false } },
+    { biometricProfile: { biometricId: 'biometric-1' }, processing: { rawCaptureStored: false } },
+    { consent: { consentId: 'consent-1', consentStatus: 'REVOKED' } },
+    { deleted: true, biometricStatus: 'NOT_ENROLLED' },
+    { claim: { claimId: 'claim-1' }, verificationComplete: true },
+    { attempts: [], pagination: { page: 1, total: 0 }, privacy: { rawCapturesStored: false } },
+  ]
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options })
+    return { ok: true, json: async () => ({ data: responses[requests.length - 1] }) }
+  }
+  const capture = new Blob(['face-capture'], { type: 'image/jpeg' })
+
+  await recordBiometricConsent('staff-token', 'beneficiary-1', { consentVersion: 'v1.0', consentGiven: true, retentionUntil: '2027-08-26T15:59:59.000Z' })
+  await requestBiometricConsents('staff-token', 'beneficiary-1', { page: 1, pageSize: 20 })
+  await requestBiometricStatus('staff-token', 'beneficiary-1')
+  await saveBiometricEnrollment('staff-token', 'beneficiary-1', capture, 'consent-1')
+  await revokeBiometricConsent('staff-token', 'beneficiary-1', 'consent-1')
+  await deleteBiometricEnrollment('admin-token', 'beneficiary-1')
+  await verifyBiometricClaim('facilitator-token', 'distribution-1', 'beneficiary-1', capture, '11111111-1111-4111-8111-111111111111')
+  await requestBiometricAttempts('oversight-token', 'distribution-1', { page: 1, pageSize: 20, result: 'MATCHED' })
+
+  assert.match(requests[0].url, /\/beneficiaries\/beneficiary-1\/biometric-consents$/)
+  assert.deepEqual(JSON.parse(requests[0].options.body), { consentVersion: 'v1.0', consentGiven: true, retentionUntil: '2027-08-26T15:59:59.000Z' })
+  assert.match(requests[1].url, /\/beneficiaries\/beneficiary-1\/biometric-consents\?page=1&pageSize=20$/)
+  assert.match(requests[2].url, /\/beneficiaries\/beneficiary-1\/biometrics\/status$/)
+  assert.equal(requests[3].options.body instanceof FormData, true)
+  assert.equal(requests[3].options.body.get('faceCapture').size, capture.size)
+  assert.equal(requests[3].options.body.get('faceCapture').type, capture.type)
+  assert.equal(requests[3].options.body.get('consentId'), 'consent-1')
+  assert.match(requests[4].url, /\/biometric-consents\/consent-1\/revoke$/)
+  assert.equal(requests[5].options.method, 'DELETE')
+  assert.equal(requests[6].options.headers['Idempotency-Key'], '11111111-1111-4111-8111-111111111111')
+  assert.equal(requests[6].options.body.get('beneficiaryId'), 'beneficiary-1')
+  assert.equal(requests[6].options.body.get('deviceInfo'), 'GarantiyAid Web Portal')
+  assert.match(requests[7].url, /\/distributions\/distribution-1\/biometric-attempts\?page=1&pageSize=20&result=MATCHED$/)
+  assert.equal(requests[3].options.headers['Content-Type'], undefined)
+  assert.equal(requests[6].options.headers['Content-Type'], undefined)
+})
+
 test('reports, CSV export, and audit logs preserve oversight API contracts', async (context) => {
   const originalFetch = globalThis.fetch
   const requests = []
@@ -372,6 +469,24 @@ test('DSWD realtime client authenticates once and forwards subscribed events', (
   assert.deepEqual(updates, [['dashboard.metrics.updated', { distributionId: 'distribution-1' }]])
   stop()
   assert.equal(disconnected, true)
+})
+
+test('notification realtime client subscribes only to delivery lifecycle events', () => {
+  const listeners = {}
+  const updates = []
+  const socket = {
+    on(eventName, handler) { listeners[eventName] = handler; return this },
+    disconnect() {},
+  }
+  const stop = connectNotificationRealtime('staff-token', {
+    onUpdate: (eventName, payload) => updates.push([eventName, payload]),
+  }, () => socket)
+
+  assert.deepEqual(Object.keys(listeners).filter((event) => NOTIFICATION_LIVE_EVENTS.includes(event)), [...NOTIFICATION_LIVE_EVENTS])
+  assert.equal(Object.hasOwn(listeners, 'dashboard.metrics.updated'), false)
+  listeners['notification.sent']({ notificationId: 'notification-1', status: 'SENT' })
+  assert.deepEqual(updates, [['notification.sent', { notificationId: 'notification-1', status: 'SENT' }]])
+  stop()
 })
 
 test('dashboard loading and secure logout use the authenticated backend endpoints', async (context) => {

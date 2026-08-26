@@ -18,6 +18,8 @@ const moduleDescriptions = {
   Ledger: 'Review simulated fund utilization and transaction records.',
   'Queue & schedules': 'Manage today’s assigned beneficiary queue and time slots.',
   'QR verification': 'Validate single-use claim references at distribution sites.',
+  Notifications: 'Monitor simulated SMS delivery and follow up on failed reminders.',
+  'Biometric identity': 'Manage consent, protected enrollment, claim checks, and verification history.',
 }
 
 const roleContent = {

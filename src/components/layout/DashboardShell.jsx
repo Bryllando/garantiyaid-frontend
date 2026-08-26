@@ -15,6 +15,8 @@ const navIcons = {
   programs: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v17H6.5A2.5 2.5 0 0 0 4 22.5Z" /><path d="M4 5.5v17M8 8h8M8 12h8M8 16h5" /></>,
   distributions: <><path d="M3 8h18M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2Z" /><path d="M7 12h3v4H7zM14 12h3v4h-3z" /></>,
   administration: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M17 8h4M19 6v4M16 15h5v6h-5z" /></>,
+  notifications: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>,
+  biometrics: <><path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3" /><circle cx="12" cy="11" r="3" /><path d="M7.5 17c.8-2.1 2.3-3 4.5-3s3.7.9 4.5 3" /></>,
 }
 
 function Icon({ name, className = 'size-5' }) {
