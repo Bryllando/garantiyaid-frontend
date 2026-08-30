@@ -10,7 +10,7 @@
   --color-ink: #10213a;
   --color-copy: #40516a;
   --color-muted-copy: #5f7087;
-  --color-page: #f3f6fa;
+  --color-page: #f8fafc;
   --color-surface: #ffffff;
   --color-line: #dbe4ee;
   --color-info-soft: #eef6ff;
@@ -20,14 +20,14 @@
   --radius-lg: 0.625rem;
   --radius-xl: 0.875rem;
   --radius-2xl: 1.125rem;
-  --shadow-sm: 0 1px 2px rgb(15 35 60 / 0.05), 0 10px 28px rgb(15 35 60 / 0.055);
-  --shadow-lg: 0 24px 64px rgb(15 35 60 / 0.14), 0 4px 16px rgb(15 35 60 / 0.06);
+  --shadow-sm: 0 1px 2px rgb(15 35 60 / 0.05), 0 6px 18px rgb(15 35 60 / 0.04);
+  --shadow-lg: 0 20px 48px rgb(15 35 60 / 0.12), 0 3px 12px rgb(15 35 60 / 0.05);
 }
 
 :root {
   font-family: "Segoe UI", Arial, ui-sans-serif, system-ui, sans-serif;
   color: #10213a;
-  background: #f3f6fa;
+  background: #f8fafc;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -39,10 +39,7 @@ html {
 body {
   margin: 0;
   min-width: 320px;
-  background:
-    radial-gradient(circle at 8% 0%, rgb(10 92 168 / 0.08), transparent 24rem),
-    radial-gradient(circle at 92% 16%, rgb(8 122 91 / 0.055), transparent 22rem),
-    #f3f6fa;
+  background: #f8fafc;
   line-height: 1.5;
 }
 
@@ -86,7 +83,7 @@ p {
 
 @layer components {
   .ga-card {
-    @apply rounded-xl border border-line/90 bg-white shadow-sm;
+    @apply rounded-xl border border-line bg-white shadow-sm;
   }
 
   .ga-card-flat {
@@ -94,7 +91,7 @@ p {
   }
 
   .ga-eyebrow {
-    @apply text-xs font-bold uppercase tracking-[0.12em] text-brand-blue;
+    @apply text-sm font-semibold text-brand-blue;
   }
 
   .ga-page-title {
@@ -106,19 +103,19 @@ p {
   }
 
   .ga-btn-primary {
-    @apply inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-lg bg-brand-blue px-5 text-base font-bold text-white shadow-sm transition-[background-color,box-shadow,transform] duration-200 ease-out hover:-translate-y-0.5 hover:bg-brand-blue-hover hover:shadow-lg active:translate-y-0 active:scale-[0.98] active:bg-brand-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-sm;
+    @apply inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-lg bg-brand-blue px-5 text-base font-bold text-white shadow-sm transition-[background-color,box-shadow] duration-200 ease-out hover:bg-brand-blue-hover hover:shadow-md active:bg-brand-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:shadow-sm;
   }
 
   .ga-btn-secondary {
-    @apply inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-lg border border-line bg-white px-5 text-base font-bold text-copy shadow-sm transition-[background-color,border-color,box-shadow,transform] duration-200 ease-out hover:-translate-y-0.5 hover:border-blue-200 hover:bg-info-soft hover:text-brand-blue hover:shadow-sm active:translate-y-0 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0;
+    @apply inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-lg border border-line bg-white px-5 text-base font-bold text-copy shadow-sm transition-[background-color,border-color,color] duration-200 ease-out hover:border-blue-200 hover:bg-info-soft hover:text-brand-blue active:bg-blue-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .ga-btn-danger {
-    @apply inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-lg bg-brand-red px-5 text-base font-bold text-white shadow-sm transition-[background-color,box-shadow,transform] duration-200 ease-out hover:-translate-y-0.5 hover:bg-red-800 hover:shadow-lg active:translate-y-0 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-red disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0;
+    @apply inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-lg bg-brand-red px-5 text-base font-bold text-white shadow-sm transition-[background-color,box-shadow] duration-200 ease-out hover:bg-red-800 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-red disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .ga-input {
-    @apply min-h-12 w-full rounded-lg border border-slate-300 bg-white px-4 text-base text-ink outline-none transition-[border-color,box-shadow] placeholder:text-slate-400 focus:border-brand-blue focus:ring-3 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-muted-copy;
+    @apply min-h-12 w-full rounded-lg border border-slate-300 bg-white px-4 text-base text-ink outline-none transition-[border-color,box-shadow] placeholder:text-slate-400 focus:border-brand-blue focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-muted-copy;
   }
 
   .ga-label {
@@ -139,6 +136,23 @@ p {
 
   .ga-status-danger {
     @apply border-red-200 bg-danger-soft text-brand-red;
+  }
+
+  .ga-disclosure {
+    @apply overflow-hidden rounded-xl border border-line bg-white shadow-sm;
+  }
+
+  .ga-disclosure > summary {
+    @apply flex min-h-14 list-none items-center justify-between gap-4 px-5 py-3 font-bold text-ink transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand-blue;
+  }
+
+  .ga-disclosure > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .ga-label:has(+ .ga-input:required)::after {
+    content: " *";
+    color: var(--color-brand-red);
   }
 }
 
@@ -163,7 +177,7 @@ p {
   border-radius: 9999px;
   content: "";
   pointer-events: none;
-  background: radial-gradient(circle, rgb(10 92 168 / 0.15), transparent 68%);
+  background: radial-gradient(circle, rgb(10 92 168 / 0.1), transparent 68%);
 }
 
 .ga-hero-visual {
@@ -241,6 +255,14 @@ dialog[open] [data-dialog-stagger] > * {
 
 dialog[open] [data-dialog-stagger] > :nth-child(2) {
   animation-delay: 45ms;
+}
+
+dialog[open] [data-dialog-stagger] > :nth-child(3) {
+  animation-delay: 90ms;
+}
+
+dialog[open] [data-dialog-stagger] > :nth-child(n + 4) {
+  animation-delay: 135ms;
 }
 
 @keyframes ga-live-pulse {
@@ -322,6 +344,47 @@ input[type="file"][required]:valid::file-selector-button {
   select,
   textarea {
     font-size: 1rem !important;
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  [data-recovery-print],
+  [data-recovery-print] *,
+  [data-claim-receipt-print],
+  [data-claim-receipt-print] * {
+    visibility: visible;
+  }
+
+  [data-recovery-print] {
+    position: absolute;
+    inset: 0;
+    margin: 0 !important;
+    border: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+
+  [data-claim-receipt-print] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    margin: 0 !important;
+    background: #ffffff !important;
+    color: #10213a !important;
+  }
+
+  [data-recovery-actions],
+  [data-claim-receipt-actions] {
+    display: none !important;
+  }
+
+  @page {
+    size: A4;
+    margin: 10mm;
   }
 }
 

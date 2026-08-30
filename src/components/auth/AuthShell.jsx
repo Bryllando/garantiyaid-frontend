@@ -8,7 +8,7 @@ function AuthShell({ children, navigationLabel = 'Authentication navigation' }) 
       <header className="border-b border-line bg-white">
         <nav aria-label={navigationLabel} className="mx-auto flex min-h-[4.75rem] w-full max-w-7xl items-center justify-between gap-4 px-5 sm:px-6 lg:px-8">
           <a href="/" aria-label="Return to GarantiyAid home" className="flex min-h-11 items-center gap-3 rounded-md font-bold tracking-tight text-brand-navy focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-blue">
-            <span aria-hidden="true" className="grid size-10 place-items-center rounded-lg bg-brand-navy text-sm font-bold text-white">GA</span>
+            <img src="/GarantiyAid-logo.svg" alt="" width="512" height="512" className="size-12 shrink-0 object-contain sm:size-14" />
             <span className="text-lg">GarantiyAid</span>
           </a>
           <a href="/" className="ga-btn-secondary min-h-11 px-4 text-sm">Back to public home</a>

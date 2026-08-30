@@ -3,7 +3,7 @@ import AuthShell from '../components/auth/AuthShell.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
 import { getAuthErrorMessage, getLoginOutcome, requestStaffLogin, storeStaffSession } from '../auth/staffAuth.js'
 
-function LoginPage({ onAuthenticated, onTotpRequired, onTotpEnrollmentRequired }) {
+function LoginPage({ onAuthenticated, onPasswordChangeRequired, onTotpRequired, onTotpEnrollmentRequired }) {
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -21,7 +21,9 @@ function LoginPage({ onAuthenticated, onTotpRequired, onTotpEnrollmentRequired }
       const data = await requestStaffLogin(credentials)
       const outcome = getLoginOutcome(data)
 
-      if (outcome === 'totp') {
+      if (outcome === 'password-change') {
+        onPasswordChangeRequired(credentials)
+      } else if (outcome === 'totp') {
         onTotpRequired(credentials)
       } else if (outcome === 'totp-enrollment') {
         onTotpEnrollmentRequired(data.totpSetupToken)
@@ -68,11 +70,14 @@ function LoginPage({ onAuthenticated, onTotpRequired, onTotpEnrollmentRequired }
                   required
                   maxLength="30"
                   pattern="[A-Za-z0-9._-]+"
+                  aria-describedby={error ? 'identifier-help login-error' : 'identifier-help'}
+                  aria-invalid={Boolean(error)}
                   value={identifier}
                   onChange={(event) => { setIdentifier(event.target.value); setError('') }}
                   placeholder="Enter username or staff ID"
                   className="ga-input mt-2"
                 />
+                <p id="identifier-help" className="mt-2 text-xs leading-5 text-muted-copy"><strong className="text-ink">All staff:</strong> use the exact Staff ID issued by the administrator. Barangay Staff and System Administrators may also use their username.</p>
               </div>
 
               <div>

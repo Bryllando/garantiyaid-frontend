@@ -1,32 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getDashboardNavigation, STAFF_ROLE_LABELS } from '../../auth/staffAuth.js'
+import { Icon } from '../ui/icon.jsx'
 import { LoadingLabel } from '../ui/spinner.jsx'
-
-const navIcons = {
-  overview: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
-  security: <><path d="M12 22s8-3.5 8-10V5l-8-3-8 3v7c0 6.5 8 10 8 10Z" /><path d="m9 12 2 2 4-4" /></>,
-  reports: <><path d="M4 19.5V4.5A2.5 2.5 0 0 1 6.5 2H20v18H6.5A2.5 2.5 0 0 0 4 22.5" /><path d="M8 7h8M8 11h8M8 15h5" /></>,
-  audit: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" /><path d="M14 2v6h6M8 13h8M8 17h5" /></>,
-  monitoring: <><path d="M3 12h4l2-5 4 10 2-5h6" /><path d="M3 3v18h18" /></>,
-  ledger: <><path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" /><path d="M7 7h10M7 12h4M7 17h4M15 12h2M15 17h2" /></>,
-  queue: <><path d="M8 6h13M8 12h13M8 18h13" /><circle cx="3.5" cy="6" r="1" /><circle cx="3.5" cy="12" r="1" /><circle cx="3.5" cy="18" r="1" /></>,
-  qr: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><path d="M14 14h3v3h-3zM18 18h3v3h-3zM18 14h3M14 18v3" /></>,
-  beneficiaries: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></>,
-  enrollments: <><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></>,
-  programs: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v17H6.5A2.5 2.5 0 0 0 4 22.5Z" /><path d="M4 5.5v17M8 8h8M8 12h8M8 16h5" /></>,
-  distributions: <><path d="M3 8h18M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2Z" /><path d="M7 12h3v4H7zM14 12h3v4h-3z" /></>,
-  administration: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M17 8h4M19 6v4M16 15h5v6h-5z" /></>,
-  notifications: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>,
-  biometrics: <><path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3" /><circle cx="12" cy="11" r="3" /><path d="M7.5 17c.8-2.1 2.3-3 4.5-3s3.7.9 4.5 3" /></>,
-}
-
-function Icon({ name, className = 'size-5' }) {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      {navIcons[name] ?? navIcons.overview}
-    </svg>
-  )
-}
 
 function staffInitials(name = 'Staff') {
   return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()
@@ -36,13 +11,65 @@ function DashboardShell({ breadcrumbs, children, currentPath, onLogout, onNaviga
   const [mobileOpen, setMobileOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const navigationRef = useRef(null)
+  const menuButtonRef = useRef(null)
+  const closeButtonRef = useRef(null)
   const navigation = getDashboardNavigation(user?.role)
   const roleLabel = STAFF_ROLE_LABELS[user?.role] ?? 'Staff'
+  const breadcrumbItems = breadcrumbs ?? ['Operations', pageTitle]
+
+  useEffect(() => {
+    const navigationPanel = navigationRef.current
+    const desktopQuery = window.matchMedia('(min-width: 1024px)')
+    const syncNavigationState = () => { navigationPanel.inert = !desktopQuery.matches && !mobileOpen }
+    syncNavigationState()
+    desktopQuery.addEventListener('change', syncNavigationState)
+    return () => desktopQuery.removeEventListener('change', syncNavigationState)
+  }, [mobileOpen])
+
+  useEffect(() => {
+    if (!mobileOpen) return undefined
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    requestAnimationFrame(() => closeButtonRef.current?.focus())
+
+    function keepFocusInside(event) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeMobileNavigation()
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const focusable = [...navigationRef.current.querySelectorAll('a[href], button:not(:disabled), summary')]
+      const first = focusable[0]
+      const last = focusable.at(-1)
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last?.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first?.focus()
+      }
+    }
+
+    document.addEventListener('keydown', keepFocusInside)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', keepFocusInside)
+    }
+  }, [mobileOpen])
+
+  function closeMobileNavigation(restoreFocus = true) {
+    setMobileOpen(false)
+    if (restoreFocus) requestAnimationFrame(() => menuButtonRef.current?.focus())
+  }
 
   function navigate(event, href) {
     if (!onNavigate) return
     event.preventDefault()
-    setMobileOpen(false)
+    closeMobileNavigation(false)
     onNavigate(href)
   }
 
@@ -62,20 +89,20 @@ function DashboardShell({ breadcrumbs, children, currentPath, onLogout, onNaviga
       </a>
 
       {mobileOpen && (
-        <button type="button" aria-label="Close navigation" onClick={() => setMobileOpen(false)} className="fixed inset-0 z-40 cursor-pointer bg-slate-950/50 lg:hidden" />
+        <button type="button" aria-label="Close navigation" onClick={() => closeMobileNavigation()} className="fixed inset-0 z-40 cursor-pointer bg-slate-950/55 backdrop-blur-[2px] lg:hidden" />
       )}
 
-      <aside className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col bg-brand-navy text-white shadow-2xl transition-[transform,width] duration-200 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} ${collapsed ? 'lg:w-[4.75rem]' : 'lg:w-64'} lg:translate-x-0 lg:shadow-none`} aria-label="Authorized staff navigation">
+      <aside ref={navigationRef} id="staff-navigation" role={mobileOpen ? 'dialog' : undefined} aria-modal={mobileOpen ? 'true' : undefined} className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col bg-brand-navy text-white shadow-2xl transition-[transform,width] duration-200 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} ${collapsed ? 'lg:w-[4.75rem]' : 'lg:w-64'} lg:translate-x-0 lg:shadow-none`} aria-label={mobileOpen ? 'Staff navigation menu' : 'Authorized staff navigation'}>
         <div className={`flex h-[4.75rem] items-center border-b border-white/10 ${collapsed ? 'lg:justify-center lg:px-2' : 'px-4'}`}>
           <a href="/dashboard" onClick={(event) => navigate(event, '/dashboard')} className="flex min-h-11 min-w-0 items-center gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
-            <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-lg bg-white font-bold tracking-tight text-brand-navy">GA</span>
+            <img src="/GarantiyAid-logo.svg" alt="" width="512" height="512" className="size-12 shrink-0 object-contain sm:size-14" />
             <span className={`min-w-0 ${collapsed ? 'lg:sr-only' : ''}`}>
               <span className="block truncate text-base font-bold tracking-tight">GarantiyAid</span>
               <span className="mt-0.5 block truncate text-xs font-semibold text-blue-200">Staff operations portal</span>
             </span>
           </a>
-          <button type="button" onClick={() => setMobileOpen(false)} aria-label="Close navigation" className="ml-auto grid size-11 place-items-center rounded-lg text-blue-100 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white lg:hidden">
-            <svg aria-hidden="true" viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="m6 6 12 12M18 6 6 18" /></svg>
+          <button ref={closeButtonRef} type="button" onClick={() => closeMobileNavigation()} aria-label="Close navigation" className="ml-auto grid size-11 place-items-center rounded-lg text-blue-100 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white lg:hidden">
+            <Icon name="close" />
           </button>
         </div>
 
@@ -105,7 +132,7 @@ function DashboardShell({ breadcrumbs, children, currentPath, onLogout, onNaviga
             </span>
           </div>
           <button type="button" onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!collapsed} className="mt-2 hidden min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg text-sm font-semibold text-slate-300 hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white lg:flex">
-            <svg aria-hidden="true" viewBox="0 0 24 24" className={`size-4 transition-transform ${collapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
+            <Icon name="chevronLeft" className={`size-4 transition-transform ${collapsed ? 'rotate-180' : ''}`} strokeWidth={2} />
             <span className={collapsed ? 'sr-only' : ''}>Collapse</span>
           </button>
         </div>
@@ -114,19 +141,22 @@ function DashboardShell({ breadcrumbs, children, currentPath, onLogout, onNaviga
       <div className={`transition-[padding] duration-200 ${collapsed ? 'lg:pl-[4.75rem]' : 'lg:pl-64'}`}>
         <header className="sticky top-0 z-30 border-b border-line bg-white/95 backdrop-blur-sm">
           <div className="flex min-h-[4.75rem] items-center gap-3 px-4 sm:px-6 lg:px-8">
-            <button type="button" aria-label="Open navigation" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)} className="grid size-11 shrink-0 cursor-pointer place-items-center rounded-lg border border-line bg-white text-brand-navy hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue lg:hidden">
-              <svg aria-hidden="true" viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+            <button ref={menuButtonRef} type="button" aria-label="Open navigation" aria-controls="staff-navigation" aria-expanded={mobileOpen} onClick={() => setMobileOpen(true)} className="grid size-11 shrink-0 cursor-pointer place-items-center rounded-lg border border-line bg-white text-brand-navy hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue lg:hidden">
+              <Icon name="menu" strokeWidth={2} />
             </button>
 
             <div className="min-w-0 flex-1">
               <nav aria-label="Breadcrumb" className="hidden sm:block">
                 <ol className="flex items-center gap-2 text-xs font-semibold text-muted-copy">
-                  {(breadcrumbs ?? ['Operations', pageTitle]).map((item, index, items) => (
-                    <li key={`${item}-${index}`} className="flex min-w-0 items-center gap-2">
+                  {breadcrumbItems.map((item, index, items) => {
+                    const label = typeof item === 'string' ? item : item.label
+                    const href = typeof item === 'string' ? (index === 0 ? '/dashboard' : undefined) : item.href
+                    const current = index === items.length - 1
+                    return <li key={`${label}-${index}`} className="flex min-w-0 items-center gap-2">
                       {index > 0 && <span aria-hidden="true" className="text-slate-300">/</span>}
-                      <span className={index === items.length - 1 ? 'truncate text-copy' : 'truncate'} aria-current={index === items.length - 1 ? 'page' : undefined}>{item}</span>
+                      {href && !current ? <a href={href} onClick={(event) => navigate(event, href)} className="truncate rounded-sm hover:text-brand-blue focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">{label}</a> : <span className={current ? 'truncate text-copy' : 'truncate'} aria-current={current ? 'page' : undefined}>{label}</span>}
                     </li>
-                  ))}
+                  })}
                 </ol>
               </nav>
               <p className="truncate text-base font-bold text-ink sm:mt-1">{pageTitle}</p>
@@ -143,7 +173,7 @@ function DashboardShell({ breadcrumbs, children, currentPath, onLogout, onNaviga
                   <span className="block max-w-40 truncate text-sm font-bold text-ink">{user?.fullName}</span>
                   <span className="block max-w-40 truncate text-xs text-muted-copy">{roleLabel}</span>
                 </span>
-                <svg aria-hidden="true" viewBox="0 0 24 24" className="hidden size-4 transition-transform group-open:rotate-180 sm:block" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                <Icon name="chevronDown" className="hidden size-4 transition-transform group-open:rotate-180 sm:block" strokeWidth={2} />
               </summary>
               <div className="absolute right-0 mt-2 w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-line bg-white p-4 shadow-lg">
                 <p className="truncate font-bold text-ink">{user?.fullName}</p>

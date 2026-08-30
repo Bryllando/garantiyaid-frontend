@@ -35,6 +35,7 @@ async function requestJson(path, { body, headers, token, method = 'POST' } = {})
 }
 
 export function getLoginOutcome(data) {
+  if (data?.requiresPasswordChange) return 'password-change'
   if (data?.requiresTotpEnrollment && data.totpSetupToken) return 'totp-enrollment'
   if (data?.requiresTotp) return 'totp'
   if (data?.accessToken && data.user) return 'authenticated'
@@ -89,8 +90,8 @@ export async function requestStaffUserList(token, filters = {}) {
 
 export async function createStaffUser(token, user) {
   const data = await requestJson('/users', { token, body: user })
-  if (!data?.user) throw new Error('The server returned an unexpected staff-account response.')
-  return data.user
+  if (!data?.user || !data?.temporaryPassword) throw new Error('The server returned an unexpected staff-account response.')
+  return data
 }
 
 export async function updateStaffUser(token, userId, user) {
@@ -100,23 +101,21 @@ export async function updateStaffUser(token, userId, user) {
 }
 
 export function buildStaffAccountPayload(form, existingUser = null) {
-  const role = form.role
+  const role = existingUser?.role ?? form.role
   const normalized = {
     fullName: form.fullName.trim(),
     email: form.email.trim().toLowerCase(),
     contactNumber: form.contactNumber.trim() || null,
-    role,
     username: role === 'DSWD_STAFF' ? null : form.username.trim().toLowerCase(),
     barangayId: role === 'BARANGAY_FACILITATOR' ? form.barangayId : null,
   }
   if (!existingUser) {
     return {
-      employeeId: form.employeeId.trim().toUpperCase(),
       ...normalized,
+      role,
       contactNumber: normalized.contactNumber ?? undefined,
       username: normalized.username ?? undefined,
       barangayId: normalized.barangayId ?? undefined,
-      password: form.password,
     }
   }
 
@@ -217,6 +216,42 @@ export async function requestCreditableClaims(token, distributionId, filters = {
   const data = await requestJson(`/distributions/${distributionId}/creditable-claims${queryString(filters)}`, { token, method: 'GET' })
   if (!Array.isArray(data?.claims) || !data?.summary || !data?.pagination) throw new Error('The server returned an unexpected creditable-claim response.')
   return data
+}
+
+export async function requestDistributionClaims(token, distributionId, filters = {}) {
+  const data = await requestJson(`/distributions/${distributionId}/claims${queryString(filters)}`, { token, method: 'GET' })
+  if (!Array.isArray(data?.claims) || !data?.summary || !data?.pagination) throw new Error('The server returned an unexpected claim-list response.')
+  return data
+}
+
+export async function issueClaimReceipt(token, distributionId, claimId) {
+  const data = await requestJson(`/distributions/${distributionId}/claims/${claimId}/receipt`, { token, body: {} })
+  if (!data?.receipt?.receiptNo || !data.receipt.evidenceHash) throw new Error('The server returned an unexpected claim-receipt response.')
+  return data
+}
+
+export async function recordClaimReceiptPrint(token, distributionId, claimId) {
+  const data = await requestJson(`/distributions/${distributionId}/claims/${claimId}/receipt/print-events`, { token, body: {} })
+  if (!data?.receipt?.receiptNo) throw new Error('The server returned an unexpected claim-receipt response.')
+  return data.receipt
+}
+
+export async function createClaimDispute(token, distributionId, claimId, dispute) {
+  const data = await requestJson(`/distributions/${distributionId}/claims/${claimId}/disputes`, { token, body: dispute })
+  if (!data?.dispute?.referenceNo) throw new Error('The server returned an unexpected claim-dispute response.')
+  return data.dispute
+}
+
+export async function requestClaimDisputes(token, distributionId, filters = {}) {
+  const data = await requestJson(`/distributions/${distributionId}/claim-disputes${queryString(filters)}`, { token, method: 'GET' })
+  if (!Array.isArray(data?.disputes) || !data?.summary || !data?.pagination) throw new Error('The server returned an unexpected claim-dispute list.')
+  return data
+}
+
+export async function reviewClaimDispute(token, distributionId, disputeId, review) {
+  const data = await requestJson(`/distributions/${distributionId}/claim-disputes/${disputeId}/review`, { token, body: review })
+  if (!data?.dispute?.referenceNo) throw new Error('The server returned an unexpected claim-dispute response.')
+  return data.dispute
 }
 
 export async function creditVerifiedClaim(token, distributionId, claimId, description = '', idempotencyKey = crypto.randomUUID()) {
@@ -366,6 +401,16 @@ export async function verifyBiometricClaim(token, distributionId, beneficiaryId,
     body: biometricCaptureForm(file, { beneficiaryId, deviceInfo: 'GarantiyAid Web Portal' }),
   })
   if (!data?.claim || typeof data.verificationComplete !== 'boolean') throw new Error('The server returned an unexpected biometric-verification response.')
+  return data
+}
+
+export async function submitClaimSignature(token, distributionId, claimId, signature, idempotencyKey = crypto.randomUUID()) {
+  const data = await requestJson(`/distributions/${distributionId}/claims/${claimId}/signature`, {
+    token,
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: { ...signature, deviceInfo: 'GarantiyAid Web Signature Pad' },
+  })
+  if (!data?.claim || !data?.signature || data.verificationComplete !== true) throw new Error('The server returned an unexpected signature-verification response.')
   return data
 }
 
@@ -543,15 +588,18 @@ export async function requestDistributionSlots(token, distributionId) {
   return data
 }
 
-export async function generateDistributionSlots(token, distributionId, capacity) {
-  const data = await requestJson(`/distributions/${distributionId}/slots/generate`, { token, body: { capacity } })
+export async function generateDistributionSlots(token, distributionId, sessionsOrCapacity) {
+  const body = Array.isArray(sessionsOrCapacity)
+    ? { sessions: sessionsOrCapacity }
+    : { capacity: sessionsOrCapacity }
+  const data = await requestJson(`/distributions/${distributionId}/slots/generate`, { token, body })
   if (!Array.isArray(data?.slots) || !data?.summary) throw new Error('The server returned an unexpected slot-generation response.')
   return data
 }
 
 export async function requestEligibleDistributionEnrollments(token, distributionId) {
   const data = await requestJson(`/distributions/${distributionId}/eligible-enrollments?page=1&pageSize=100`, { token, method: 'GET' })
-  if (!Array.isArray(data?.enrollments) || !data?.pagination) throw new Error('The server returned an unexpected eligible-enrollment response.')
+  if (!Array.isArray(data?.enrollments) || !data?.pagination || !data?.summary) throw new Error('The server returned an unexpected eligible-enrollment response.')
   return data
 }
 
@@ -743,6 +791,7 @@ const dashboardNavigation = Object.freeze({
     { label: 'Distribution setup', icon: 'distributions', href: '/distributions/manage' },
     { label: 'Biometric identity', icon: 'biometrics', href: '/biometrics' },
     { label: 'Claim settlement', icon: 'ledger', href: '/dswd/ledger' },
+    { label: 'Claim accountability', icon: 'receipt', href: '/claim-accountability' },
     { label: 'Notifications', icon: 'notifications', href: '/notifications' },
     { label: 'Beneficiaries', icon: 'beneficiaries', href: '/beneficiaries' },
     { label: 'Staff & barangays', icon: 'administration', href: '/admin/administration' },
@@ -759,6 +808,7 @@ const dashboardNavigation = Object.freeze({
     { label: 'Beneficiaries', icon: 'beneficiaries', href: '/beneficiaries' },
     { label: 'Live monitoring', icon: 'monitoring', href: '/dswd/live-dashboard' },
     { label: 'Ledger', icon: 'ledger', href: '/dswd/ledger' },
+    { label: 'Claim accountability', icon: 'receipt', href: '/claim-accountability' },
     { label: 'Reports', icon: 'reports', href: '/reports' },
     { label: 'Audit logs', icon: 'audit', href: '/audit-logs' },
   ],
@@ -770,6 +820,7 @@ const dashboardNavigation = Object.freeze({
     { label: 'Biometric identity', icon: 'biometrics', href: '/biometrics' },
     { label: 'Notifications', icon: 'notifications', href: '/notifications' },
     { label: 'QR verification', icon: 'qr', href: '/facilitator/qr-verification' },
+    { label: 'Claim accountability', icon: 'receipt', href: '/claim-accountability' },
   ],
 })
 

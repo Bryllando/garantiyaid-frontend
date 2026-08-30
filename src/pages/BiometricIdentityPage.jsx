@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import ClaimSignaturePad from '../components/claims/ClaimSignaturePad.jsx'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
+import { Icon } from '../components/ui/icon.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
 import {
@@ -17,6 +19,7 @@ import {
   requestDistributionSchedules,
   revokeBiometricConsent,
   saveBiometricEnrollment,
+  submitClaimSignature,
   verifyBiometricClaim,
 } from '../auth/staffAuth.js'
 
@@ -60,29 +63,208 @@ function WorkspaceSkeleton() {
 }
 
 function CaptureField({ id, help }) {
+  const videoRef = useRef(null)
+  const canvasRef = useRef(null)
+  const inputRef = useRef(null)
+  const streamRef = useRef(null)
+  const cameraRequestRef = useRef(0)
+  const previewUrlRef = useRef('')
+  const [captureState, setCaptureState] = useState('idle')
+  const [previewUrl, setPreviewUrl] = useState('')
+  const [cameraReady, setCameraReady] = useState(false)
+  const [error, setError] = useState('')
+
+  const stopCamera = useCallback(() => {
+    cameraRequestRef.current += 1
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+    if (videoRef.current) videoRef.current.srcObject = null
+    setCameraReady(false)
+  }, [])
+
+  const replacePreview = useCallback((url = '') => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+    previewUrlRef.current = url
+    setPreviewUrl(url)
+    setCaptureState(url ? 'captured' : 'idle')
+  }, [])
+
+  const resetCapture = useCallback(() => {
+    stopCamera()
+    replacePreview()
+    if (inputRef.current) inputRef.current.value = ''
+    setError('')
+  }, [replacePreview, stopCamera])
+
+  useEffect(() => {
+    const form = inputRef.current?.form
+    form?.addEventListener('reset', resetCapture)
+    return () => {
+      form?.removeEventListener('reset', resetCapture)
+      stopCamera()
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+    }
+  }, [resetCapture, stopCamera])
+
+  async function startCamera() {
+    setError('')
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('Live camera is unavailable here. Open the app through HTTPS or localhost, or upload a current photo instead.')
+      return
+    }
+    stopCamera()
+    const requestId = cameraRequestRef.current
+    try {
+      replacePreview()
+      setCaptureState('live')
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 960 } },
+      })
+      if (requestId !== cameraRequestRef.current || !videoRef.current) {
+        stream.getTracks().forEach((track) => track.stop())
+        return
+      }
+      streamRef.current = stream
+      videoRef.current.srcObject = stream
+    } catch (cameraError) {
+      if (requestId !== cameraRequestRef.current) return
+      setCaptureState('idle')
+      setError(cameraError?.name === 'NotAllowedError'
+        ? 'Camera access was blocked. Allow camera permission in the browser, then try again, or upload a current photo.'
+        : 'The camera could not be opened. Check that another app is not using it, then try again or upload a photo.')
+    }
+  }
+
+  function captureFrame() {
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    if (!video?.videoWidth || !canvas) {
+      setError('The camera is still preparing. Keep the face centered and try again in a moment.')
+      return
+    }
+    const scale = Math.min(1, 1280 / video.videoWidth, 960 / video.videoHeight)
+    canvas.width = Math.round(video.videoWidth * scale)
+    canvas.height = Math.round(video.videoHeight * scale)
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height)
+    canvas.toBlob((blob) => {
+      if (!blob || !inputRef.current) {
+        setError('The live photo could not be captured. Please try again or upload a photo.')
+        return
+      }
+      const file = new File([blob], 'live-face-capture.jpg', { type: 'image/jpeg', lastModified: Date.now() })
+      const transfer = new DataTransfer()
+      transfer.items.add(file)
+      inputRef.current.files = transfer.files
+      replacePreview(URL.createObjectURL(file))
+      stopCamera()
+      setError('')
+    }, 'image/jpeg', 0.9)
+  }
+
+  function chooseFile(event) {
+    const file = event.target.files?.[0]
+    stopCamera()
+    if (!file) return replacePreview()
+    if (file.size > 5 * 1024 * 1024) {
+      event.target.value = ''
+      replacePreview()
+      setError('The selected image is larger than 5 MB. Choose a smaller image.')
+      return
+    }
+    replacePreview(URL.createObjectURL(file))
+    setError('')
+  }
+
   return (
-    <div>
-      <label htmlFor={id} className="ga-label">Face capture</label>
-      <input id={id} name="faceCapture" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.jfif,.png,.webp" capture="user" required className="mt-2" />
-      <p className="mt-2 text-xs leading-5 text-muted-copy">{help} JPG, PNG, or WebP; maximum 5 MB.</p>
-    </div>
+    <fieldset aria-describedby={`${id}-help ${id}-status`}>
+      <legend className="ga-label">Live face capture</legend>
+      <div className="mt-2 overflow-hidden rounded-xl border border-line bg-slate-950 shadow-inner">
+        <div className="relative aspect-[4/3] min-h-64 w-full overflow-hidden sm:min-h-80">
+          {captureState === 'captured' && previewUrl
+            ? <img src={previewUrl} alt="Captured beneficiary face preview" className="h-full w-full object-cover" />
+            : <video ref={videoRef} autoPlay muted playsInline onCanPlay={() => setCameraReady(true)} className={`h-full w-full scale-x-[-1] object-cover ${captureState === 'live' ? 'block' : 'hidden'}`} />}
+          {captureState === 'idle' && <div className="absolute inset-0 grid place-items-center px-6 text-center text-white"><div><span aria-hidden="true" className="mx-auto grid size-16 place-items-center rounded-full border border-white/20 bg-white/10 text-3xl">●</span><p className="mt-4 text-lg font-bold">Ready for a live identity photo</p><p className="mt-2 max-w-md text-sm leading-6 text-slate-300">Start the front camera and position one beneficiary inside the guide.</p></div></div>}
+          {captureState === 'live' && <div aria-hidden="true" className="pointer-events-none absolute inset-[10%] rounded-[45%] border-2 border-dashed border-white/80 shadow-[0_0_0_999px_rgba(2,6,23,0.3)]" />}
+          <span className="absolute left-3 top-3 rounded-full bg-slate-950/75 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">{captureState === 'live' ? 'LIVE CAMERA' : captureState === 'captured' ? 'PHOTO CAPTURED' : 'CAMERA OFF'}</span>
+        </div>
+        <div className="flex flex-col gap-3 border-t border-white/10 bg-slate-900 p-4 sm:flex-row">
+          {captureState === 'live'
+            ? <button type="button" onClick={captureFrame} disabled={!cameraReady} className="ga-btn-primary min-h-11 flex-1 disabled:cursor-not-allowed disabled:opacity-60">{cameraReady ? 'Capture live photo' : 'Preparing camera…'}</button>
+            : <button type="button" onClick={startCamera} className="ga-btn-primary min-h-11 flex-1">{captureState === 'captured' ? 'Retake live photo' : 'Start live camera'}</button>}
+          {captureState === 'live' && <button type="button" onClick={resetCapture} className="ga-btn-secondary min-h-11 border-slate-600 bg-slate-800 text-white hover:bg-slate-700">Cancel</button>}
+          <label htmlFor={id} className="ga-btn-secondary min-h-11 cursor-pointer border-slate-600 bg-slate-800 text-center text-white hover:bg-slate-700">{captureState === 'captured' ? 'Choose another photo' : 'Upload instead'}</label>
+        </div>
+      </div>
+      <input ref={inputRef} id={id} name="faceCapture" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.jfif,.png,.webp" capture="user" onChange={chooseFile} className="sr-only" />
+      <canvas ref={canvasRef} className="hidden" aria-hidden="true" />
+      <p id={`${id}-help`} className="mt-2 text-xs leading-5 text-muted-copy">{help} Live or uploaded JPG, PNG, or WebP; maximum 5 MB.</p>
+      <p id={`${id}-status`} aria-live="polite" className="mt-2 text-sm font-semibold text-brand-green">{captureState === 'captured' ? 'Photo ready for AI liveness and face matching.' : ''}</p>
+      {error && <p role="alert" className="mt-2 rounded-lg border border-red-200 bg-danger-soft p-3 text-sm font-semibold text-brand-red">{error}</p>}
+    </fieldset>
   )
 }
 
 function PrivacyAssurance({ processing }) {
   return (
-    <section className="ga-card overflow-hidden" aria-labelledby="privacy-assurance-heading">
-      <div className="border-b border-line bg-brand-navy px-5 py-4 text-white">
-        <p className="text-xs font-bold uppercase tracking-[0.12em] text-blue-200">Privacy by design</p>
-        <h2 id="privacy-assurance-heading" className="mt-1 text-lg font-bold">Protected biometric handling</h2>
+    <details className="ga-disclosure group">
+      <summary>
+        <span className="flex items-center gap-3"><Icon name="security" className="size-5 text-brand-blue" />Privacy and biometric security</span>
+        <Icon name="chevronDown" className="size-4 text-muted-copy transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="border-t border-line p-5">
+        <ul className="space-y-4 text-sm leading-6 text-copy">
+          {[
+            ['Raw image cleared', 'The live capture buffer is removed after processing.'],
+            ['Template encrypted', 'The derived face template is protected and never returned here.'],
+            ['Actions audited', 'Consent, enrollment, verification, and deletion are recorded.'],
+          ].map(([title, description]) => (
+            <li key={title} className="flex gap-3">
+              <span aria-hidden="true" className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-success-soft text-brand-green"><Icon name="check" className="size-3.5" strokeWidth={2.5} /></span>
+              <span><strong className="text-ink">{title}.</strong> {description}</span>
+            </li>
+          ))}
+        </ul>
+        {processing?.simulatedProcessor && <p className="mt-5 rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-copy"><strong className="text-brand-amber">Capstone test mode:</strong> scores are simulated and are not production identity assurance.</p>}
+        {processing && !processing.simulatedProcessor && <p className="mt-5 rounded-lg border border-emerald-200 bg-success-soft p-4 text-sm leading-6 text-copy"><strong className="text-brand-green">AI recognition configured:</strong> {processing.model ?? 'ArcFace'} with anti-spoofing protection.</p>}
       </div>
-      <ul className="space-y-4 p-5 text-sm leading-6 text-copy">
-        <li className="flex gap-3"><span aria-hidden="true" className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-success-soft font-bold text-brand-green">✓</span><span><strong className="text-ink">Raw image not retained.</strong> The capture buffer is cleared after processing.</span></li>
-        <li className="flex gap-3"><span aria-hidden="true" className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-success-soft font-bold text-brand-green">✓</span><span><strong className="text-ink">Template protected.</strong> The derived template is encrypted and never returned here.</span></li>
-        <li className="flex gap-3"><span aria-hidden="true" className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-success-soft font-bold text-brand-green">✓</span><span><strong className="text-ink">Every action is traceable.</strong> Consent, enrollment, verification, and deletion are audited.</span></li>
-      </ul>
-      {processing?.simulatedProcessor && <p className="border-t border-amber-200 bg-warning-soft px-5 py-4 text-sm leading-6 text-copy"><strong className="text-brand-amber">Capstone test mode:</strong> biometric scores are simulated locally and must not be treated as production identity assurance.</p>}
+    </details>
+  )
+}
+
+function StepList({ heading, steps }) {
+  const completed = steps.filter((step) => step.complete).length
+  return (
+    <section className="ga-card p-5" aria-label={`${heading}: ${completed} of ${steps.length} complete`}>
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-lg font-bold text-ink">{heading}</h2>
+        <span className="text-sm font-bold tabular-nums text-brand-blue">{completed}/{steps.length}</span>
+      </div>
+      <ol className="mt-5 space-y-4 text-sm">
+        {steps.map((step, index) => (
+          <li key={step.label} className="flex items-center gap-3">
+            <span aria-hidden="true" className={`grid size-8 shrink-0 place-items-center rounded-full text-xs font-bold ${step.complete ? 'bg-brand-green text-white' : 'border border-line bg-slate-50 text-muted-copy'}`}>
+              {step.complete ? <Icon name="check" className="size-4" strokeWidth={2.5} /> : index + 1}
+            </span>
+            <span className={step.complete ? 'font-bold text-ink' : 'text-muted-copy'}>{step.label}</span>
+          </li>
+        ))}
+      </ol>
     </section>
+  )
+}
+
+function CaptureChecklist() {
+  return (
+    <details className="ga-disclosure group">
+      <summary>
+        <span className="flex items-center gap-3"><Icon name="camera" className="size-5 text-brand-blue" />Capture checklist</span>
+        <Icon name="chevronDown" className="size-4 text-muted-copy transition-transform group-open:rotate-180" />
+      </summary>
+      <ul className="border-t border-line px-5 py-4 text-sm leading-6 text-copy">
+        {['One person centered in the frame', 'Even lighting and full face visible', 'No mask, sunglasses, blur, or screen replay'].map((item) => <li key={item} className="flex gap-3 py-1.5"><Icon name="check" className="mt-1 size-4 shrink-0 text-brand-green" strokeWidth={2.4} />{item}</li>)}
+      </ul>
+    </details>
   )
 }
 
@@ -207,8 +389,10 @@ function BiometricIdentityPage({ session, onLogout, onNavigate, onSessionExpired
       const file = captureFile(form)
       setIsSubmitting(true)
       const result = await verifyBiometricClaim(session.accessToken, distributionId, selectedSchedule, file)
-      setVerificationResult(result)
-      toast.success(result.verificationComplete ? 'Identity verified and claim completed.' : 'Biometric identity verified.', { description: result.nextRequiredVerification ? `${humanize(result.nextRequiredVerification)} verification is still required.` : 'The result was recorded in the audit trail.' })
+      const beneficiaryName = personName(schedules.find((schedule) => schedule.beneficiaryId === selectedSchedule)?.beneficiary)
+      setVerificationResult({ ...result, beneficiaryName })
+      if (result.verificationComplete) setSchedules((current) => current.filter((schedule) => schedule.beneficiaryId !== selectedSchedule))
+      toast.success(result.verificationComplete ? 'Identity verified and claim completed.' : 'Face verified successfully.', { description: result.nextRequiredVerification === 'SIGNATURE' ? 'Collect the beneficiary signature to complete this claim.' : result.nextRequiredVerification ? `${humanize(result.nextRequiredVerification)} verification is still required.` : 'The result was recorded in the audit trail.' })
       form.reset()
       setReloadAttempts((value) => value + 1)
     } catch (error) {
@@ -216,6 +400,16 @@ function BiometricIdentityPage({ session, onLogout, onNavigate, onSessionExpired
       handleError(error)
       setReloadAttempts((value) => value + 1)
     } finally { setIsSubmitting(false) }
+  }
+
+  async function completeSignature(signature) {
+    setIsSubmitting(true)
+    try {
+      const result = await submitClaimSignature(session.accessToken, distributionId, verificationResult.claim.claimId, signature)
+      setVerificationResult((current) => ({ ...result, beneficiaryName: current.beneficiaryName }))
+      setSchedules((current) => current.filter((schedule) => schedule.beneficiaryId !== result.claim.beneficiaryId))
+      toast.success('Face and signature verification complete.', { description: 'Encrypted signature evidence and the staff attestation were added to the audit trail.' })
+    } catch (error) { handleError(error) } finally { setIsSubmitting(false) }
   }
 
   async function confirmDialog() {
@@ -259,7 +453,7 @@ function BiometricIdentityPage({ session, onLogout, onNavigate, onSessionExpired
       {isLoading ? <WorkspaceSkeleton /> : view === 'enrollment' ? (
         <EnrollmentWorkspace beneficiaries={beneficiaries} beneficiaryId={beneficiaryId} setBeneficiaryId={(value) => { setBeneficiaryId(value); setConsents([]); setProfile(null); setProcessing(null); setIsLoadingProfile(Boolean(value)) }} selectedBeneficiary={selectedBeneficiary} consents={consents} profile={profile} processing={processing} activeConsent={activeConsent} canCapture={canCapture} isLoadingProfile={isLoadingProfile} isSubmitting={isSubmitting} onConsent={submitConsent} onEnrollment={submitEnrollment} onRevoke={(consentId) => setDialogAction({ type: 'revoke', consentId })} onDelete={() => setDialogAction({ type: 'delete' })} isAdmin={role === 'SYSTEM_ADMIN'} />
       ) : view === 'verify' ? (
-        <VerificationWorkspace distributions={verificationDistributions} distributionId={distributionId} setDistributionId={(value) => { setDistributionId(value); setSchedules([]); setAttemptData(null); setAttemptPage(1); setIsLoadingAttempts(Boolean(value)); setVerificationResult(null) }} selectedDistribution={selectedDistribution} candidates={claimCandidates} isSubmitting={isSubmitting} result={verificationResult} onSubmit={submitVerification} processing={verificationResult?.biometricVerification ?? processing} />
+        <VerificationWorkspace distributions={verificationDistributions} distributionId={distributionId} setDistributionId={(value) => { setDistributionId(value); setSchedules([]); setAttemptData(null); setAttemptPage(1); setIsLoadingAttempts(Boolean(value)); setVerificationResult(null) }} selectedDistribution={selectedDistribution} candidates={claimCandidates} isSubmitting={isSubmitting} result={verificationResult} onSubmit={submitVerification} onSignature={completeSignature} onReset={() => setVerificationResult(null)} processing={verificationResult?.biometricVerification ?? processing} />
       ) : (
         <AttemptHistory distributions={distributions} distributionId={distributionId} setDistributionId={(value) => { setDistributionId(value); setSchedules([]); setAttemptData(null); setAttemptPage(1); setIsLoadingAttempts(Boolean(value)) }} resultFilter={attemptResult} setResultFilter={(value) => { setAttemptResult(value); setAttemptPage(1); setIsLoadingAttempts(Boolean(distributionId)) }} data={attemptData} isLoading={isLoadingAttempts} page={attemptPage} setPage={(value) => { setAttemptPage(value); setIsLoadingAttempts(true) }} beneficiaries={beneficiaries} />
       )}
@@ -301,29 +495,95 @@ function EnrollmentWorkspace({ beneficiaries, beneficiaryId, setBeneficiaryId, s
       </div>
 
       <aside className="space-y-5">
-        <section className="ga-card p-5" aria-labelledby="enrollment-progress-heading"><div className="flex items-center justify-between gap-4"><h2 id="enrollment-progress-heading" className="text-lg font-bold text-ink">Enrollment progress</h2><span className="text-sm font-bold text-brand-blue">{progress}/3</span></div><div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-label="Enrollment progress" aria-valuemin="0" aria-valuemax="3" aria-valuenow={progress}><div className="h-full rounded-full bg-brand-blue transition-[width]" style={{ width: `${progress / 3 * 100}%` }} /></div><ol className="mt-5 space-y-4 text-sm">{[['Beneficiary selected', progress >= 1], ['Active consent recorded', progress >= 2], ['Protected profile enrolled', progress >= 3]].map(([label, complete], index) => <li key={label} className="flex items-center gap-3"><span aria-hidden="true" className={`grid size-7 shrink-0 place-items-center rounded-full text-xs font-bold ${complete ? 'bg-brand-green text-white' : 'bg-slate-100 text-muted-copy'}`}>{complete ? '✓' : index + 1}</span><span className={complete ? 'font-bold text-ink' : 'text-muted-copy'}>{label}</span></li>)}</ol></section>
+        <StepList heading="Enrollment progress" steps={[
+          { label: 'Beneficiary selected', complete: progress >= 1 },
+          { label: 'Consent recorded', complete: progress >= 2 },
+          { label: 'Face profile enrolled', complete: progress >= 3 },
+        ]} />
         <PrivacyAssurance processing={processing} />
       </aside>
     </div>
   )
 }
 
-function VerificationWorkspace({ distributions, distributionId, setDistributionId, selectedDistribution, candidates, isSubmitting, result, onSubmit, processing }) {
+function VerificationWorkspace({ distributions, distributionId, setDistributionId, selectedDistribution, candidates, isSubmitting, result, onSubmit, onSignature, onReset, processing }) {
+  const awaitingSignature = result?.nextRequiredVerification === 'SIGNATURE'
+  const requiresSignature = selectedDistribution?.verificationRequirement === 'BIOMETRIC_AND_SIGNATURE'
   return (
-    <div className="mt-6 grid items-start gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(22rem,0.75fr)]">
-      <section className="ga-card p-5 sm:p-6" aria-labelledby="claim-verification-heading">
-        <p className="ga-eyebrow">Distribution-site workflow</p><h2 id="claim-verification-heading" className="mt-1 ga-section-heading">Verify beneficiary identity</h2><p className="mt-2 text-sm leading-6 text-muted-copy">Only open distributions configured for biometric verification are available. Confirm the person and schedule before capture.</p>
-        <form onSubmit={onSubmit} className="mt-6 space-y-5">
-          <div><label htmlFor="biometric-distribution" className="ga-label">Open distribution</label><select id="biometric-distribution" value={distributionId} onChange={(event) => setDistributionId(event.target.value)} required className="ga-input mt-2"><option value="">Select a biometric-enabled distribution</option>{distributions.map((distribution) => <option key={distribution.distributionId} value={distribution.distributionId}>{distribution.title} — {distribution.distributionDate}</option>)}</select>{distributions.length === 0 && <p className="mt-2 text-xs text-muted-copy">No open biometric-enabled distribution is available in your scope.</p>}</div>
-          {selectedDistribution && <div className="grid gap-3 rounded-lg border border-blue-200 bg-info-soft p-4 text-sm sm:grid-cols-3"><Info label="Requirement" value={humanize(selectedDistribution.verificationRequirement)} /><Info label="Location" value={selectedDistribution.location} /><Info label="Service time" value={`${selectedDistribution.startTime}–${selectedDistribution.endTime}`} /></div>}
-          <div><label htmlFor="biometric-candidate" className="ga-label">Scheduled beneficiary</label><select id="biometric-candidate" name="beneficiaryId" required disabled={!distributionId} className="ga-input mt-2"><option value="">Select a scheduled beneficiary</option>{candidates.map((schedule) => <option key={schedule.scheduleId} value={schedule.beneficiaryId}>Queue {schedule.queueNumber} — {personName(schedule.beneficiary)} ({humanize(schedule.status)})</option>)}</select>{distributionId && candidates.length === 0 && <p className="mt-2 text-xs text-muted-copy">No scheduled or checked-in beneficiary is available for verification.</p>}</div>
-          <CaptureField id="verification-face-capture" help="Confirm the beneficiary is present and has agreed to this verification." />
-          <div className="rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">Before continuing:</strong> compare the selected schedule with the beneficiary's official record and obtain their cooperation for a live capture.</div>
-          <button type="submit" disabled={isSubmitting || !distributionId || candidates.length === 0} className="ga-btn-primary w-full">{isSubmitting ? <LoadingLabel>Checking liveness and match...</LoadingLabel> : 'Verify identity and continue claim'}</button>
-        </form>
-        {result && <section role="status" aria-live="polite" className={`mt-6 rounded-xl border p-5 ${result.verificationComplete ? 'border-emerald-200 bg-success-soft' : 'border-amber-200 bg-warning-soft'}`}><div className="flex items-start gap-4"><span aria-hidden="true" className={`grid size-11 shrink-0 place-items-center rounded-full text-xl font-black text-white ${result.verificationComplete ? 'bg-brand-green' : 'bg-brand-amber'}`}>✓</span><div><h3 className="text-lg font-bold text-ink">{result.verificationComplete ? 'Claim verification complete' : 'Biometric identity verified'}</h3><p className="mt-1 text-sm leading-6 text-copy">{result.verificationComplete ? 'The claim is verified and the successful attempt was audited.' : `${humanize(result.nextRequiredVerification)} verification is still required before claim completion.`}</p></div></div></section>}
+    <div className="mt-6 grid items-start gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
+      <section className="ga-card overflow-hidden" aria-labelledby="claim-verification-heading">
+        <header className="border-b border-line p-5 sm:p-6">
+          <p className="ga-eyebrow">On-site verification</p>
+          <h2 id="claim-verification-heading" className="mt-1 ga-section-heading">Verify the beneficiary</h2>
+          <p className="mt-2 text-sm leading-6 text-muted-copy">Choose the open distribution and scheduled person, then take a live photo.</p>
+        </header>
+
+        <div className="p-5 sm:p-6">
+          {result?.verificationComplete ? (
+            <section role="status" aria-live="polite" className="rounded-xl border border-emerald-200 bg-success-soft p-5 sm:p-6">
+              <span aria-hidden="true" className="grid size-12 place-items-center rounded-full bg-brand-green text-white"><Icon name="check" className="size-6" strokeWidth={2.6} /></span>
+              <h3 className="mt-4 text-xl font-bold text-ink">Claim verification complete</h3>
+              <p className="mt-2 text-sm leading-6 text-copy">{result.claim.verificationMethod === 'BIOMETRIC_AND_SIGNATURE' ? 'The face match, signature, and staff confirmation were secured.' : 'The identity check passed and the attempt was audited.'}</p>
+              <dl className="mt-5 grid gap-4 border-t border-emerald-200 pt-5 text-sm sm:grid-cols-2">
+                <Info label="Beneficiary" value={result.beneficiaryName} />
+                <Info label="Verification" value={humanize(result.claim.verificationMethod)} />
+              </dl>
+              <button type="button" onClick={onReset} className="ga-btn-primary mt-5 w-full sm:w-auto">Verify next beneficiary</button>
+            </section>
+          ) : awaitingSignature ? (
+            <ClaimSignaturePad beneficiaryName={result.beneficiaryName} busy={isSubmitting} onSubmit={onSignature} />
+          ) : (
+            <form onSubmit={onSubmit} className="space-y-5">
+              <div>
+                <label htmlFor="biometric-distribution" className="ga-label">Open distribution</label>
+                <select id="biometric-distribution" value={distributionId} onChange={(event) => setDistributionId(event.target.value)} required className="ga-input mt-2">
+                  <option value="">Select a distribution</option>
+                  {distributions.map((distribution) => <option key={distribution.distributionId} value={distribution.distributionId}>{distribution.title} — {distribution.distributionDate}</option>)}
+                </select>
+                {distributions.length === 0 && <p className="mt-2 text-sm text-muted-copy">No open biometric distribution is available in your scope.</p>}
+              </div>
+
+              {selectedDistribution && (
+                <dl className="grid gap-4 rounded-xl border border-line bg-slate-50 p-4 text-sm sm:grid-cols-3">
+                  <Info label="Method" value={humanize(selectedDistribution.verificationRequirement)} />
+                  <Info label="Location" value={selectedDistribution.location} />
+                  <Info label="Service time" value={`${selectedDistribution.startTime}–${selectedDistribution.endTime}`} />
+                </dl>
+              )}
+
+              <div>
+                <label htmlFor="biometric-candidate" className="ga-label">Scheduled beneficiary</label>
+                <select id="biometric-candidate" name="beneficiaryId" required disabled={!distributionId} className="ga-input mt-2">
+                  <option value="">Select a beneficiary</option>
+                  {candidates.map((schedule) => <option key={schedule.scheduleId} value={schedule.beneficiaryId}>Queue {schedule.queueNumber} — {personName(schedule.beneficiary)} ({humanize(schedule.status)})</option>)}
+                </select>
+                {distributionId && candidates.length === 0 && <p className="mt-2 text-sm text-muted-copy">No scheduled or checked-in beneficiary is ready for verification.</p>}
+              </div>
+
+              <CaptureField id="verification-face-capture" help="Confirm the beneficiary is present and agrees to the live identity check." />
+
+              <p className="flex gap-3 rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-copy">
+                <Icon name="info" className="mt-0.5 size-5 shrink-0 text-brand-amber" />
+                <span><strong className="text-ink">Before capture:</strong> compare the selected schedule with the official beneficiary record.</span>
+              </p>
+
+              <button type="submit" disabled={isSubmitting || !distributionId || candidates.length === 0} className="ga-btn-primary w-full">
+                {isSubmitting ? <LoadingLabel>Checking liveness and face match...</LoadingLabel> : requiresSignature ? 'Verify face and continue to signature' : 'Verify identity and complete claim'}
+              </button>
+            </form>
+          )}
+        </div>
       </section>
-      <aside className="space-y-5"><PrivacyAssurance processing={processing} /><section className="ga-card p-5"><h2 className="text-lg font-bold text-ink">Capture quality checklist</h2><ul className="mt-4 space-y-3 text-sm leading-6 text-copy"><li>• One person centered in the frame</li><li>• Even lighting with the full face visible</li><li>• No mask, sunglasses, blur, or screen replay</li><li>• Retry only after correcting the stated issue</li></ul></section></aside>
+
+      <aside className="space-y-4">
+        {requiresSignature && <StepList heading="Claim progress" steps={[
+          { label: 'Distribution selected', complete: true },
+          { label: 'Face matched', complete: awaitingSignature || result?.verificationComplete },
+          { label: 'Signature secured', complete: result?.verificationComplete },
+        ]} />}
+        <CaptureChecklist />
+        <PrivacyAssurance processing={processing} />
+      </aside>
     </div>
   )
 }

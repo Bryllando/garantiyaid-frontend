@@ -13,16 +13,16 @@ function MotionRoot({ children }) {
 
       animate('[data-motion-page]', {
         opacity: [0, 1],
-        y: [12, 0],
-        duration: 500,
+        y: [8, 0],
+        duration: 360,
         ease: 'outExpo',
       })
 
       root.current.querySelectorAll('[data-motion-reveal]').forEach((target) => {
         animate(target, {
           opacity: [0, 1],
-          y: [20, 0],
-          duration: 650,
+          y: [12, 0],
+          duration: 400,
           ease: 'outExpo',
           autoplay: onScroll({ target, enter: 'bottom-=72 top' }),
         })
@@ -31,9 +31,9 @@ function MotionRoot({ children }) {
       root.current.querySelectorAll('[data-motion-stagger]').forEach((group) => {
         animate(group.children, {
           opacity: [0, 1],
-          y: [16, 0],
-          delay: stagger(45),
-          duration: 600,
+          y: [10, 0],
+          delay: stagger(35),
+          duration: 380,
           ease: 'outExpo',
           autoplay: onScroll({ target: group, enter: 'bottom-=72 top' }),
         })

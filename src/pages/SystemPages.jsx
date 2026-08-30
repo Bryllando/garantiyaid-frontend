@@ -3,7 +3,7 @@ import { Component } from 'react'
 function Brand() {
   return (
     <span className="flex items-center gap-3 font-bold tracking-tight text-brand-navy">
-      <span aria-hidden="true" className="grid size-10 place-items-center rounded-xl bg-brand-navy text-sm font-extrabold text-white">GA</span>
+      <img src="/GarantiyAid-logo.svg" alt="" width="512" height="512" className="size-12 shrink-0 object-contain sm:size-14" />
       <span className="text-lg">GarantiyAid</span>
     </span>
   )

@@ -207,7 +207,7 @@ function reportDefinition(type, data) {
   if (type === 'CLAIMS') return {
     metrics: [['Matching claims', numberFormatter.format(data.summary.matchingClaimCount)], ['Claimed', numberFormatter.format(data.summary.statusCounts.CLAIMED ?? 0), 'success'], ['Verified', numberFormatter.format(data.summary.statusCounts.VERIFIED ?? 0)], ['Rejected or voided', numberFormatter.format((data.summary.statusCounts.REJECTED ?? 0) + (data.summary.statusCounts.VOIDED ?? 0)), 'danger']],
     rows: data.claims,
-    columns: [['Recorded', (row) => formatDate(row.recordedAt)], ['Beneficiary', (row) => row.beneficiaryName], ['Queue', (row) => row.queueNumber], ['Verification', (row) => humanize(row.verificationMethod)], ['Allocated', (row) => formatMoney(row.allocatedAmount)], ['Status', (row) => <StatusBadge value={row.claimStatus} />]],
+    columns: [['Recorded', (row) => formatDate(row.recordedAt)], ['Beneficiary', (row) => row.beneficiaryName], ['Queue', (row) => row.queueNumber], ['Verification', (row) => humanize(row.verificationMethod)], ['Signature', (row) => row.signatureVerified ? 'Secured' : '—'], ['Allocated', (row) => formatMoney(row.allocatedAmount)], ['Status', (row) => <StatusBadge value={row.claimStatus} />]],
     pagination: data.pagination,
   }
   if (type === 'SCHEDULES') return {

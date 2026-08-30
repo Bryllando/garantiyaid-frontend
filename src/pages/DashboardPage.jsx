@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
+import { Icon } from '../components/ui/icon.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import {
   getAuthErrorMessage,
@@ -10,36 +11,37 @@ import {
 } from '../auth/staffAuth.js'
 
 const moduleDescriptions = {
-  'Staff & barangays': 'Manage authorized personnel, roles, assignments, and service areas.',
-  'Authenticator recovery': 'Complete verified TOTP recovery for staff who lost access.',
-  Reports: 'Generate privacy-conscious operational summaries and exports.',
-  'Audit logs': 'Trace protected staff and system activity.',
-  'Live monitoring': 'Watch distribution activity, claims, queues, and anomalies.',
+  'Staff & barangays': 'Create staff accounts, barangays, roles, and assignments.',
+  'Authenticator recovery': 'Help a verified staff member restore authenticator access.',
+  Reports: 'Generate distribution, claim, schedule, and fund summaries.',
+  'Audit logs': 'Review recorded staff and system actions.',
+  'Live monitoring': 'Watch active distributions, queues, claims, and exceptions.',
   Ledger: 'Review simulated fund utilization and transaction records.',
   'Queue & schedules': 'Manage today’s assigned beneficiary queue and time slots.',
   'QR verification': 'Validate single-use claim references at distribution sites.',
   Notifications: 'Monitor simulated SMS delivery and follow up on failed reminders.',
-  'Biometric identity': 'Manage consent, protected enrollment, claim checks, and verification history.',
+  'Biometric identity': 'Record consent, enroll a face profile, and verify claims.',
   'Claim settlement': 'Credit verified claims and reconcile the simulated aid ledger.',
+  'Claim accountability': 'Issue claim receipts, file disputes, and record independent review decisions.',
 }
 
 const roleContent = {
   SYSTEM_ADMIN: {
     eyebrow: 'System administration',
-    heading: 'Keep staff access and operations secure.',
-    description: 'Review platform activity, respond to access concerns, and maintain accountable administrative oversight.',
+    heading: 'Set up staff access and service areas.',
+    description: 'Create barangays, assign staff, and resolve account-security concerns.',
     primary: ['Manage staff and barangays', '/admin/administration'],
   },
   DSWD_STAFF: {
     eyebrow: 'DSWD operations',
-    heading: 'See what needs attention across distributions.',
-    description: 'Monitor assistance activity, verification outcomes, simulated ledger records, and operational reports.',
+    heading: 'Monitor distributions and settle verified claims.',
+    description: 'Review active operations, verification outcomes, fund records, and reports.',
     primary: ['Open live monitoring', '/dswd/live-dashboard'],
   },
   BARANGAY_FACILITATOR: {
     eyebrow: 'Barangay operations',
-    heading: 'Manage today’s queue and verified claims.',
-    description: 'Move beneficiaries through scheduled distribution activities with clear queue and QR verification tools.',
+    heading: 'Run today’s beneficiary queue.',
+    description: 'Check schedules, verify beneficiaries, and complete assigned distribution-site work.',
     primary: ['View beneficiary queue', '/facilitator/queue'],
   },
 }
@@ -137,6 +139,7 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
     && overview.programs.activeProgramCount === 0
     && overview.distributions.totalMatchingDistributionCount === 0
     && overview.beneficiaries.approvedBeneficiaryCount === 0
+  const attention = overview ? attentionFor(overview, role) : null
 
   return (
     <DashboardShell breadcrumbs={['Operations', 'Overview']} currentPath="/dashboard" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Overview" user={session.user}>
@@ -157,6 +160,8 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
             </div>
             <a href={content.primary[1]} onClick={(event) => { event.preventDefault(); onNavigate(content.primary[1]) }} className="ga-btn-primary shrink-0">{content.primary[0]}</a>
           </header>
+
+          {attention && <div className="mt-6"><AttentionCard attention={attention} onNavigate={onNavigate} /></div>}
 
           <section className="mt-6" aria-labelledby="status-heading">
             <div className="flex flex-wrap items-end justify-between gap-3">
@@ -189,7 +194,7 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
                       <span className="block font-bold text-ink group-hover:text-brand-blue">{item.label}</span>
                       <span className="mt-1 block text-sm leading-6 text-muted-copy">{moduleDescriptions[item.label]}</span>
                     </span>
-                    <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-full bg-info-soft text-lg text-brand-blue transition-[background-color,color,transform] duration-200 group-hover:translate-x-1 group-hover:bg-brand-blue group-hover:text-white">→</span>
+                    <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-full bg-info-soft text-brand-blue transition-[background-color,color] duration-200 group-hover:bg-brand-blue group-hover:text-white"><Icon name="arrowRight" className="size-4" strokeWidth={2.2} /></span>
                   </a>
                 ))}
               </div>
@@ -197,7 +202,6 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
             </section>
 
             <div className="space-y-6">
-              <AttentionCard attention={attentionFor(overview, role)} onNavigate={onNavigate} />
               <section className="ga-card p-5" aria-labelledby="scope-heading">
                 <h2 id="scope-heading" className="text-lg font-bold text-ink">Access and data scope</h2>
                 <dl className="mt-4 divide-y divide-line text-sm">
@@ -223,7 +227,7 @@ function AttentionCard({ attention, onNavigate }) {
       <p className={`text-xs font-bold uppercase tracking-[0.12em] ${labelColor}`}>{attention.label}</p>
       <h2 id="attention-heading" className="mt-2 text-lg font-bold text-ink">{attention.title}</h2>
       <p className="mt-2 text-sm leading-6 text-copy">{attention.description}</p>
-      {attention.action && <a href={attention.action[1]} onClick={(event) => { event.preventDefault(); onNavigate(attention.action[1]) }} className="mt-4 inline-flex min-h-11 items-center font-bold text-brand-blue hover:text-brand-blue-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">{attention.action[0]} →</a>}
+      {attention.action && <a href={attention.action[1]} onClick={(event) => { event.preventDefault(); onNavigate(attention.action[1]) }} className="mt-4 inline-flex min-h-11 items-center gap-2 font-bold text-brand-blue hover:text-brand-blue-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">{attention.action[0]} <Icon name="arrowRight" className="size-4" strokeWidth={2.2} /></a>}
     </section>
   )
 }

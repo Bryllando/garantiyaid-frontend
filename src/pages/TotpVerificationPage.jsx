@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import AuthShell from '../components/auth/AuthShell.jsx'
 import { InputOTP, InputOTPGroup, InputOTPSlot, REGEXP_ONLY_DIGITS } from '../components/ui/input-otp.jsx'
+import { useMotionEntry } from '../components/ui/use-motion-entry.js'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
 import { getAuthErrorMessage, getLoginOutcome, requestStaffLogin, storeStaffSession } from '../auth/staffAuth.js'
 
@@ -17,6 +18,7 @@ function TotpVerificationPage({ credentials, onBackToLogin, onVerified }) {
   const [isVerified, setIsVerified] = useState(false)
   const isRecovery = method === 'recovery'
   const canSubmit = isRecovery ? recoveryCode.length === 19 : code.length === 6
+  const formRef = useMotionEntry(method)
 
   function switchMethod(nextMethod) {
     setMethod(nextMethod)
@@ -71,12 +73,12 @@ function TotpVerificationPage({ credentials, onBackToLogin, onVerified }) {
               <p className="mt-5 rounded-lg border border-line bg-slate-50 px-4 py-3 text-sm text-copy">Signing in as <strong className="text-ink">{credentials.identifier}</strong></p>
             </div>
 
-            <form className="mt-7 space-y-6" onSubmit={handleSubmit} aria-busy={isSubmitting}>
+            <form ref={formRef} className="mt-7 space-y-6" onSubmit={handleSubmit} aria-busy={isSubmitting}>
               {isRecovery ? (
                 <div>
                   <label htmlFor="recovery-code" className="ga-label">Recovery code</label>
                   <input id="recovery-code" name="recoveryCode" type="text" autoComplete="off" autoCapitalize="characters" spellCheck="false" required autoFocus maxLength="19" value={recoveryCode} onChange={(event) => { setRecoveryCode(formatRecoveryCode(event.target.value)); setError('') }} placeholder="XXXX-XXXX-XXXX-XXXX" aria-describedby="recovery-code-hint" aria-invalid={Boolean(error)} className="ga-input mt-2 text-center font-mono font-bold tracking-[0.08em]" />
-                  <p id="recovery-code-hint" className="mt-2 text-sm leading-6 text-muted-copy">Each recovery code can be used once.</p>
+                  <p id="recovery-code-hint" className="mt-2 text-sm leading-6 text-muted-copy">Each recovery code can be used once. This code will be permanently marked as used after successful verification.</p>
                 </div>
               ) : (
                 <div className="text-center">

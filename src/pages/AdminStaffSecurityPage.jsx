@@ -133,7 +133,7 @@ function AdminStaffSecurityPage({ session, onLogout, onNavigate, onSessionExpire
                         <p className="font-bold text-ink">{user.fullName}</p>
                         <p className="mt-1 text-sm text-muted-copy">{user.employeeId} · {STAFF_ROLE_LABELS[user.role] ?? user.role}</p>
                         <p className={`mt-2 text-sm font-bold ${user.totpEnabled ? 'text-brand-green' : 'text-brand-amber'}`}>
-                          {user.totpEnabled ? 'Authenticator active' : 'Authenticator setup required'}
+                          {user.mustChangePassword ? 'First sign-in pending' : user.totpEnabled ? 'Authenticator active' : 'Authenticator setup required'}
                           {!user.isActive && ' | Account inactive'}
                         </p>
                       </div>

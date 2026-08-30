@@ -6,6 +6,7 @@ import {
   activateProgram,
   buildStaffAccountPayload,
   creditVerifiedClaim,
+  createClaimDispute,
   createBarangay,
   createStaffUser,
   createDistribution,
@@ -20,6 +21,7 @@ import {
   generateDistributionSlots,
   getDashboardNavigation,
   getLoginOutcome,
+  issueClaimReceipt,
   isSessionExpiredError,
   openDistribution,
   programCriterionExpectedValue,
@@ -31,8 +33,10 @@ import {
   requestBiometricConsents,
   requestBiometricStatus,
   requestCreditableClaims,
+  requestClaimDisputes,
   requestDashboardOverview,
   requestDistributionDashboard,
+  requestDistributionClaims,
   requestDistributionCsv,
   requestDistributionList,
   requestDistributionQueue,
@@ -52,12 +56,15 @@ import {
   requestTotpSetup,
   requestTransactionReceipt,
   recordBiometricConsent,
+  recordClaimReceiptPrint,
   resetStaffTotp,
+  reviewClaimDispute,
   reverseBenefitCredit,
   revokeBiometricConsent,
   retryNotification,
   saveBiometricEnrollment,
   startEnrollmentReview,
+  submitClaimSignature,
   uploadBeneficiaryDocument,
   updateBarangay,
   updateStaffUser,
@@ -67,6 +74,7 @@ import {
 import { connectNotificationRealtime, connectStaffRealtime, DSWD_LIVE_EVENTS, NOTIFICATION_LIVE_EVENTS, realtimeServerUrl } from '../src/realtime/staffRealtime.js'
 
 test('login outcomes preserve the backend authentication handoff', () => {
+  assert.equal(getLoginOutcome({ requiresPasswordChange: true }), 'password-change')
   assert.equal(getLoginOutcome({ requiresTotp: true }), 'totp')
   assert.equal(getLoginOutcome({ requiresTotpEnrollment: true, totpSetupToken: 'token' }), 'totp-enrollment')
   assert.equal(getLoginOutcome({ accessToken: 'token', user: { userId: 'user' } }), 'authenticated')
@@ -160,6 +168,9 @@ test('dashboard navigation is limited to the signed-in staff role', () => {
   assert.ok(!dswdLabels.includes('Staff & barangays'))
   assert.ok(facilitatorLabels.includes('QR verification'))
   assert.ok(facilitatorLabels.includes('Enrollments'))
+  assert.ok(adminLabels.includes('Claim accountability'))
+  assert.ok(dswdLabels.includes('Claim accountability'))
+  assert.ok(facilitatorLabels.includes('Claim accountability'))
   assert.ok(!facilitatorLabels.includes('Audit logs'))
   assert.deepEqual(getDashboardNavigation('UNKNOWN_ROLE'), [])
 })
@@ -170,7 +181,7 @@ test('staff and barangay administration preserve scoped account contracts', asyn
   context.after(() => { globalThis.fetch = originalFetch })
   const responses = [
     { users: [], pagination: { page: 1, total: 0 } },
-    { user: { userId: 'staff-1' } },
+    { user: { userId: 'staff-1' }, temporaryPassword: 'SecureTemp_1234' },
     { user: { userId: 'staff-1', isActive: false } },
     { barangays: [] },
     { barangay: { barangayId: 'barangay-1' } },
@@ -182,21 +193,23 @@ test('staff and barangay administration preserve scoped account contracts', asyn
   }
 
   await requestStaffUserList('admin-token', { page: 2, pageSize: 20, role: 'DSWD_STAFF', isActive: true, search: 'Maria' })
-  await createStaffUser('admin-token', { employeeId: 'DSWD-002', fullName: 'Maria Santos' })
+  const createdAccount = await createStaffUser('admin-token', { role: 'DSWD_STAFF', fullName: 'Maria Santos' })
   await updateStaffUser('admin-token', 'staff-1', { isActive: false })
   await requestBarangayList('admin-token', { activeOnly: false })
   await createBarangay('admin-token', { barangayName: 'Barangay Sample', city: 'Sample City', province: 'Sample Province' })
   await updateBarangay('admin-token', 'barangay-1', { isActive: false })
 
-  const facilitatorForm = { employeeId: ' brgy-002 ', fullName: 'Facilitator Two', email: 'FACILITATOR@EXAMPLE.COM', contactNumber: '', role: 'BARANGAY_FACILITATOR', username: 'facilitator.two', barangayId: 'barangay-1', password: 'TemporaryPassword123' }
+  const facilitatorForm = { fullName: 'Facilitator Two', email: 'FACILITATOR@EXAMPLE.COM', contactNumber: '', role: 'BARANGAY_FACILITATOR', username: 'facilitator.two', barangayId: 'barangay-1' }
   assert.deepEqual(buildStaffAccountPayload(facilitatorForm), {
-    employeeId: 'BRGY-002', fullName: 'Facilitator Two', email: 'facilitator@example.com', contactNumber: undefined,
-    role: 'BARANGAY_FACILITATOR', username: 'facilitator.two', barangayId: 'barangay-1', password: 'TemporaryPassword123',
+    fullName: 'Facilitator Two', email: 'facilitator@example.com', contactNumber: undefined,
+    role: 'BARANGAY_FACILITATOR', username: 'facilitator.two', barangayId: 'barangay-1',
   })
   const existing = { fullName: 'Facilitator Two', email: 'facilitator@example.com', contactNumber: null, role: 'BARANGAY_FACILITATOR', username: 'facilitator.two', barangayId: 'barangay-1' }
-  assert.deepEqual(buildStaffAccountPayload({ ...facilitatorForm, employeeId: 'BRGY-002', role: 'DSWD_STAFF', username: '', barangayId: '' }, existing), { role: 'DSWD_STAFF', username: null, barangayId: null })
+  assert.deepEqual(buildStaffAccountPayload({ ...facilitatorForm, role: 'DSWD_STAFF' }, existing), {})
 
   assert.match(requests[0].url, /\/users\?page=2&pageSize=20&role=DSWD_STAFF&isActive=true&search=Maria$/)
+  assert.equal(createdAccount.temporaryPassword, 'SecureTemp_1234')
+  assert.equal(Object.hasOwn(JSON.parse(requests[1].options.body), 'password'), false)
   assert.match(requests[2].url, /\/users\/staff-1$/)
   assert.equal(requests[2].options.method, 'PATCH')
   assert.match(requests[3].url, /\/barangays\?activeOnly=false$/)
@@ -262,7 +275,8 @@ test('program and distribution setup preserve lifecycle and idempotency contract
   await createProgramCriterion('staff-token', 'program-1', { criterionName: 'Adult', fieldName: 'AGE', operator: 'GREATER_THAN_OR_EQUAL', expectedValue: 18, isRequired: true })
   await activateProgram('staff-token', 'program-1')
   await createDistribution('admin-token', { programId: 'program-1', title: 'Barangay payout' })
-  await generateDistributionSlots('admin-token', 'distribution-1', 10)
+  const sessions = [{ label: 'Sitio Riverside', date: '2026-09-01', startTime: '08:00', endTime: '10:00', location: 'Covered court', capacity: 10, serviceAreas: ['Riverside'] }]
+  await generateDistributionSlots('admin-token', 'distribution-1', sessions)
   await createDistributionAllocations('admin-token', 'distribution-1', ['enrollment-1', 'enrollment-2'], '11111111-1111-4111-8111-111111111111')
   await generateDistributionSchedules('admin-token', 'distribution-1', '22222222-2222-4222-8222-222222222222')
   await openDistribution('admin-token', 'distribution-1')
@@ -275,6 +289,7 @@ test('program and distribution setup preserve lifecycle and idempotency contract
   assert.match(requests[1].url, /\/programs\/program-1\/criteria$/)
   assert.match(requests[2].url, /\/programs\/program-1\/activate$/)
   assert.match(requests[4].url, /\/distributions\/distribution-1\/slots\/generate$/)
+  assert.deepEqual(JSON.parse(requests[4].options.body), { sessions })
   assert.equal(requests[5].options.headers['Idempotency-Key'], '11111111-1111-4111-8111-111111111111')
   assert.equal(requests[6].options.headers['Idempotency-Key'], '22222222-2222-4222-8222-222222222222')
   assert.match(requests[7].url, /\/distributions\/distribution-1\/open$/)
@@ -347,6 +362,7 @@ test('biometric identity workflow preserves consent, multipart capture, idempote
     { consent: { consentId: 'consent-1', consentStatus: 'REVOKED' } },
     { deleted: true, biometricStatus: 'NOT_ENROLLED' },
     { claim: { claimId: 'claim-1' }, verificationComplete: true },
+    { claim: { claimId: 'claim-1' }, signature: { signatureId: 'signature-1' }, verificationComplete: true },
     { attempts: [], pagination: { page: 1, total: 0 }, privacy: { rawCapturesStored: false } },
   ]
   globalThis.fetch = async (url, options) => {
@@ -362,6 +378,7 @@ test('biometric identity workflow preserves consent, multipart capture, idempote
   await revokeBiometricConsent('staff-token', 'beneficiary-1', 'consent-1')
   await deleteBiometricEnrollment('admin-token', 'beneficiary-1')
   await verifyBiometricClaim('facilitator-token', 'distribution-1', 'beneficiary-1', capture, '11111111-1111-4111-8111-111111111111')
+  await submitClaimSignature('facilitator-token', 'distribution-1', 'claim-1', { signatureDataUrl: 'data:image/png;base64,aGVsbG8=', signatureMethod: 'DRAWN', pointCount: 24, attestation: true }, '22222222-2222-4222-8222-222222222222')
   await requestBiometricAttempts('oversight-token', 'distribution-1', { page: 1, pageSize: 20, result: 'MATCHED' })
 
   assert.match(requests[0].url, /\/beneficiaries\/beneficiary-1\/biometric-consents$/)
@@ -377,7 +394,10 @@ test('biometric identity workflow preserves consent, multipart capture, idempote
   assert.equal(requests[6].options.headers['Idempotency-Key'], '11111111-1111-4111-8111-111111111111')
   assert.equal(requests[6].options.body.get('beneficiaryId'), 'beneficiary-1')
   assert.equal(requests[6].options.body.get('deviceInfo'), 'GarantiyAid Web Portal')
-  assert.match(requests[7].url, /\/distributions\/distribution-1\/biometric-attempts\?page=1&pageSize=20&result=MATCHED$/)
+  assert.match(requests[7].url, /\/distributions\/distribution-1\/claims\/claim-1\/signature$/)
+  assert.equal(requests[7].options.headers['Idempotency-Key'], '22222222-2222-4222-8222-222222222222')
+  assert.deepEqual(JSON.parse(requests[7].options.body), { signatureDataUrl: 'data:image/png;base64,aGVsbG8=', signatureMethod: 'DRAWN', pointCount: 24, attestation: true, deviceInfo: 'GarantiyAid Web Signature Pad' })
+  assert.match(requests[8].url, /\/distributions\/distribution-1\/biometric-attempts\?page=1&pageSize=20&result=MATCHED$/)
   assert.equal(requests[3].options.headers['Content-Type'], undefined)
   assert.equal(requests[6].options.headers['Content-Type'], undefined)
 })
@@ -580,4 +600,45 @@ test('facilitator queue and QR verification preserve scoped backend contracts', 
   assert.match(requests[2].url, /\/distributions\/distribution-1\/claims\/verify-qr$/)
   assert.equal(requests[2].options.headers['Idempotency-Key'], '11111111-1111-4111-8111-111111111111')
   assert.deepEqual(JSON.parse(requests[2].options.body), { token: 'gya1_token', deviceInfo: 'GarantiyAid Web Portal' })
+})
+
+test('claim receipts and independent disputes preserve authenticated accountability contracts', async (context) => {
+  const originalFetch = globalThis.fetch
+  const requests = []
+  context.after(() => { globalThis.fetch = originalFetch })
+  const receipt = { receiptNo: 'GYA-CLM-20260830-ABCDEF123456', evidenceHash: 'a'.repeat(64) }
+  const dispute = { referenceNo: 'GYA-DSP-20260830-ABCDEF123456' }
+  const responses = [
+    { claims: [], summary: {}, pagination: {} },
+    { receipt, created: true },
+    { receipt: { ...receipt, printCount: 1 } },
+    { dispute },
+    { disputes: [dispute], summary: {}, pagination: {} },
+    { dispute: { ...dispute, status: 'UNDER_REVIEW' } },
+  ]
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options })
+    return { ok: true, json: async () => ({ data: responses[requests.length - 1] }) }
+  }
+
+  await requestDistributionClaims('staff-token', 'distribution-1', { page: 2, status: 'CLAIMED' })
+  await issueClaimReceipt('staff-token', 'distribution-1', 'claim-1')
+  await recordClaimReceiptPrint('staff-token', 'distribution-1', 'claim-1')
+  await createClaimDispute('staff-token', 'distribution-1', 'claim-1', {
+    reasonCode: 'BENEFICIARY_DENIES_RECEIPT',
+    statement: 'Beneficiary denies receiving the recorded assistance.',
+    beneficiaryPresent: true,
+  })
+  await requestClaimDisputes('staff-token', 'distribution-1', { status: 'OPEN' })
+  await reviewClaimDispute('staff-token', 'distribution-1', 'dispute-1', { action: 'START_REVIEW' })
+
+  assert.match(requests[0].url, /\/distributions\/distribution-1\/claims\?page=2&status=CLAIMED$/)
+  assert.match(requests[1].url, /\/claims\/claim-1\/receipt$/)
+  assert.match(requests[2].url, /\/claims\/claim-1\/receipt\/print-events$/)
+  assert.match(requests[3].url, /\/claims\/claim-1\/disputes$/)
+  assert.equal(JSON.parse(requests[3].options.body).beneficiaryPresent, true)
+  assert.match(requests[4].url, /\/claim-disputes\?status=OPEN$/)
+  assert.match(requests[5].url, /\/claim-disputes\/dispute-1\/review$/)
+  assert.deepEqual(JSON.parse(requests[5].options.body), { action: 'START_REVIEW' })
+  requests.forEach(({ options }) => assert.equal(options.headers.Authorization, 'Bearer staff-token'))
 })

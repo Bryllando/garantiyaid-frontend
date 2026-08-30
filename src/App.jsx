@@ -8,19 +8,21 @@ import DashboardPage from './pages/DashboardPage.jsx'
 import FacilitatorOperationsPage from './pages/FacilitatorOperationsPage.jsx'
 import BeneficiaryManagementPage from './pages/BeneficiaryManagementPage.jsx'
 import EnrollmentReviewPage from './pages/EnrollmentReviewPage.jsx'
-import TotpSetupPage from './pages/TotpSetupPage.jsx'
-import TotpVerificationPage from './pages/TotpVerificationPage.jsx'
 import { NotFoundPage, PrivacyPage, SessionExpiredPage } from './pages/SystemPages.jsx'
 import { clearStaffSession, getStoredStaffSession, requestStaffLogout } from './auth/staffAuth.js'
 import { Toaster } from './components/ui/sonner.jsx'
 import { PageLoader } from './components/ui/spinner.jsx'
 
 const ProgramManagementPage = lazy(() => import('./pages/ProgramManagementPage.jsx'))
+const InitialPasswordPage = lazy(() => import('./pages/InitialPasswordPage.jsx'))
+const TotpSetupPage = lazy(() => import('./pages/TotpSetupPage.jsx'))
+const TotpVerificationPage = lazy(() => import('./pages/TotpVerificationPage.jsx'))
 const DistributionManagementPage = lazy(() => import('./pages/DistributionManagementPage.jsx'))
 const StaffBarangayAdministrationPage = lazy(() => import('./pages/StaffBarangayAdministrationPage.jsx'))
 const NotificationManagementPage = lazy(() => import('./pages/NotificationManagementPage.jsx'))
 const BiometricIdentityPage = lazy(() => import('./pages/BiometricIdentityPage.jsx'))
 const DswdOperationsPage = lazy(() => import('./pages/DswdOperationsPage.jsx'))
+const ClaimAccountabilityPage = lazy(() => import('./pages/ClaimAccountabilityPage.jsx'))
 
 function currentPath() {
   return window.location.pathname.replace(/\/$/, '') || '/'
@@ -34,7 +36,7 @@ function App() {
     const handlePopState = () => {
       const nextPath = currentPath()
       setPath(nextPath)
-      if (nextPath !== '/totp-verification') setPendingLogin(null)
+      if (!['/password-setup', '/totp-verification'].includes(nextPath)) setPendingLogin(null)
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
@@ -93,6 +95,10 @@ function App() {
     page = (
       <LoginPage
         onAuthenticated={finishAuthentication}
+        onPasswordChangeRequired={(credentials) => {
+          setPendingLogin(credentials)
+          navigate('/password-setup')
+        }}
         onTotpRequired={(credentials) => {
           setPendingLogin(credentials)
           navigate('/totp-verification')
@@ -103,10 +109,28 @@ function App() {
         }}
       />
     )
+  } else if (path === '/password-setup') {
+    page = (
+      <Suspense fallback={<PageLoader />}>
+        <InitialPasswordPage
+          credentials={pendingLogin}
+          onAuthenticated={finishAuthentication}
+          onBackToLogin={backToLogin}
+          onTotpRequired={(credentials) => {
+            setPendingLogin(credentials)
+            navigate('/totp-verification')
+          }}
+          onTotpEnrollmentRequired={(token) => {
+            sessionStorage.setItem('garantiyaid.totpSetupToken', token)
+            navigate('/totp-setup')
+          }}
+        />
+      </Suspense>
+    )
   } else if (path === '/totp-verification') {
-    page = <TotpVerificationPage credentials={pendingLogin} onBackToLogin={backToLogin} onVerified={finishAuthentication} />
+    page = <Suspense fallback={<PageLoader />}><TotpVerificationPage credentials={pendingLogin} onBackToLogin={backToLogin} onVerified={finishAuthentication} /></Suspense>
   } else if (path === '/totp-setup') {
-    page = <TotpSetupPage onAuthenticated={finishAuthentication} onBackToLogin={backToLogin} />
+    page = <Suspense fallback={<PageLoader />}><TotpSetupPage onAuthenticated={finishAuthentication} onBackToLogin={backToLogin} /></Suspense>
   } else if (path === '/dashboard') {
     page = session.accessToken && session.user ? (
       <DashboardPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
@@ -167,6 +191,14 @@ function App() {
           onNavigate={navigate}
           onSessionExpired={expireSession}
         />
+      </Suspense>
+    ) : (
+      <SessionExpiredPage onLogin={backToLogin} />
+    )
+  } else if (path === '/claim-accountability') {
+    page = session.accessToken && session.user ? (
+      <Suspense fallback={<PageLoader />}>
+        <ClaimAccountabilityPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
       </Suspense>
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
