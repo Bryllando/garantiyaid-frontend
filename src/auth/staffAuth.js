@@ -178,6 +178,19 @@ export async function requestDistributionQueue(token, distributionId, { page = 1
   return data
 }
 
+export async function previewDistributionQrClaim(token, distributionId, qrToken) {
+  const data = await requestJson(`/distributions/${distributionId}/claims/preview-qr`, {
+    token,
+    body: { token: qrToken, deviceInfo: 'GarantiyAid Web Portal' },
+  })
+
+  if (!data?.beneficiary || !data?.schedule || typeof data.checksInBeneficiary !== 'boolean') {
+    throw new Error('The server returned an unexpected QR preview response.')
+  }
+
+  return data
+}
+
 export async function verifyDistributionQrClaim(token, distributionId, qrToken, idempotencyKey) {
   const data = await requestJson(`/distributions/${distributionId}/claims/verify-qr`, {
     token,

@@ -24,6 +24,7 @@ import {
   issueClaimReceipt,
   isSessionExpiredError,
   openDistribution,
+  previewDistributionQrClaim,
   programCriterionExpectedValue,
   requestAuditLogs,
   requestBarangayList,
@@ -586,6 +587,7 @@ test('facilitator queue and QR verification preserve scoped backend contracts', 
     const responses = [
       { distributions: [{ distributionId: 'distribution-1' }], pagination: {} },
       { schedules: [], summary: { countsByStatus: {} }, pagination: { page: 2 } },
+      { beneficiary: { beneficiaryId: 'beneficiary-1' }, schedule: { scheduleId: 'schedule-1' }, checksInBeneficiary: true },
       { claim: { claimId: 'claim-1' }, verificationComplete: true },
     ]
     return { ok: true, json: async () => ({ data: responses[requests.length - 1] }) }
@@ -593,13 +595,15 @@ test('facilitator queue and QR verification preserve scoped backend contracts', 
 
   await requestOpenDistributions('facilitator-token')
   await requestDistributionQueue('facilitator-token', 'distribution-1', { page: 2, search: 'Pedro', status: 'SCHEDULED' })
+  await previewDistributionQrClaim('facilitator-token', 'distribution-1', 'gya1_token')
   await verifyDistributionQrClaim('facilitator-token', 'distribution-1', 'gya1_token', '11111111-1111-4111-8111-111111111111')
 
   assert.match(requests[0].url, /\/distributions\?page=1&pageSize=100&status=OPEN$/)
   assert.match(requests[1].url, /\/distributions\/distribution-1\/schedules\?page=2&pageSize=20&search=Pedro&status=SCHEDULED$/)
-  assert.match(requests[2].url, /\/distributions\/distribution-1\/claims\/verify-qr$/)
-  assert.equal(requests[2].options.headers['Idempotency-Key'], '11111111-1111-4111-8111-111111111111')
+  assert.match(requests[2].url, /\/distributions\/distribution-1\/claims\/preview-qr$/)
   assert.deepEqual(JSON.parse(requests[2].options.body), { token: 'gya1_token', deviceInfo: 'GarantiyAid Web Portal' })
+  assert.match(requests[3].url, /\/distributions\/distribution-1\/claims\/verify-qr$/)
+  assert.equal(requests[3].options.headers['Idempotency-Key'], '11111111-1111-4111-8111-111111111111')
 })
 
 test('claim receipts and independent disputes preserve authenticated accountability contracts', async (context) => {

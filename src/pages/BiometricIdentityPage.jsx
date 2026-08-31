@@ -453,7 +453,7 @@ function BiometricIdentityPage({ session, onLogout, onNavigate, onSessionExpired
       {isLoading ? <WorkspaceSkeleton /> : view === 'enrollment' ? (
         <EnrollmentWorkspace beneficiaries={beneficiaries} beneficiaryId={beneficiaryId} setBeneficiaryId={(value) => { setBeneficiaryId(value); setConsents([]); setProfile(null); setProcessing(null); setIsLoadingProfile(Boolean(value)) }} selectedBeneficiary={selectedBeneficiary} consents={consents} profile={profile} processing={processing} activeConsent={activeConsent} canCapture={canCapture} isLoadingProfile={isLoadingProfile} isSubmitting={isSubmitting} onConsent={submitConsent} onEnrollment={submitEnrollment} onRevoke={(consentId) => setDialogAction({ type: 'revoke', consentId })} onDelete={() => setDialogAction({ type: 'delete' })} isAdmin={role === 'SYSTEM_ADMIN'} />
       ) : view === 'verify' ? (
-        <VerificationWorkspace distributions={verificationDistributions} distributionId={distributionId} setDistributionId={(value) => { setDistributionId(value); setSchedules([]); setAttemptData(null); setAttemptPage(1); setIsLoadingAttempts(Boolean(value)); setVerificationResult(null) }} selectedDistribution={selectedDistribution} candidates={claimCandidates} isSubmitting={isSubmitting} result={verificationResult} onSubmit={submitVerification} onSignature={completeSignature} onReset={() => setVerificationResult(null)} processing={verificationResult?.biometricVerification ?? processing} />
+        <VerificationWorkspace distributions={verificationDistributions} distributionId={distributionId} setDistributionId={(value) => { setDistributionId(value); setBeneficiaryId(''); setSchedules([]); setAttemptData(null); setAttemptPage(1); setIsLoadingAttempts(Boolean(value)); setVerificationResult(null) }} beneficiaryId={beneficiaryId} setBeneficiaryId={setBeneficiaryId} selectedDistribution={selectedDistribution} candidates={claimCandidates} isSubmitting={isSubmitting} result={verificationResult} onSubmit={submitVerification} onSignature={completeSignature} onReset={() => setVerificationResult(null)} processing={verificationResult?.biometricVerification ?? processing} />
       ) : (
         <AttemptHistory distributions={distributions} distributionId={distributionId} setDistributionId={(value) => { setDistributionId(value); setSchedules([]); setAttemptData(null); setAttemptPage(1); setIsLoadingAttempts(Boolean(value)) }} resultFilter={attemptResult} setResultFilter={(value) => { setAttemptResult(value); setAttemptPage(1); setIsLoadingAttempts(Boolean(distributionId)) }} data={attemptData} isLoading={isLoadingAttempts} page={attemptPage} setPage={(value) => { setAttemptPage(value); setIsLoadingAttempts(true) }} beneficiaries={beneficiaries} />
       )}
@@ -506,7 +506,7 @@ function EnrollmentWorkspace({ beneficiaries, beneficiaryId, setBeneficiaryId, s
   )
 }
 
-function VerificationWorkspace({ distributions, distributionId, setDistributionId, selectedDistribution, candidates, isSubmitting, result, onSubmit, onSignature, onReset, processing }) {
+function VerificationWorkspace({ distributions, distributionId, setDistributionId, beneficiaryId, setBeneficiaryId, selectedDistribution, candidates, isSubmitting, result, onSubmit, onSignature, onReset, processing }) {
   const awaitingSignature = result?.nextRequiredVerification === 'SIGNATURE'
   const requiresSignature = selectedDistribution?.verificationRequirement === 'BIOMETRIC_AND_SIGNATURE'
   return (
@@ -553,7 +553,7 @@ function VerificationWorkspace({ distributions, distributionId, setDistributionI
 
               <div>
                 <label htmlFor="biometric-candidate" className="ga-label">Scheduled beneficiary</label>
-                <select id="biometric-candidate" name="beneficiaryId" required disabled={!distributionId} className="ga-input mt-2">
+                <select id="biometric-candidate" name="beneficiaryId" required disabled={!distributionId} value={beneficiaryId} onChange={(event) => setBeneficiaryId(event.target.value)} className="ga-input mt-2">
                   <option value="">Select a beneficiary</option>
                   {candidates.map((schedule) => <option key={schedule.scheduleId} value={schedule.beneficiaryId}>Queue {schedule.queueNumber} — {personName(schedule.beneficiary)} ({humanize(schedule.status)})</option>)}
                 </select>

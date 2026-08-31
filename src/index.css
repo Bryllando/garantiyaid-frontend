@@ -355,7 +355,9 @@ input[type="file"][required]:valid::file-selector-button {
   [data-recovery-print],
   [data-recovery-print] *,
   [data-claim-receipt-print],
-  [data-claim-receipt-print] * {
+  [data-claim-receipt-print] *,
+  [data-qr-credential-print],
+  [data-qr-credential-print] * {
     visibility: visible;
   }
 
@@ -377,8 +379,31 @@ input[type="file"][required]:valid::file-selector-button {
     color: #10213a !important;
   }
 
+  [data-qr-credential-print] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    margin: 0 !important;
+    background: #ffffff !important;
+    color: #10213a !important;
+  }
+
+  [data-qr-credential-print] > header {
+    display: block !important;
+  }
+
+  .ga-qr-credential-card {
+    break-inside: avoid;
+    box-shadow: none !important;
+  }
+
+  .ga-qr-credential-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   [data-recovery-actions],
-  [data-claim-receipt-actions] {
+  [data-claim-receipt-actions],
+  [data-qr-credential-actions] {
     display: none !important;
   }
 

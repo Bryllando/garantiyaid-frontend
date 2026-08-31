@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
 import { toast } from 'sonner'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
+import { Icon } from '../components/ui/icon.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
 import { DistributionSessionPlanner, DistributionSessionSummary } from '../components/distributions/DistributionSessionPlanner.jsx'
@@ -107,7 +109,7 @@ function WorkflowProgress({ activeAllocations, distribution, scheduled, slotCoun
   return <ol className="grid gap-2 sm:grid-cols-5" aria-label="Distribution readiness">{steps.map(([label, complete], index) => <li key={label} className={`rounded-lg border p-3 ${complete ? 'border-emerald-200 bg-success-soft' : 'border-line bg-slate-50'}`}><span className={`grid size-7 place-items-center rounded-full text-xs font-black ${complete ? 'bg-brand-green text-white' : 'bg-slate-200 text-copy'}`}>{complete ? '✓' : index + 1}</span><p className="mt-2 text-xs font-bold text-ink">{label}</p></li>)}</ol>
 }
 
-function RawTokensDialog({ onClose, tokens }) {
+function RawTokensDialog({ distribution, onClose, tokens }) {
   const dialogRef = useRef(null)
   const [saved, setSaved] = useState(false)
   useEffect(() => { dialogRef.current?.showModal() }, [])
@@ -121,12 +123,40 @@ function RawTokensDialog({ onClose, tokens }) {
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
     const link = document.createElement('a'); link.href = url; link.download = 'garantiyaid-qr-tokens.csv'; link.click(); URL.revokeObjectURL(url); setSaved(true); toast.success('QR token CSV downloaded.')
   }
+  function printCards() {
+    setSaved(true)
+    requestAnimationFrame(() => window.print())
+  }
   function cancel(event) {
     if (saved) return
     event.preventDefault()
-    toast.error('Copy or download the one-time token list before closing.')
+    toast.error('Print, copy, or download the one-time QR credentials before closing.')
   }
-  return <dialog ref={dialogRef} onCancel={cancel} onClose={onClose} className="m-auto max-h-[calc(100dvh-2rem)] w-[min(48rem,calc(100%-2rem))] overflow-y-auto rounded-2xl border border-line bg-white p-0 shadow-lg backdrop:bg-slate-950/55"><div className="p-5 sm:p-7"><div><p className="ga-eyebrow">One-time secure output</p><h2 className="mt-2 text-2xl font-extrabold">Save generated QR tokens now</h2><p className="mt-2 text-sm leading-6 text-brand-red">For security, the raw tokens cannot be retrieved again after this window is closed.</p></div><div className="mt-5 max-h-72 overflow-y-auto rounded-xl border border-line"><table className="w-full text-left text-sm"><thead className="sticky top-0 bg-slate-50 text-xs uppercase tracking-wide text-muted-copy"><tr><th className="px-4 py-3">Beneficiary</th><th className="px-4 py-3">Secure token</th></tr></thead><tbody className="divide-y divide-line">{tokens.map((item) => <tr key={item.qrTokenId}><td className="px-4 py-3 font-bold">{fullName(item.beneficiary)}</td><td className="max-w-80 break-all px-4 py-3 font-mono text-xs">{item.token}</td></tr>)}</tbody></table></div><div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" disabled={!saved} onClick={() => dialogRef.current?.close()} className="ga-btn-secondary">Done, tokens saved</button><button type="button" onClick={copy} className="ga-btn-secondary">Copy token list</button><button type="button" onClick={download} className="ga-btn-primary">Download CSV</button></div></div></dialog>
+  return (
+    <dialog ref={dialogRef} onCancel={cancel} onClose={onClose} className="m-auto max-h-[calc(100dvh-2rem)] w-[min(70rem,calc(100%-2rem))] overflow-y-auto rounded-2xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/55">
+      <div className="p-5 sm:p-7">
+        <div className="flex items-start justify-between gap-5"><div><p className="ga-eyebrow">One-time secure output</p><h2 className="mt-1 text-2xl font-bold">Save beneficiary QR credentials now</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-brand-red">These raw credentials cannot be retrieved again after this window closes. Print the cards for approved distribution or save the CSV in an authorized secure location.</p></div><span className="inline-flex shrink-0 items-center gap-2 rounded-full border border-emerald-200 bg-success-soft px-3 py-1.5 text-xs font-bold text-brand-green"><Icon name="security" className="size-4" /> Single use</span></div>
+
+        <section data-qr-credential-print className="mt-6">
+          <header className="mb-5 hidden border-b-2 border-brand-navy pb-4 print:block"><p className="text-xs font-bold uppercase tracking-[0.14em] text-brand-blue">GarantiyAid · Official claim credentials</p><h1 className="mt-1 text-2xl font-bold text-brand-navy">{distribution.title}</h1><p className="mt-1 text-sm text-copy">{displayDate(distribution.distributionDate)} · {distribution.location}</p></header>
+          <div className="ga-qr-credential-grid grid gap-4 lg:grid-cols-2">
+            {tokens.map((item) => (
+              <article key={item.qrTokenId} className="ga-qr-credential-card rounded-xl border border-line bg-white p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.1em] text-brand-blue">Aid claim credential</p><h3 className="mt-1 text-lg font-bold text-ink">{fullName(item.beneficiary)}</h3></div><Icon name="qr" className="size-6 shrink-0 text-brand-blue" strokeWidth={2} /></div>
+                <div className="mt-4 grid items-center gap-4 sm:grid-cols-[9.5rem_minmax(0,1fr)]">
+                  <div className="mx-auto rounded-xl border border-line bg-white p-2"><QRCodeSVG value={item.token} size={136} level="M" marginSize={1} title={`Claim QR code for ${fullName(item.beneficiary)}`} /></div>
+                  <dl className="min-w-0 space-y-3 text-sm"><div><dt className="text-xs font-semibold text-muted-copy">Distribution</dt><dd className="mt-1 font-bold text-ink">{distribution.title}</dd></div><div><dt className="text-xs font-semibold text-muted-copy">Expires</dt><dd className="mt-1 font-semibold text-ink">{dateFormatter.format(new Date(item.expiresAt))} · {timeFormatter.format(new Date(item.expiresAt))}</dd></div><div><dt className="text-xs font-semibold text-muted-copy">Backup token</dt><dd className="mt-1 [overflow-wrap:anywhere] font-mono text-[0.65rem] leading-4 text-copy">{item.token}</dd></div></dl>
+                </div>
+                <p className="mt-4 border-t border-line pt-3 text-xs leading-5 text-muted-copy">Present this credential only to an authorized GarantiyAid facilitator. It becomes invalid after a successful claim.</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <div data-qr-credential-actions className="mt-6 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:flex-wrap sm:justify-end"><button type="button" disabled={!saved} onClick={() => dialogRef.current?.close()} className="ga-btn-secondary">Done, credentials saved</button><button type="button" onClick={copy} className="ga-btn-secondary">Copy raw tokens</button><button type="button" onClick={download} className="ga-btn-secondary">Download CSV</button><button type="button" onClick={printCards} className="ga-btn-primary"><Icon name="printer" /> Print QR cards</button></div>
+      </div>
+    </dialog>
+  )
 }
 
 function DistributionManagementPage({ session, onLogout, onNavigate, onSessionExpired }) {
@@ -256,7 +286,7 @@ function DistributionManagementPage({ session, onLogout, onNavigate, onSessionEx
     </>}
     {eventForm && <DistributionFormDialog barangays={catalogs.barangays} distribution={eventForm.distribution} programs={catalogs.programs} onClose={() => setEventForm(null)} onSave={saveEvent} />}
     <ConfirmationDialog open={Boolean(confirmation)} title={confirmation?.title} description={confirmation?.description} actionLabel={confirmation?.actionLabel} destructive={confirmation?.destructive} onCancel={() => setConfirmation(null)} onConfirm={confirmAction} />
-    {rawTokens && <RawTokensDialog tokens={rawTokens} onClose={() => setRawTokens(null)} />}
+    {rawTokens && <RawTokensDialog distribution={selected} tokens={rawTokens} onClose={() => setRawTokens(null)} />}
   </DashboardShell>
 }
 

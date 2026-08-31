@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
+import { Icon } from '../components/ui/icon.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
 import {
   getAuthErrorMessage,
   isSessionExpiredError,
+  previewDistributionQrClaim,
   requestDistributionQueue,
   requestOpenDistributions,
   verifyDistributionQrClaim,
@@ -24,6 +26,8 @@ const statusStyles = {
 function beneficiaryName(beneficiary) {
   return [beneficiary?.firstName, beneficiary?.middleName, beneficiary?.lastName].filter(Boolean).join(' ')
 }
+
+const humanize = (value = '') => value.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase())
 
 function StatusBadge({ status }) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${statusStyles[status] ?? statusStyles.CANCELLED}`}>{status.replace('_', ' ')}</span>
@@ -94,9 +98,11 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
   const [page, setPage] = useState(1)
 
   const [qrToken, setQrToken] = useState('')
+  const [qrPreview, setQrPreview] = useState(null)
   const [verificationError, setVerificationError] = useState(null)
   const [verificationResult, setVerificationResult] = useState(null)
   const [pendingAttempt, setPendingAttempt] = useState(null)
+  const [isPreviewing, setIsPreviewing] = useState(false)
   const [isVerifying, setIsVerifying] = useState(false)
   const isFacilitator = session.user.role === 'BARANGAY_FACILITATOR'
   const selectedDistribution = distributions.find((distribution) => distribution.distributionId === selectedId)
@@ -108,9 +114,12 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     requestOpenDistributions(session.accessToken)
       .then((items) => {
         if (!active) return
-        setDistributions(items)
-        setSelectedId((current) => current || items[0]?.distributionId || '')
-        if (items.length === 0) setIsLoadingQueue(false)
+        const relevantItems = view === 'qr'
+          ? items.filter((item) => ['QR', 'QR_AND_BIOMETRIC'].includes(item.verificationRequirement))
+          : items
+        setDistributions(relevantItems)
+        setSelectedId((current) => relevantItems.some((item) => item.distributionId === current) ? current : relevantItems[0]?.distributionId || '')
+        if (relevantItems.length === 0) setIsLoadingQueue(false)
       })
       .catch((error) => {
         if (!active) return
@@ -119,7 +128,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
       })
       .finally(() => { if (active) setIsLoadingDistributions(false) })
     return () => { active = false }
-  }, [distributionReload, onSessionExpired, session.accessToken])
+  }, [distributionReload, onSessionExpired, session.accessToken, view])
 
   useEffect(() => {
     if (view !== 'queue' || !selectedId) return undefined
@@ -142,6 +151,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     setPage(1)
     setIsLoadingQueue(view === 'queue')
     setQrToken('')
+    setQrPreview(null)
     setVerificationError(null)
     setVerificationResult(null)
     setPendingAttempt(null)
@@ -163,13 +173,12 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     setIsLoadingQueue(true)
   }
 
-  async function verifyQr(event) {
-    event.preventDefault()
-    const submittedToken = qrToken.trim()
+  async function verifyToken(token) {
+    const submittedToken = token.trim()
     setVerificationResult(null)
 
     if (!submittedToken) {
-      setVerificationError({ message: 'Scan or enter a QR claim token before verification.', code: 'TOKEN_REQUIRED' })
+      setVerificationError({ message: 'Scan a beneficiary QR credential before continuing.', code: 'TOKEN_REQUIRED' })
       return
     }
 
@@ -182,15 +191,49 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     try {
       const result = await verifyDistributionQrClaim(session.accessToken, selectedId, submittedToken, idempotencyKey)
       setVerificationResult(result)
+      setQrPreview(null)
       setPendingAttempt(null)
       setQrToken('')
     } catch (error) {
       if (isSessionExpiredError(error)) return onSessionExpired()
       setVerificationError({ message: getAuthErrorMessage(error), code: error.code })
-      if (!(error instanceof TypeError) && error.code !== 'QR_CLAIM_CONCURRENT_CHANGE') setPendingAttempt(null)
+      if (!(error instanceof TypeError) && error.code !== 'QR_CLAIM_CONCURRENT_CHANGE') {
+        setPendingAttempt(null)
+        setQrPreview(null)
+        setQrToken('')
+      }
     } finally {
       setIsVerifying(false)
     }
+  }
+
+  async function previewToken(token) {
+    const submittedToken = token.trim()
+    setVerificationResult(null)
+    setQrPreview(null)
+    if (!submittedToken) {
+      setVerificationError({ message: 'Scan a beneficiary QR credential before continuing.', code: 'TOKEN_REQUIRED' })
+      return
+    }
+    setQrToken(submittedToken)
+    setVerificationError(null)
+    setPendingAttempt(null)
+    setIsPreviewing(true)
+    try {
+      const preview = await previewDistributionQrClaim(session.accessToken, selectedId, submittedToken)
+      setQrPreview(preview)
+    } catch (error) {
+      if (isSessionExpiredError(error)) return onSessionExpired()
+      setQrToken('')
+      setVerificationError({ message: getAuthErrorMessage(error), code: error.code })
+    } finally {
+      setIsPreviewing(false)
+    }
+  }
+
+  async function previewQr(event) {
+    event.preventDefault()
+    await previewToken(qrToken)
   }
 
   if (!isFacilitator) return <AccessDenied session={session} onLogout={onLogout} onNavigate={onNavigate} />
@@ -202,7 +245,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
           <p className="ga-eyebrow">Assigned barangay operations</p>
           <h1 className="ga-page-title mt-2">{pageTitle}</h1>
           <p className="ga-page-copy">
-            {view === 'queue' ? 'Track scheduled beneficiaries and current check-in status for an open distribution event.' : 'Validate a single-use claim token against the selected open distribution event.'}
+            {view === 'queue' ? 'Track scheduled beneficiaries and current check-in status for an open distribution event.' : 'Review a beneficiary QR credential before recording check-in for the selected open event.'}
           </p>
         </div>
         <button type="button" onClick={() => onNavigate(view === 'queue' ? '/facilitator/qr-verification' : '/facilitator/queue')} className="ga-btn-primary shrink-0">
@@ -252,11 +295,17 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
             <QrVerificationView
               distribution={selectedDistribution}
               qrToken={qrToken}
-              setQrToken={(value) => { setQrToken(value); setVerificationError(null); setVerificationResult(null); if (pendingAttempt?.qrToken !== value.trim()) setPendingAttempt(null) }}
+              setQrToken={(value) => { setQrToken(value); setQrPreview(null); setVerificationError(null); setVerificationResult(null); if (pendingAttempt?.qrToken !== value.trim()) setPendingAttempt(null) }}
               error={verificationError}
+              preview={qrPreview}
               result={verificationResult}
+              isPreviewing={isPreviewing}
               isVerifying={isVerifying}
-              onSubmit={verifyQr}
+              onSubmit={previewQr}
+              onCameraScan={previewToken}
+              onConfirm={() => verifyToken(qrToken)}
+              onReset={() => { setQrToken(''); setQrPreview(null); setVerificationError(null); setVerificationResult(null); setPendingAttempt(null) }}
+              onNavigate={onNavigate}
             />
           )}
         </>
@@ -317,44 +366,222 @@ function QueueView({ queue, queueError, isLoading, page, searchInput, setSearchI
   )
 }
 
-function QrVerificationView({ distribution, qrToken, setQrToken, error, result, isVerifying, onSubmit }) {
-  const duplicateError = ['QR_TOKEN_ALREADY_USED', 'DUPLICATE_CLAIM'].includes(error?.code)
+function QrCameraDialog({ onClose, onDetected }) {
+  const dialogRef = useRef(null)
+  const videoRef = useRef(null)
+  const streamRef = useRef(null)
+  const frameRef = useRef(0)
+  const requestRef = useRef(0)
+  const [state, setState] = useState('starting')
+  const [error, setError] = useState('')
+
+  const stopCamera = useCallback(() => {
+    requestRef.current += 1
+    cancelAnimationFrame(frameRef.current)
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+    if (videoRef.current) videoRef.current.srcObject = null
+  }, [])
+
+  const close = useCallback(() => {
+    stopCamera()
+    dialogRef.current?.close()
+  }, [stopCamera])
+
+  const startCamera = useCallback(async () => {
+    setError('')
+    if (!navigator.mediaDevices?.getUserMedia || !window.BarcodeDetector) {
+      setState('error')
+      setError('QR camera scanning is unavailable in this browser. Use a USB handheld scanner or ask the System Administrator to reissue the credential.')
+      return
+    }
+
+    stopCamera()
+    const requestId = requestRef.current
+    setState('starting')
+    try {
+      const detector = new window.BarcodeDetector({ formats: ['qr_code'] })
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      })
+      if (requestId !== requestRef.current || !videoRef.current) {
+        stream.getTracks().forEach((track) => track.stop())
+        return
+      }
+      streamRef.current = stream
+      videoRef.current.srcObject = stream
+      await videoRef.current.play()
+      setState('scanning')
+
+      const scan = async () => {
+        if (requestId !== requestRef.current || !videoRef.current) return
+        try {
+          const detections = await detector.detect(videoRef.current)
+          const value = detections.find((item) => item.rawValue?.trim())?.rawValue.trim()
+          if (value) {
+            stopCamera()
+            dialogRef.current?.close()
+            onDetected(value)
+            return
+          }
+          frameRef.current = requestAnimationFrame(scan)
+        } catch {
+          stopCamera()
+          setState('error')
+          setError('The camera feed could not be read. Try again, improve the lighting, or use the handheld scanner.')
+        }
+      }
+      frameRef.current = requestAnimationFrame(scan)
+    } catch (cameraError) {
+      if (requestId !== requestRef.current) return
+      stopCamera()
+      setState('error')
+      setError(cameraError?.name === 'NotAllowedError'
+        ? 'Camera access was blocked. Allow camera permission in the browser, then try again, or use the handheld scanner.'
+        : 'The camera could not be opened. Check that another app is not using it, then try again.')
+    }
+  }, [onDetected, stopCamera])
+
+  useEffect(() => {
+    dialogRef.current?.showModal()
+    frameRef.current = requestAnimationFrame(startCamera)
+    return stopCamera
+  }, [startCamera, stopCamera])
+
   return (
-    <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.8fr)]">
-      <section className="ga-card p-5 sm:p-7" aria-labelledby="verification-form-heading">
-        <p className="ga-eyebrow">Secure claim check-in</p>
-        <h2 id="verification-form-heading" className="mt-2 text-2xl font-extrabold text-ink">Scan or enter the claim token</h2>
-        <p className="mt-3 text-sm leading-6 text-muted-copy">Keep the token field focused when using a handheld QR scanner. You may also paste the complete token from an authorized scanning device.</p>
-
-        <div className="mt-5 rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-copy">
-          Confirm that <strong className="text-ink">{distribution.title}</strong> is the correct event. Successful verification checks the beneficiary into the queue and records an audit trail.
+    <dialog ref={dialogRef} onCancel={(event) => { event.preventDefault(); close() }} onClose={onClose} className="m-auto w-[min(42rem,calc(100%-2rem))] overflow-hidden rounded-2xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/60">
+      <div className="flex items-start justify-between gap-5 border-b border-line p-5 sm:p-6">
+        <div><p className="ga-eyebrow">Live QR scanner</p><h2 className="mt-1 text-xl font-bold">Center the beneficiary QR code</h2><p className="mt-2 text-sm leading-6 text-muted-copy">One clear scan opens the beneficiary details for review. It does not check anyone in yet.</p></div>
+        <button type="button" onClick={close} aria-label="Close QR camera" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-copy transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"><Icon name="close" /></button>
+      </div>
+      <div className="p-5 sm:p-6">
+        <div className="relative aspect-[4/3] min-h-64 overflow-hidden rounded-xl bg-slate-950 shadow-inner">
+          <video ref={videoRef} autoPlay muted playsInline aria-label="Live camera preview for QR scanning" className={`h-full w-full object-cover ${state === 'scanning' ? 'block' : 'hidden'}`} />
+          {state !== 'scanning' && <div className="absolute inset-0 grid place-items-center px-6 text-center text-white"><div><span aria-hidden="true" className="mx-auto grid size-16 place-items-center rounded-full border border-white/20 bg-white/10"><Icon name="camera" className="size-7" /></span><p className="mt-4 font-bold">{state === 'starting' ? 'Starting camera…' : 'Camera unavailable'}</p></div></div>}
+          {state === 'scanning' && <><div aria-hidden="true" className="pointer-events-none absolute inset-[14%] rounded-2xl border-2 border-white/90 shadow-[0_0_0_999px_rgba(2,6,23,0.34)]" /><span className="absolute left-3 top-3 inline-flex items-center gap-2 rounded-full bg-slate-950/75 px-3 py-1.5 text-xs font-bold text-white backdrop-blur"><span className="ga-live-dot size-2 rounded-full bg-emerald-400" /> SCANNING</span></>}
         </div>
+        <p aria-live="polite" className="mt-3 text-sm font-semibold text-brand-green">{state === 'scanning' ? 'Camera ready. Hold the QR code steady inside the guide.' : ''}</p>
+        {error && <div role="alert" className="mt-3 rounded-lg border border-red-200 bg-danger-soft p-4"><p className="font-bold text-brand-red">Camera scan unavailable</p><p className="mt-1 text-sm leading-6 text-copy">{error}</p></div>}
+        <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button type="button" onClick={close} className="ga-btn-secondary">Use handheld scanner</button>
+          {state === 'error' && <button type="button" onClick={startCamera} className="ga-btn-primary"><Icon name="camera" /> Try camera again</button>}
+        </div>
+      </div>
+    </dialog>
+  )
+}
 
-        <form onSubmit={onSubmit} className="mt-6" aria-busy={isVerifying}>
-          <label htmlFor="qr-claim-token" className="block text-sm font-bold text-ink">QR claim token</label>
-          <input id="qr-claim-token" name="qrToken" type="password" autoComplete="off" spellCheck="false" required autoFocus maxLength="512" value={qrToken} onChange={(event) => setQrToken(event.target.value)} aria-describedby={`qr-token-hint${error ? ' qr-token-error' : ''}`} aria-invalid={Boolean(error)} placeholder="Scan or paste token" className={`ga-input mt-2 font-mono ${error ? 'border-amber-400 focus:border-brand-amber focus:ring-amber-100' : ''}`} />
-          <p id="qr-token-hint" className="mt-2 text-xs leading-5 text-muted-copy">The token is masked and is never stored by this page.</p>
+function QrVerificationView({ distribution, qrToken, setQrToken, error, preview, result, isPreviewing, isVerifying, onSubmit, onCameraScan, onConfirm, onReset, onNavigate }) {
+  const inputRef = useRef(null)
+  const confirmRef = useRef(null)
+  const [cameraOpen, setCameraOpen] = useState(false)
+  const duplicateError = ['QR_TOKEN_ALREADY_USED', 'DUPLICATE_CLAIM'].includes(error?.code)
+  const needsBiometric = result?.nextRequiredVerification === 'BIOMETRIC'
+  const claim = result?.claim
+  const currentStep = result ? 3 : preview ? 2 : 1
+  const busy = isPreviewing || isVerifying
 
-          {error && <div id="qr-token-error" role="alert" className={`mt-4 rounded-lg border p-4 ${duplicateError ? 'border-red-200 bg-danger-soft' : 'border-amber-200 bg-warning-soft'}`}><p className={`font-bold ${duplicateError ? 'text-brand-red' : 'text-brand-amber'}`}>{duplicateError ? 'Possible duplicate claim' : 'Verification not completed'}</p><p className="mt-1 text-sm leading-6 text-copy">{error.message}</p><p className="mt-2 text-xs text-muted-copy">Confirm the selected event and token before trying again. Contact the System Administrator if the problem continues.</p></div>}
+  useEffect(() => {
+    if (cameraOpen || busy) return
+    if (preview) confirmRef.current?.focus()
+    else if (!result) inputRef.current?.focus()
+  }, [busy, cameraOpen, preview, result])
 
-          <button type="submit" disabled={isVerifying || !qrToken.trim()} className="ga-btn-primary mt-5 w-full">{isVerifying ? <LoadingLabel>Verifying securely...</LoadingLabel> : 'Verify QR claim'}</button>
-        </form>
-      </section>
+  return (
+    <div className="mt-6">
+      <ol aria-label="QR verification progress" className="ga-card grid grid-cols-3 overflow-hidden">
+        {['Scan credential', 'Review identity', 'Complete check-in'].map((label, index) => {
+          const step = index + 1
+          const complete = currentStep > step
+          const active = currentStep === step
+          return (
+            <li key={label} aria-current={active ? 'step' : undefined} className={`flex min-w-0 items-center gap-2 border-r border-line px-3 py-3 last:border-r-0 sm:gap-3 sm:px-5 ${active ? 'bg-info-soft text-brand-blue' : 'bg-white text-muted-copy'}`}>
+              <span aria-hidden="true" className={`grid size-7 shrink-0 place-items-center rounded-full text-xs font-black ${complete ? 'bg-brand-green text-white' : active ? 'bg-brand-blue text-white' : 'border border-line bg-slate-50'}`}>{complete ? <Icon name="check" className="size-4" strokeWidth={2.5} /> : step}</span>
+              <span className="text-xs font-bold sm:text-sm"><span className="sm:hidden">{['Scan', 'Review', 'Complete'][index]}</span><span className="hidden sm:inline">{label}</span></span>
+            </li>
+          )
+        })}
+      </ol>
 
-      <aside className="space-y-6" aria-label="Verification result and guidance">
-        {result ? (
-          <section role="status" aria-live="polite" className={`rounded-xl border p-6 shadow-sm ${result.verificationComplete ? 'border-emerald-200 bg-success-soft' : 'border-amber-200 bg-warning-soft'}`}>
-            <span aria-hidden="true" className={`grid size-11 place-items-center rounded-full font-black text-white ${result.verificationComplete ? 'bg-brand-green' : 'bg-brand-amber'}`}>{result.verificationComplete ? '✓' : '!'}</span>
-            <h2 className="mt-4 text-xl font-extrabold text-ink">{result.verificationComplete ? 'Claim verification complete' : 'QR accepted — biometric required'}</h2>
-            <p className="mt-2 text-sm leading-6 text-copy">{result.verificationComplete ? 'The beneficiary was checked in and the claim is verified.' : 'The beneficiary was checked in. Complete biometric verification before the claim can be finalized.'}</p>
-            <dl className="mt-5 space-y-3 border-t border-current/10 pt-4 text-sm"><div className="flex justify-between gap-4"><dt className="text-muted-copy">Claim status</dt><dd className="font-bold text-ink">{result.claim.claimStatus}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-copy">Claim reference</dt><dd className="max-w-48 truncate font-mono text-xs font-bold text-ink" title={result.claim.claimId}>{result.claim.claimId}</dd></div></dl>
-          </section>
-        ) : (
-          <section className="rounded-xl border border-dashed border-line bg-white p-6 text-center"><span aria-hidden="true" className="mx-auto grid size-11 place-items-center rounded-full bg-info-soft font-black text-brand-blue">QR</span><h2 className="mt-4 font-extrabold text-ink">Awaiting verification</h2><p className="mt-2 text-sm leading-6 text-muted-copy">The verified claim result and required next step will appear here.</p></section>
-        )}
+      <div className="mt-5 grid items-start gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">
+        <section className="ga-card overflow-hidden" aria-labelledby="verification-form-heading">
+          <header className="border-b border-line p-5 sm:p-7">
+            <div className="flex items-start gap-4">
+              <span aria-hidden="true" className="grid size-12 shrink-0 place-items-center rounded-xl bg-info-soft text-brand-blue"><Icon name="qr" className="size-6" strokeWidth={2} /></span>
+              <div>
+                <p className="ga-eyebrow">Secure claim check-in</p>
+                <h2 id="verification-form-heading" className="mt-1 text-2xl font-bold text-ink">Scan first. Confirm after review.</h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-copy">The QR credential stays hidden. Scanning only opens the beneficiary details; no claim or queue record changes until you confirm.</p>
+              </div>
+            </div>
+          </header>
 
-        <section className="ga-card p-5"><h2 className="font-extrabold text-ink">Safe verification checklist</h2><ol className="mt-4 space-y-3 text-sm leading-6 text-copy"><li><strong className="text-brand-blue">1.</strong> Confirm the distribution event.</li><li><strong className="text-brand-blue">2.</strong> Scan only the beneficiary’s current token.</li><li><strong className="text-brand-blue">3.</strong> Follow the displayed verification result.</li></ol></section>
-      </aside>
+          <div className="p-5 sm:p-7">
+            <dl className="grid gap-4 rounded-xl border border-line bg-slate-50 p-4 text-sm sm:grid-cols-2">
+              <div><dt className="text-xs font-semibold text-muted-copy">Selected event</dt><dd className="mt-1 font-bold text-ink">{distribution.title}</dd></div>
+              <div><dt className="text-xs font-semibold text-muted-copy">Required verification</dt><dd className="mt-1 font-bold text-ink">{humanize(distribution.verificationRequirement)}</dd></div>
+            </dl>
+
+            <form onSubmit={onSubmit} className="mt-6" aria-busy={busy}>
+              <button type="button" disabled={busy || Boolean(preview) || Boolean(result)} onClick={() => setCameraOpen(true)} className="ga-btn-primary w-full py-3.5 text-base"><Icon name="camera" className="size-5" /> Scan with this device’s camera</button>
+
+              <div className="my-5 flex items-center gap-3 text-xs font-bold uppercase tracking-[0.1em] text-muted-copy"><span className="h-px flex-1 bg-line" /><span>or use a USB 2D QR scanner</span><span className="h-px flex-1 bg-line" /></div>
+
+              <label htmlFor="qr-scanner-input" className="sr-only">USB QR scanner input</label>
+              <div className={`relative flex min-h-24 items-center gap-4 rounded-xl border bg-white p-4 transition-shadow focus-within:border-brand-blue focus-within:ring-4 focus-within:ring-blue-100 ${error ? 'border-amber-400' : 'border-line'} ${preview || result ? 'opacity-60' : ''}`}>
+                <input ref={inputRef} id="qr-scanner-input" name="qrToken" type="password" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck="false" maxLength="512" disabled={busy || Boolean(preview) || Boolean(result)} value={qrToken} onChange={(event) => setQrToken(event.target.value)} aria-describedby={`qr-scanner-hint${error ? ' qr-token-error' : ''}`} aria-invalid={Boolean(error)} className="absolute inset-0 z-10 size-full cursor-text opacity-0 disabled:cursor-not-allowed" />
+                <span aria-hidden="true" className="grid size-11 shrink-0 place-items-center rounded-lg bg-info-soft text-brand-blue"><Icon name="qr" /></span>
+                <div className="min-w-0"><p className="font-bold text-ink">{isPreviewing ? 'Checking credential…' : qrToken ? 'Credential detected' : 'Use a USB 2D QR scanner'}</p><p id="qr-scanner-hint" className="mt-1 text-xs leading-5 text-muted-copy">Select this panel, then scan the beneficiary’s QR from a phone or printed credential.</p></div>
+                <span className="ml-auto hidden shrink-0 rounded-full border border-emerald-200 bg-success-soft px-3 py-1 text-xs font-bold text-brand-green sm:inline-flex">No typing needed</span>
+              </div>
+
+              {qrToken && !preview && !result && <button type="submit" disabled={busy} className="ga-btn-secondary mt-3 w-full">{isPreviewing ? <LoadingLabel>Checking credential...</LoadingLabel> : 'Review detected QR'}</button>}
+
+              {error && <div id="qr-token-error" role="alert" className={`mt-4 rounded-lg border p-4 ${duplicateError ? 'border-red-200 bg-danger-soft' : 'border-amber-200 bg-warning-soft'}`}><p className={`font-bold ${duplicateError ? 'text-brand-red' : 'text-brand-amber'}`}>{duplicateError ? 'Possible duplicate claim' : 'Credential not accepted'}</p><p className="mt-1 text-sm leading-6 text-copy">{error.message}</p><p className="mt-2 text-xs text-muted-copy">Confirm the selected event, then scan the beneficiary’s current credential again. Ask the System Administrator to reissue damaged or expired credentials.</p></div>}
+            </form>
+
+            <details className="mt-5 rounded-xl border border-line bg-slate-50 p-4 text-sm">
+              <summary className="cursor-pointer font-bold text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">Having trouble scanning?</summary>
+              <ul className="mt-3 space-y-2 leading-6 text-muted-copy"><li>Increase screen brightness or flatten the printed QR card.</li><li>Use the camera or an authorized USB handheld scanner.</li><li>For a damaged or expired credential, ask the System Administrator to reissue it.</li></ul>
+            </details>
+          </div>
+        </section>
+
+        <aside className="space-y-6" aria-label="Verification review and result">
+          {result ? (
+            <section role="status" aria-live="polite" className={`rounded-xl border p-6 shadow-sm ${result.verificationComplete ? 'border-emerald-200 bg-success-soft' : 'border-amber-200 bg-warning-soft'}`}>
+              <span aria-hidden="true" className={`grid size-12 place-items-center rounded-full text-white ${result.verificationComplete ? 'bg-brand-green' : 'bg-brand-amber'}`}><Icon name={result.verificationComplete ? 'check' : 'info'} className="size-6" strokeWidth={2.5} /></span>
+              <p className="mt-4 text-xs font-bold uppercase tracking-[0.1em] text-muted-copy">Verification recorded</p>
+              <h2 className="mt-1 text-xl font-bold text-ink">{result.verificationComplete ? 'Claim verification complete' : 'QR accepted — biometric required'}</h2>
+              <p className="mt-2 text-sm leading-6 text-copy">{result.verificationComplete ? 'The QR verification and current check-in status are recorded. The claim is ready for the next authorized operation.' : 'The beneficiary is checked in. Continue to the live identity check to finalize this claim.'}</p>
+              <dl className="mt-5 space-y-3 border-t border-current/10 pt-4 text-sm"><div className="flex justify-between gap-4"><dt className="text-muted-copy">Beneficiary</dt><dd className="text-right font-bold text-ink">{beneficiaryName(claim?.beneficiary) || 'Verified beneficiary'}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-copy">Queue number</dt><dd className="font-bold tabular-nums text-ink">{claim?.schedule?.queueNumber ? `#${claim.schedule.queueNumber}` : 'Recorded'}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-copy">Claim status</dt><dd className="font-bold text-ink">{humanize(claim?.claimStatus)}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-copy">Claim reference</dt><dd className="max-w-48 truncate font-mono text-xs font-bold text-ink" title={claim?.claimId}>{claim?.claimId}</dd></div></dl>
+              {needsBiometric
+                ? <button type="button" onClick={() => onNavigate(`/biometrics?view=verify&distribution=${encodeURIComponent(claim.distributionId)}&beneficiary=${encodeURIComponent(claim.beneficiaryId)}`)} className="ga-btn-primary mt-5 w-full">Continue to biometric <Icon name="arrowRight" /></button>
+                : <button type="button" onClick={onReset} className="ga-btn-primary mt-5 w-full"><Icon name="qr" /> Scan next beneficiary</button>}
+            </section>
+          ) : preview ? (
+            <section role="status" aria-live="polite" className="rounded-xl border border-blue-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-info-soft px-3 py-1.5 text-xs font-bold text-brand-blue"><Icon name="security" className="size-4" /> Review required</span><span className="text-xs font-bold text-brand-green">Credential valid</span></div>
+              <h2 className="mt-5 text-2xl font-bold text-ink">{beneficiaryName(preview.beneficiary)}</h2>
+              <p className="mt-2 text-sm leading-6 text-copy">Match the person present with the name and queue number below before confirming.</p>
+              <dl className="mt-5 divide-y divide-line rounded-xl border border-line bg-slate-50 px-4 text-sm">
+                <div className="flex justify-between gap-4 py-3"><dt className="text-muted-copy">Queue number</dt><dd className="font-bold tabular-nums text-ink">#{preview.schedule.queueNumber}</dd></div>
+                <div className="flex justify-between gap-4 py-3"><dt className="text-muted-copy">Service area</dt><dd className="text-right font-bold text-ink">{preview.beneficiary.sitioPurok || preview.beneficiary.barangay?.barangayName || 'Assigned barangay'}</dd></div>
+                <div className="flex justify-between gap-4 py-3"><dt className="text-muted-copy">Session</dt><dd className="text-right font-bold text-ink">{preview.schedule.slot?.sessionLabel || 'Scheduled session'}</dd></div>
+                <div className="flex justify-between gap-4 py-3"><dt className="text-muted-copy">Next requirement</dt><dd className="text-right font-bold text-ink">{preview.nextRequiredVerification ? humanize(preview.nextRequiredVerification) : 'None'}</dd></div>
+              </dl>
+              <p className="mt-4 flex gap-3 rounded-lg border border-emerald-200 bg-success-soft p-4 text-sm leading-6 text-copy"><Icon name="info" className="mt-0.5 size-5 shrink-0 text-brand-green" /><span>No queue or claim record has changed yet. Confirmation is required.</span></p>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2"><button type="button" disabled={isVerifying} onClick={onReset} className="ga-btn-secondary">Scan a different QR</button><button ref={confirmRef} type="button" disabled={isVerifying} onClick={onConfirm} className="ga-btn-primary">{isVerifying ? <LoadingLabel>Recording check-in...</LoadingLabel> : <><Icon name="check" /> {preview.checksInBeneficiary ? 'Confirm check-in' : 'Confirm QR verification'}</>}</button></div>
+            </section>
+          ) : (
+            <section className="rounded-xl border border-dashed border-line bg-white p-7 text-center"><span aria-hidden="true" className="mx-auto grid size-12 place-items-center rounded-full bg-info-soft text-brand-blue"><Icon name="qr" className="size-6" /></span><h2 className="mt-4 font-bold text-ink">Ready for a credential</h2><p className="mt-2 text-sm leading-6 text-muted-copy">Scan with the camera or USB scanner. Beneficiary details will appear here for review before check-in.</p></section>
+          )}
+
+          <section className="ga-card p-5"><h2 className="font-bold text-ink">Field checklist</h2><ol className="mt-4 space-y-3 text-sm leading-6 text-copy"><li className="flex gap-3"><span className="font-bold text-brand-blue">01</span><span>Confirm the selected distribution event.</span></li><li className="flex gap-3"><span className="font-bold text-brand-blue">02</span><span>Scan the beneficiary’s current QR credential.</span></li><li className="flex gap-3"><span className="font-bold text-brand-blue">03</span><span>Match the displayed identity before confirming check-in.</span></li></ol></section>
+        </aside>
+        {cameraOpen && <QrCameraDialog onDetected={onCameraScan} onClose={() => setCameraOpen(false)} />}
+      </div>
     </div>
   )
 }
