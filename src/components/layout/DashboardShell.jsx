@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { getDashboardNavigation, STAFF_ROLE_LABELS } from '../../auth/staffAuth.js'
+import { getDashboardNavigation, getStoredStaffSession, STAFF_ROLE_LABELS } from '../../auth/staffAuth.js'
 import { Icon } from '../ui/icon.jsx'
 import { LoadingLabel } from '../ui/spinner.jsx'
+import { PhilippineClock, StaffNotificationCenter } from './StaffHeaderActions.jsx'
+import StaffAiAssistant from '../assistant/StaffAiAssistant.jsx'
 
 function staffInitials(name = 'Staff') {
   return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()
@@ -17,6 +19,7 @@ function DashboardShell({ breadcrumbs, children, currentPath, onLogout, onNaviga
   const navigation = getDashboardNavigation(user?.role)
   const roleLabel = STAFF_ROLE_LABELS[user?.role] ?? 'Staff'
   const breadcrumbItems = breadcrumbs ?? ['Operations', pageTitle]
+  const accessToken = getStoredStaffSession().accessToken
 
   useEffect(() => {
     const navigationPanel = navigationRef.current
@@ -124,13 +127,13 @@ function DashboardShell({ breadcrumbs, children, currentPath, onLogout, onNaviga
         </nav>
 
         <div className="border-t border-white/10 p-3">
-          <div className={`flex items-center gap-3 rounded-lg bg-white/[0.07] p-3 ${collapsed ? 'lg:hidden' : ''}`}>
+          <a href="/account" onClick={(event) => navigate(event, '/account')} className={`flex items-center gap-3 rounded-lg bg-white/[0.07] p-3 transition-colors hover:bg-white/[0.12] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${collapsed ? 'lg:hidden' : ''}`}>
             <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-full bg-white/10 text-sm font-bold text-white">{staffInitials(user?.fullName)}</span>
             <span className="min-w-0">
               <span className="block truncate text-sm font-bold text-white">{user?.fullName}</span>
-              <span className="mt-0.5 block truncate text-xs text-blue-200">{roleLabel}</span>
+              <span className="mt-0.5 block truncate text-xs text-blue-200">View account & security</span>
             </span>
-          </div>
+          </a>
           <button type="button" onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!collapsed} className="mt-2 hidden min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg text-sm font-semibold text-slate-300 hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white lg:flex">
             <Icon name="chevronLeft" className={`size-4 transition-transform ${collapsed ? 'rotate-180' : ''}`} strokeWidth={2} />
             <span className={collapsed ? 'sr-only' : ''}>Collapse</span>
@@ -162,9 +165,12 @@ function DashboardShell({ breadcrumbs, children, currentPath, onLogout, onNaviga
               <p className="truncate text-base font-bold text-ink sm:mt-1">{pageTitle}</p>
             </div>
 
-            <span className="hidden items-center gap-2 rounded-full border border-emerald-200 bg-success-soft px-3 py-2 text-xs font-bold text-brand-green md:inline-flex">
+            <span className="hidden items-center gap-2 rounded-full border border-emerald-200 bg-success-soft px-3 py-2 text-xs font-bold text-brand-green 2xl:inline-flex">
               <span aria-hidden="true" className="ga-live-dot size-2 rounded-full bg-emerald-500" /> Secure session
             </span>
+
+            <PhilippineClock />
+            <StaffNotificationCenter accessToken={accessToken} onNavigate={onNavigate} />
 
             <details className="group relative">
               <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 rounded-lg border border-line bg-white px-1.5 pr-2 text-copy hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue [&::-webkit-details-marker]:hidden">
@@ -180,6 +186,9 @@ function DashboardShell({ breadcrumbs, children, currentPath, onLogout, onNaviga
                 <p className="mt-1 text-sm text-muted-copy">{user?.employeeId} · {roleLabel}</p>
                 <div className="my-4 border-t border-line" />
                 <p className="flex items-center gap-2 text-sm font-semibold text-brand-green"><span aria-hidden="true" className="ga-live-dot size-2 rounded-full bg-emerald-500" /> Authenticated staff session</p>
+                <a href="/account" onClick={(event) => navigate(event, '/account')} className="mt-4 flex min-h-11 w-full items-center gap-3 rounded-lg bg-info-soft px-4 text-sm font-bold text-brand-blue hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">
+                  <Icon name="profile" className="size-5" /> Account & security
+                </a>
                 <button type="button" onClick={logout} disabled={isLoggingOut} className="mt-4 min-h-11 w-full cursor-pointer rounded-lg border border-line bg-white px-4 text-sm font-bold text-copy hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue disabled:cursor-not-allowed disabled:opacity-50">
                   {isLoggingOut ? <LoadingLabel>Signing out...</LoadingLabel> : 'Sign out securely'}
                 </button>
@@ -192,6 +201,7 @@ function DashboardShell({ breadcrumbs, children, currentPath, onLogout, onNaviga
           {children}
         </main>
       </div>
+      <StaffAiAssistant accessToken={accessToken} onNavigate={onNavigate} onSessionExpired={onLogout} user={user} />
     </div>
   )
 }

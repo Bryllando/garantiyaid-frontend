@@ -3,8 +3,10 @@ import { toast } from 'sonner'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Icon } from '../components/ui/icon.jsx'
+import { PhilippineMobileField } from '../components/ui/philippine-mobile-field.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
+import { useMotionEntry } from '../components/ui/use-motion-entry.js'
 import {
   buildStaffAccountPayload,
   createBarangay,
@@ -13,6 +15,8 @@ import {
   isSessionExpiredError,
   requestBarangayList,
   requestStaffUserList,
+  removeStaffUser,
+  restoreStaffUser,
   STAFF_ROLE_LABELS,
   updateBarangay,
   updateStaffUser,
@@ -38,8 +42,8 @@ const emptyBarangay = { barangayCode: '', barangayName: '', city: '', province: 
 const dateFormatter = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeZone: 'Asia/Manila' })
 const initials = (name = 'Staff') => name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()
 
-function StatusBadge({ active }) {
-  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${active ? 'ga-status-success' : 'border-line bg-slate-100 text-copy'}`}>{active ? 'Active' : 'Inactive'}</span>
+function StatusBadge({ active, archivedAt }) {
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${archivedAt ? 'border-blue-200 bg-info-soft text-brand-blue' : active ? 'ga-status-success' : 'border-line bg-slate-100 text-copy'}`}>{archivedAt ? 'Archived' : active ? 'Active' : 'Inactive'}</span>
 }
 
 function LoadingRows({ label }) {
@@ -184,7 +188,7 @@ function StaffFormDialog({ activeBarangays, currentUserId, initialRole, onBack, 
           </div>
           <Field id="staff-full-name" label="Full name" required maxLength="150" autoComplete="name" autoFocus={!user} value={form.fullName} onChange={(value) => change('fullName', value)} />
           <Field id="staff-email" label="Official email" type="email" required maxLength="150" autoComplete="email" value={form.email} onChange={(value) => change('email', value)} />
-          <Field id="staff-contact" label="Contact number" type="tel" maxLength="20" autoComplete="tel" value={form.contactNumber} onChange={(value) => change('contactNumber', value)} />
+          <PhilippineMobileField id="staff-contact" value={form.contactNumber} onChange={(value) => change('contactNumber', value)} />
 
           {user && <div><p className="ga-label">System role</p><div className="mt-2 flex min-h-12 items-center gap-3 rounded-lg border border-line bg-slate-100 px-4 text-sm"><RoleIcon role={form.role} className="size-5 text-brand-blue" /><span className="font-bold text-ink">{roleLabel}</span><span className="ml-auto rounded-full border border-line bg-white px-2.5 py-1 text-xs font-bold text-muted-copy">Fixed</span></div><p className="mt-2 text-xs leading-5 text-muted-copy">Role is permanent because it determines the Staff ID and access scope.</p></div>}
           {form.role === 'DSWD_STAFF' ? <div className="rounded-lg border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">Sign-in method:</strong> DSWD Staff use the generated <span className="font-mono font-bold">DSWD-####</span> Staff ID. No username is created.</div> : <Field id="staff-username" label="Username" required minLength="4" maxLength="30" pattern="[a-zA-Z][a-zA-Z0-9._]{3,29}" autoComplete="username" value={form.username} onChange={(value) => change('username', value)} description="Optional sign-in alternative to the permanent BSTF Staff ID. Starts with a letter; lowercase letters, numbers, dots, and underscores only." />}
@@ -290,17 +294,95 @@ function BarangayFormDialog({ barangay, onClose, onSave }) {
     event.preventDefault(); setIsSaving(true)
     try { await onSave(form); dialogRef.current?.close() } catch { /* The page reports the API error. */ } finally { setIsSaving(false) }
   }
-  return <dialog ref={dialogRef} onClose={onClose} className="m-auto w-[min(38rem,calc(100%-2rem))] rounded-2xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/55"><form onSubmit={submit} className="p-5 sm:p-7"><div className="flex items-start justify-between gap-5"><div><p className="ga-eyebrow">Service-area registry</p><h2 className="mt-2 text-2xl font-extrabold">{barangay ? 'Edit barangay' : 'Add barangay'}</h2><p className="mt-2 text-sm leading-6 text-muted-copy">Use the official barangay name and local-government jurisdiction.</p></div><button type="button" onClick={() => dialogRef.current?.close()} aria-label="Close barangay form" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-xl hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-blue">×</button></div><div className="mt-6 grid gap-5 sm:grid-cols-2"><Field id="barangay-code" label="Barangay code" maxLength="20" value={form.barangayCode} onChange={(value) => change('barangayCode', value)} /><div className="sm:col-span-2"><Field id="barangay-name" label="Official barangay name" required maxLength="100" value={form.barangayName} onChange={(value) => change('barangayName', value)} /></div><Field id="barangay-city" label="City or municipality" required maxLength="100" value={form.city} onChange={(value) => change('city', value)} /><Field id="barangay-province" label="Province" required maxLength="100" value={form.province} onChange={(value) => change('province', value)} /></div><div className="mt-7 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end"><button type="button" disabled={isSaving} onClick={() => dialogRef.current?.close()} className="ga-btn-secondary">Cancel</button><button type="submit" disabled={isSaving} className="ga-btn-primary">{isSaving ? <LoadingLabel>Saving...</LoadingLabel> : barangay ? 'Save barangay' : 'Add barangay'}</button></div></form></dialog>
+  return (
+    <dialog
+      ref={dialogRef}
+      onCancel={(event) => { if (isSaving) event.preventDefault() }}
+      onClose={onClose}
+      aria-labelledby="barangay-form-title"
+      aria-describedby="barangay-form-description"
+      className="m-auto max-h-[calc(100dvh-1rem)] w-[min(42rem,calc(100%-1rem))] overflow-y-auto rounded-2xl border border-line bg-white p-0 text-ink shadow-2xl backdrop:bg-slate-950/60 backdrop:backdrop-blur-[3px] sm:max-h-[calc(100dvh-2rem)] sm:w-[min(42rem,calc(100%-2rem))]"
+    >
+      <form onSubmit={submit}>
+        <header className="border-b border-line bg-gradient-to-br from-white via-white to-blue-50/70 p-5 sm:p-7">
+          <div className="flex items-start gap-4">
+            <span aria-hidden="true" className="grid size-12 shrink-0 place-items-center rounded-xl bg-brand-navy text-white shadow-sm sm:size-14">
+              <RoleIcon role="BARANGAY_FACILITATOR" className="size-6 sm:size-7" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-extrabold uppercase tracking-[0.12em] text-brand-blue">Service-area registry</p>
+              <h2 id="barangay-form-title" className="mt-2 text-2xl font-extrabold tracking-tight sm:text-3xl">{barangay ? 'Edit barangay record' : 'Register a barangay'}</h2>
+              <p id="barangay-form-description" className="mt-2 max-w-xl text-sm leading-6 text-muted-copy">Create an accurate service-area record using the barangay’s official name and local-government jurisdiction.</p>
+            </div>
+            <button type="button" disabled={isSaving} onClick={() => dialogRef.current?.close()} aria-label="Close barangay form" className="grid size-11 shrink-0 cursor-pointer place-items-center rounded-lg border border-line bg-white text-copy transition-colors hover:border-blue-200 hover:bg-info-soft hover:text-brand-blue focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue disabled:cursor-not-allowed disabled:opacity-50">
+              <Icon name="close" />
+            </button>
+          </div>
+        </header>
+
+        <div data-dialog-stagger className="space-y-5 p-5 sm:p-7">
+          <p className="text-xs font-semibold leading-5 text-muted-copy"><span className="font-extrabold text-brand-red">*</span> Required information</p>
+
+          <fieldset className="rounded-2xl border border-line bg-white p-4 sm:p-5">
+            <legend className="px-2 text-sm font-extrabold text-ink">Barangay identity</legend>
+            <div className="mt-1 grid gap-5">
+              <Field
+                id="barangay-name"
+                label="Official barangay name"
+                description="Enter the complete name used in official local-government records."
+                required
+                autoFocus
+                maxLength="100"
+                value={form.barangayName}
+                onChange={(value) => change('barangayName', value)}
+              />
+              <Field
+                id="barangay-code"
+                label="Barangay code (optional)"
+                description="Add the official administrative code when one is available."
+                maxLength="20"
+                value={form.barangayCode}
+                onChange={(value) => change('barangayCode', value)}
+              />
+            </div>
+          </fieldset>
+
+          <fieldset className="rounded-2xl border border-line bg-slate-50/70 p-4 sm:p-5">
+            <legend className="px-2 text-sm font-extrabold text-ink">Local-government jurisdiction</legend>
+            <p className="mb-4 mt-1 text-xs leading-5 text-muted-copy">This determines where the barangay appears in staff assignments and service-area filters.</p>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <Field id="barangay-city" label="City or municipality" required maxLength="100" value={form.city} onChange={(value) => change('city', value)} />
+              <Field id="barangay-province" label="Province" required maxLength="100" value={form.province} onChange={(value) => change('province', value)} />
+            </div>
+          </fieldset>
+
+          <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy">
+            <span aria-hidden="true" className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-white text-brand-blue shadow-sm"><Icon name="info" className="size-4" strokeWidth={2} /></span>
+            <p><strong className="text-ink">Before saving:</strong> verify the spelling and jurisdiction. These details will be used when assigning Barangay Facilitator accounts.</p>
+          </div>
+        </div>
+
+        <footer className="flex flex-col-reverse gap-3 border-t border-line bg-slate-50/80 p-5 sm:flex-row sm:items-center sm:justify-end sm:px-7">
+          <button type="button" disabled={isSaving} onClick={() => dialogRef.current?.close()} className="ga-btn-secondary">Cancel</button>
+          <button type="submit" disabled={isSaving} className="ga-btn-primary">
+            {isSaving ? <LoadingLabel>{barangay ? 'Saving changes...' : 'Registering barangay...'}</LoadingLabel> : <><Icon name={barangay ? 'check' : 'plus'} />{barangay ? 'Save changes' : 'Register barangay'}</>}
+          </button>
+        </footer>
+      </form>
+    </dialog>
+  )
 }
 
 function StaffActions({ isSelf, onEdit, onToggle, user }) {
-  return <div className="flex flex-wrap gap-2"><button type="button" onClick={() => onEdit(user)} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">Edit</button><button type="button" disabled={isSelf} title={isSelf ? 'Another administrator must change your active status.' : undefined} onClick={() => onToggle(user)} className={`min-h-11 rounded-lg px-3 text-sm font-bold focus-visible:outline-2 disabled:cursor-not-allowed disabled:text-slate-400 ${user.isActive ? 'text-brand-red hover:bg-danger-soft focus-visible:outline-brand-red' : 'text-brand-green hover:bg-success-soft focus-visible:outline-brand-green'}`}>{user.isActive ? 'Deactivate' : 'Reactivate'}</button></div>
+  if (user.archivedAt) return <button type="button" onClick={() => onToggle(user, 'restore')} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-bold text-brand-green hover:bg-success-soft focus-visible:outline-2 focus-visible:outline-brand-green"><Icon name="reset" />Restore account</button>
+  const archivesHistory = user.removalMode === 'ARCHIVE'
+  return <div className="flex flex-wrap gap-2"><button type="button" onClick={() => onEdit(user)} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">Edit</button><button type="button" disabled={isSelf} title={isSelf ? 'Another administrator must change your active status.' : user.isActive ? 'Block sign-in and revoke active sessions without deleting records.' : 'Restore sign-in access using the existing credentials.'} onClick={() => onToggle(user)} className={`min-h-11 rounded-lg px-3 text-sm font-bold focus-visible:outline-2 disabled:cursor-not-allowed disabled:text-slate-400 ${user.isActive ? 'text-brand-red hover:bg-danger-soft focus-visible:outline-brand-red' : 'text-brand-green hover:bg-success-soft focus-visible:outline-brand-green'}`}>{user.isActive ? 'Deactivate' : 'Reactivate'}</button>{!user.isActive && <button type="button" disabled={isSelf} title={archivesHistory ? 'Hide this account while preserving its linked official records.' : 'Permanently delete this unused account while retaining its audit entries.'} onClick={() => onToggle(user, true)} className={`inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-bold focus-visible:outline-2 disabled:cursor-not-allowed disabled:text-slate-400 ${archivesHistory ? 'text-brand-blue hover:bg-info-soft focus-visible:outline-brand-blue' : 'text-brand-red hover:bg-danger-soft focus-visible:outline-brand-red'}`}>{archivesHistory && <Icon name="archive" />}{archivesHistory ? 'Move to archive' : 'Delete'}</button>}</div>
 }
 
 function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSessionExpired }) {
   const authorized = session.user.role === 'SYSTEM_ADMIN'
   const [view, setView] = useState('staff')
-  const [staffDraft, setStaffDraft] = useState({ search: '', role: '', isActive: '' })
+  const [staffDraft, setStaffDraft] = useState({ search: '', role: '', isActive: '', archived: 'false' })
   const [staffFilters, setStaffFilters] = useState(staffDraft)
   const [staffPage, setStaffPage] = useState(1)
   const [staffData, setStaffData] = useState(null)
@@ -318,6 +400,10 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
   const [createdStaff, setCreatedStaff] = useState(null)
   const [barangayForm, setBarangayForm] = useState(null)
   const [confirmation, setConfirmation] = useState(null)
+  const showingArchived = staffFilters.archived === 'true'
+  const staffRegistryRef = useMotionEntry(showingArchived ? 'archived' : 'current')
+  const staffRegistryHeadingRef = useRef(null)
+  const archiveViewInitialized = useRef(false)
 
   const reportError = useCallback((requestError) => {
     if (isSessionExpiredError(requestError)) return onSessionExpired()
@@ -343,6 +429,14 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
       .finally(() => { if (active) setBarangayLoading(false) })
     return () => { active = false }
   }, [authorized, barangayReload, onSessionExpired, session.accessToken])
+
+  useEffect(() => {
+    if (!archiveViewInitialized.current) {
+      archiveViewInitialized.current = true
+      return
+    }
+    staffRegistryHeadingRef.current?.focus({ preventScroll: true })
+  }, [showingArchived])
 
   const activeBarangays = useMemo(() => barangays.filter((barangay) => barangay.isActive), [barangays])
   const visibleBarangays = useMemo(() => {
@@ -370,10 +464,18 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
       setBarangayForm(null); setBarangayLoading(true); setBarangayReload((value) => value + 1)
     } catch (error) { reportError(error); throw error }
   }
-  async function confirmStatusChange() {
+  async function confirmStatusChange(_reason, typedConfirmation) {
     const action = confirmation
     try {
-      if (action.type === 'staff') {
+      if (action.type === 'delete-staff') {
+        const result = await removeStaffUser(session.accessToken, action.record.userId, typedConfirmation)
+        toast.success(result.removalMode === 'ARCHIVE' ? 'Staff account archived; official history preserved.' : 'Unused staff account permanently deleted; audit entries retained.', { description: action.record.employeeId })
+        setStaffLoading(true); setStaffPage(1); setStaffReload((value) => value + 1)
+      } else if (action.type === 'restore-staff') {
+        await restoreStaffUser(session.accessToken, action.record.userId)
+        toast.success('Staff account restored to the inactive list.', { description: `${action.record.employeeId} must be reactivated before sign-in.` })
+        setStaffLoading(true); setStaffPage(1); setStaffReload((value) => value + 1)
+      } else if (action.type === 'staff') {
         await updateStaffUser(session.accessToken, action.record.userId, { isActive: !action.record.isActive })
         toast.success(action.record.isActive ? 'Staff account deactivated and sessions revoked.' : 'Staff account reactivated.')
         setStaffLoading(true); setStaffReload((value) => value + 1)
@@ -385,8 +487,21 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
       setConfirmation(null)
     } catch (error) { reportError(error); throw error }
   }
-  function toggleStaff(user) {
+  function toggleStaff(user, action) {
+    if (action === 'restore') return restoreStaff(user)
+    if (action) return removeStaff(user)
     setConfirmation({ type: 'staff', record: user, title: `${user.isActive ? 'Deactivate' : 'Reactivate'} ${user.fullName}?`, description: user.isActive ? 'The account will be unable to sign in and every active session will be revoked. Historical activity remains in the audit log.' : 'The staff member will be allowed to sign in again using their existing credentials.', actionLabel: user.isActive ? 'Deactivate account' : 'Reactivate account', destructive: user.isActive })
+  }
+  function removeStaff(user) {
+    const archivesHistory = user.removalMode === 'ARCHIVE'
+    setConfirmation({ type: 'delete-staff', record: user, title: archivesHistory ? `Move ${user.fullName} to the archive?` : `Permanently delete ${user.fullName}?`, description: archivesHistory ? 'The account will move to Archived accounts and remain unable to sign in. Linked government and audit records will be preserved.' : 'This unused account will be permanently deleted. Existing audit entries will remain with a preserved Staff ID snapshot.', actionLabel: archivesHistory ? 'Move to archive' : 'Delete account permanently', confirmationText: `${archivesHistory ? 'ARCHIVE' : 'DELETE'} ${user.employeeId}`, destructive: !archivesHistory })
+  }
+  function restoreStaff(user) {
+    setConfirmation({ type: 'restore-staff', record: user, title: `Restore ${user.fullName}?`, description: 'The account will return to the inactive staff list. It will remain unable to sign in until an administrator reactivates it.', actionLabel: 'Restore account' })
+  }
+  function changeStaffArchiveView(archived) {
+    const nextFilters = { ...staffFilters, archived: archived ? 'true' : 'false', isActive: '' }
+    setStaffDraft(nextFilters); setStaffFilters(nextFilters); setStaffPage(1); setStaffLoading(true)
   }
   function toggleBarangay(barangay) {
     setConfirmation({ type: 'barangay', record: barangay, title: `${barangay.isActive ? 'Deactivate' : 'Reactivate'} ${barangay.barangayName}?`, description: barangay.isActive ? 'New facilitator assignments and distribution events will be blocked. Active facilitators must be reassigned or deactivated first.' : 'The barangay will become available for staff assignments and new distribution events.', actionLabel: barangay.isActive ? 'Deactivate barangay' : 'Reactivate barangay', destructive: barangay.isActive })
@@ -397,7 +512,7 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
   if (!authorized) return <DashboardShell breadcrumbs={['Operations', 'Administration']} currentPath="/admin/administration" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Staff & barangays" user={session.user}><section className="ga-card mx-auto max-w-md p-8 text-center" role="alert"><h1 className="text-2xl font-extrabold">Administrator access required</h1><p className="mt-3 text-muted-copy">Only System Administrators can manage staff accounts and barangay service areas.</p><button type="button" onClick={() => onNavigate('/dashboard')} className="ga-btn-primary mt-6">Return to dashboard</button></section></DashboardShell>
 
   return <DashboardShell breadcrumbs={['Operations', 'Administration', view === 'staff' ? 'Staff accounts' : 'Barangays']} currentPath="/admin/administration" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Staff & barangays" user={session.user}>
-    <header className="flex flex-col gap-5 border-b border-line pb-6 sm:flex-row sm:items-end sm:justify-between"><div><p className="ga-eyebrow">Administration</p><h1 className="ga-page-title">Staff and barangays</h1><p className="ga-page-copy">Create the barangay first, then create and assign the staff member who will operate there.</p></div><button type="button" onClick={() => view === 'staff' ? setStaffRolePickerOpen(true) : setBarangayForm({ barangay: null })} className="ga-btn-primary shrink-0">{view === 'staff' ? 'Create staff account' : 'Add barangay'}</button></header>
+    <header className="flex flex-col gap-5 border-b border-line pb-6 sm:flex-row sm:items-end sm:justify-between"><div><p className="ga-eyebrow">Administration</p><h1 className="ga-page-title">Staff and barangays</h1><p className="ga-page-copy">Create the barangay first, then create and assign the staff member who will operate there.</p></div><div className="flex flex-col gap-2 sm:flex-row">{view === 'staff' && <button type="button" onClick={() => changeStaffArchiveView(!showingArchived)} className="ga-btn-secondary shrink-0"><Icon name={showingArchived ? 'arrowLeft' : 'archive'} />{showingArchived ? 'Back to current accounts' : 'Archived accounts'}</button>}<button type="button" onClick={() => view === 'staff' ? setStaffRolePickerOpen(true) : setBarangayForm({ barangay: null })} className="ga-btn-primary shrink-0">{view === 'staff' ? 'Create staff account' : 'Add barangay'}</button></div></header>
     <section className="ga-card mt-6 overflow-hidden" aria-labelledby="setup-path-heading">
       <div className="border-b border-line px-5 py-4"><p className="ga-eyebrow">Recommended order</p><h2 id="setup-path-heading" className="mt-1 text-lg font-bold text-ink">Set up a barangay workspace</h2></div>
       <ol className="grid md:grid-cols-3">
@@ -411,9 +526,16 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
     </section>
     <div className="mt-5 inline-flex w-full rounded-xl border border-line bg-white p-1 shadow-sm sm:w-auto" role="group" aria-label="Administration section"><button type="button" aria-pressed={view === 'staff'} onClick={() => setView('staff')} className={`min-h-11 flex-1 rounded-lg px-5 text-sm font-bold transition-colors sm:flex-none ${view === 'staff' ? 'bg-brand-navy text-white' : 'text-copy hover:bg-slate-50'}`}>Staff accounts <span className="ml-1 opacity-75">{staffData?.pagination.total ?? '—'}</span></button><button type="button" aria-pressed={view === 'barangays'} onClick={() => setView('barangays')} className={`min-h-11 flex-1 rounded-lg px-5 text-sm font-bold transition-colors sm:flex-none ${view === 'barangays' ? 'bg-brand-navy text-white' : 'text-copy hover:bg-slate-50'}`}>Barangays <span className="ml-1 opacity-75">{barangays.length || '—'}</span></button></div>
 
-    {view === 'staff' ? <section className="mt-5"><div className="grid gap-3 sm:grid-cols-3"><div className="ga-card-flat p-4"><p className="text-xs font-bold uppercase tracking-wide text-muted-copy">Matching accounts</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{staffData?.pagination.total ?? '—'}</p></div><div className="ga-card-flat p-4"><p className="text-xs font-bold uppercase tracking-wide text-muted-copy">Current role scope</p><p className="mt-1 text-base font-extrabold">{staffFilters.role ? STAFF_ROLE_LABELS[staffFilters.role] : 'All staff roles'}</p></div><button type="button" onClick={() => onNavigate('/admin/staff-security')} className="ga-card-flat min-h-20 cursor-pointer p-4 text-left transition-colors hover:border-blue-300 hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue"><p className="text-xs font-bold uppercase tracking-wide text-brand-blue">Security recovery</p><p className="mt-1 font-extrabold">Manage TOTP resets →</p></button></div>
-      <form onSubmit={applyStaffFilters} className="ga-card mt-4 grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_14rem_11rem_auto]" aria-label="Staff account filters"><div><label htmlFor="staff-search" className="sr-only">Search staff accounts</label><input id="staff-search" value={staffDraft.search} onChange={(event) => setStaffDraft((current) => ({ ...current, search: event.target.value }))} placeholder="Search name, Staff ID, username, or email" className="ga-input" /></div><div><label htmlFor="staff-filter-role" className="sr-only">Staff role</label><select id="staff-filter-role" value={staffDraft.role} onChange={(event) => setStaffDraft((current) => ({ ...current, role: event.target.value }))} className="ga-input">{roles.map((role) => <option key={role || 'ALL'} value={role}>{role ? STAFF_ROLE_LABELS[role] : 'All roles'}</option>)}</select></div><div><label htmlFor="staff-filter-status" className="sr-only">Account status</label><select id="staff-filter-status" value={staffDraft.isActive} onChange={(event) => setStaffDraft((current) => ({ ...current, isActive: event.target.value }))} className="ga-input"><option value="">All statuses</option><option value="true">Active</option><option value="false">Inactive</option></select></div><button className="ga-btn-primary">Apply filters</button></form>
-      <div className="ga-card mt-4 overflow-hidden">{staffLoading ? <LoadingRows label="Loading staff accounts" /> : staffError ? <div className="p-6" role="alert"><h2 className="font-extrabold">Staff accounts could not be loaded</h2><p className="mt-2 text-sm text-muted-copy">{staffError}</p><button type="button" onClick={() => { setStaffLoading(true); setStaffReload((value) => value + 1) }} className="ga-btn-primary mt-4">Try again</button></div> : staffRows.length === 0 ? <div className="p-10 text-center"><span className="mx-auto grid size-12 place-items-center rounded-full bg-info-soft font-black text-brand-blue">0</span><h2 className="mt-4 font-extrabold">No staff accounts found</h2><p className="mt-2 text-sm text-muted-copy">Adjust the filters or create the first account in this scope.</p></div> : <><div className="hidden overflow-x-auto lg:block"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-copy"><tr><th className="px-5 py-3">Staff member</th><th className="px-5 py-3">Role and scope</th><th className="px-5 py-3">Security</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-line">{staffRows.map((user) => <tr key={user.userId} className="hover:bg-slate-50"><td className="px-5 py-4"><div className="flex items-center gap-3"><span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-full bg-brand-navy text-xs font-bold text-white">{initials(user.fullName)}</span><div className="min-w-0"><p className="font-bold text-ink">{user.fullName}</p><p className="mt-1 text-xs text-muted-copy">{user.employeeId} · {user.username || 'Staff ID login'}</p><p className="mt-1 text-xs text-muted-copy">{user.email}</p></div></div></td><td className="px-5 py-4"><p className="font-bold">{STAFF_ROLE_LABELS[user.role]}</p><p className="mt-1 text-xs text-muted-copy">{user.barangay ? `${user.barangay.barangayName}, ${user.barangay.city}` : 'National or system-wide scope'}</p></td><td className="px-5 py-4"><p className={`font-bold ${user.totpEnabled ? 'text-brand-green' : 'text-brand-amber'}`}>{user.totpEnabled ? 'TOTP active' : 'Setup required'}</p><p className="mt-1 text-xs text-muted-copy">Updated {dateFormatter.format(new Date(user.updatedAt))}</p></td><td className="px-5 py-4"><StatusBadge active={user.isActive} /></td><td className="px-5 py-4"><div className="flex justify-end"><StaffActions user={user} isSelf={user.userId === session.user.userId} onEdit={(record) => setStaffForm({ user: record })} onToggle={toggleStaff} /></div></td></tr>)}</tbody></table></div><div className="divide-y divide-line lg:hidden">{staffRows.map((user) => <article key={user.userId} className="p-5"><div className="flex items-start gap-3"><span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-full bg-brand-navy text-xs font-bold text-white">{initials(user.fullName)}</span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><h2 className="font-extrabold">{user.fullName}</h2><StatusBadge active={user.isActive} /></div><p className="mt-1 text-sm text-muted-copy">{user.employeeId} · {STAFF_ROLE_LABELS[user.role]}</p><p className="mt-2 text-sm font-semibold text-copy">{user.barangay?.barangayName || 'National or system-wide scope'}</p><p className={`mt-2 text-sm font-bold ${user.totpEnabled ? 'text-brand-green' : 'text-brand-amber'}`}>{user.totpEnabled ? 'TOTP active' : 'Authenticator setup required'}</p></div></div><div className="mt-4 border-t border-line pt-3"><StaffActions user={user} isSelf={user.userId === session.user.userId} onEdit={(record) => setStaffForm({ user: record })} onToggle={toggleStaff} /></div></article>)}</div>{staffData.pagination.totalPages > 1 && <div className="flex flex-col gap-3 border-t border-line px-5 py-4 text-sm sm:flex-row sm:items-center sm:justify-between"><span>Page {staffPage} of {staffData.pagination.totalPages}</span><div className="flex gap-2"><button type="button" disabled={staffPage === 1} onClick={() => { setStaffLoading(true); setStaffPage((value) => value - 1) }} className="ga-btn-secondary min-h-11 px-4 text-sm">Previous</button><button type="button" disabled={staffPage === staffData.pagination.totalPages} onClick={() => { setStaffLoading(true); setStaffPage((value) => value + 1) }} className="ga-btn-secondary min-h-11 px-4 text-sm">Next</button></div></div>}</>}</div>
+    {view === 'staff' ? <section ref={staffRegistryRef} className="mt-5" aria-labelledby="staff-registry-heading"><div className="flex items-start gap-3"><span aria-hidden="true" className="grid size-11 shrink-0 place-items-center rounded-xl bg-info-soft text-brand-blue"><Icon name={showingArchived ? 'archive' : 'people'} /></span><div><p className="ga-eyebrow">{showingArchived ? 'Preserved registry' : 'Account registry'}</p><h2 ref={staffRegistryHeadingRef} tabIndex={-1} id="staff-registry-heading" className="mt-1 text-xl font-extrabold text-ink">{showingArchived ? 'Archived accounts' : 'Current staff accounts'}</h2><p className="mt-1 text-sm leading-6 text-muted-copy">{showingArchived ? 'These accounts cannot sign in. Their official records and audit history remain preserved.' : 'Manage active and inactive staff accounts, access, and assignments.'}</p></div></div><div className="mt-4 grid gap-3 sm:grid-cols-3"><div className="ga-card-flat p-4"><p className="text-xs font-bold uppercase tracking-wide text-muted-copy">{showingArchived ? 'Archived accounts' : 'Matching accounts'}</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{staffData?.pagination.total ?? '—'}</p></div><div className="ga-card-flat p-4"><p className="text-xs font-bold uppercase tracking-wide text-muted-copy">Current role scope</p><p className="mt-1 text-base font-extrabold">{staffFilters.role ? STAFF_ROLE_LABELS[staffFilters.role] : 'All staff roles'}</p></div><button type="button" onClick={() => onNavigate('/admin/staff-security')} className="ga-card-flat min-h-20 cursor-pointer p-4 text-left transition-colors hover:border-blue-300 hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue"><p className="text-xs font-bold uppercase tracking-wide text-brand-blue">Security recovery</p><p className="mt-1 font-extrabold">Manage TOTP resets →</p></button></div>
+      <aside className="mt-4 flex items-start gap-3 rounded-xl border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy"><span aria-hidden="true" className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-white text-brand-blue shadow-sm"><Icon name={showingArchived ? 'archive' : 'info'} className="size-4" strokeWidth={2} /></span>{showingArchived ? <p><strong className="text-ink">Archived accounts:</strong> Restore returns an account to the inactive list. A separate Reactivate action is still required before the staff member can sign in.</p> : <p><strong className="text-ink">Deactivate, archive, or delete:</strong> Deactivate is reversible. Inactive accounts with official history can be moved to the archive while preserving records; unused or audit-only accounts can be permanently deleted without deleting their audit entries.</p>}</aside>
+      <form onSubmit={applyStaffFilters} className={`ga-card mt-4 grid gap-3 p-4 sm:grid-cols-2 ${showingArchived ? 'xl:grid-cols-[minmax(0,1fr)_14rem_auto]' : 'xl:grid-cols-[minmax(0,1fr)_14rem_11rem_auto]'}`} aria-label={`${showingArchived ? 'Archived' : 'Current'} staff account filters`}><div><label htmlFor="staff-search" className="sr-only">Search staff accounts</label><input id="staff-search" value={staffDraft.search} onChange={(event) => setStaffDraft((current) => ({ ...current, search: event.target.value }))} placeholder="Search name, Staff ID, username, or email" className="ga-input" /></div><div><label htmlFor="staff-filter-role" className="sr-only">Staff role</label><select id="staff-filter-role" value={staffDraft.role} onChange={(event) => setStaffDraft((current) => ({ ...current, role: event.target.value }))} className="ga-input">{roles.map((role) => <option key={role || 'ALL'} value={role}>{role ? STAFF_ROLE_LABELS[role] : 'All roles'}</option>)}</select></div>{!showingArchived && <div><label htmlFor="staff-filter-status" className="sr-only">Account status</label><select id="staff-filter-status" value={staffDraft.isActive} onChange={(event) => setStaffDraft((current) => ({ ...current, isActive: event.target.value }))} className="ga-input"><option value="">All statuses</option><option value="true">Active</option><option value="false">Inactive</option></select></div>}<button type="submit" className="ga-btn-primary">Apply filters</button></form>
+      <div className="ga-card mt-4 overflow-hidden">
+        {staffLoading ? <LoadingRows label="Loading staff accounts" /> : staffError ? <div className="p-6" role="alert"><h2 className="font-extrabold">Staff accounts could not be loaded</h2><p className="mt-2 text-sm text-muted-copy">{staffError}</p><button type="button" onClick={() => { setStaffLoading(true); setStaffReload((value) => value + 1) }} className="ga-btn-primary mt-4">Try again</button></div> : staffRows.length === 0 ? <div className="p-10 text-center"><span className="mx-auto grid size-12 place-items-center rounded-full bg-info-soft font-black text-brand-blue">0</span><h2 className="mt-4 font-extrabold">{staffFilters.archived === 'true' ? 'No archived accounts' : 'No staff accounts found'}</h2><p className="mt-2 text-sm text-muted-copy">{staffFilters.archived === 'true' ? 'Archived staff accounts will appear here and can be restored.' : 'Adjust the filters or create the first account in this scope.'}</p></div> : <>
+          <div className="hidden overflow-x-auto lg:block"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-copy"><tr><th className="px-5 py-3">Staff member</th><th className="px-5 py-3">Role and scope</th><th className="px-5 py-3">Security</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-line">{staffRows.map((user) => <tr key={user.userId} className="hover:bg-slate-50"><td className="px-5 py-4"><div className="flex items-center gap-3"><span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-full bg-brand-navy text-xs font-bold text-white">{initials(user.fullName)}</span><div className="min-w-0"><p className="font-bold text-ink">{user.fullName}</p><p className="mt-1 text-xs text-muted-copy">{user.employeeId} · {user.username || 'Staff ID login'}</p><p className="mt-1 text-xs text-muted-copy">{user.email}</p></div></div></td><td className="px-5 py-4"><p className="font-bold">{STAFF_ROLE_LABELS[user.role]}</p><p className="mt-1 text-xs text-muted-copy">{user.barangay ? `${user.barangay.barangayName}, ${user.barangay.city}` : 'National or system-wide scope'}</p></td><td className="px-5 py-4"><p className={`font-bold ${user.archivedAt ? 'text-brand-blue' : user.totpEnabled ? 'text-brand-green' : 'text-brand-amber'}`}>{user.archivedAt ? 'History preserved' : user.totpEnabled ? 'TOTP active' : 'Setup required'}</p><p className="mt-1 text-xs text-muted-copy">{user.archivedAt ? 'Archived' : 'Updated'} {dateFormatter.format(new Date(user.archivedAt || user.updatedAt))}</p></td><td className="px-5 py-4"><StatusBadge active={user.isActive} archivedAt={user.archivedAt} /></td><td className="px-5 py-4"><div className="flex justify-end"><StaffActions user={user} isSelf={user.userId === session.user.userId} onEdit={(record) => setStaffForm({ user: record })} onToggle={toggleStaff} /></div></td></tr>)}</tbody></table></div>
+          <div className="divide-y divide-line lg:hidden">{staffRows.map((user) => <article key={user.userId} className="p-5"><div className="flex items-start gap-3"><span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-full bg-brand-navy text-xs font-bold text-white">{initials(user.fullName)}</span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><h2 className="font-extrabold">{user.fullName}</h2><StatusBadge active={user.isActive} archivedAt={user.archivedAt} /></div><p className="mt-1 text-sm text-muted-copy">{user.employeeId} · {STAFF_ROLE_LABELS[user.role]}</p><p className="mt-2 text-sm font-semibold text-copy">{user.barangay?.barangayName || 'National or system-wide scope'}</p><p className={`mt-2 text-sm font-bold ${user.archivedAt ? 'text-brand-blue' : user.totpEnabled ? 'text-brand-green' : 'text-brand-amber'}`}>{user.archivedAt ? `Archived ${dateFormatter.format(new Date(user.archivedAt))}` : user.totpEnabled ? 'TOTP active' : 'Authenticator setup required'}</p></div></div><div className="mt-4 border-t border-line pt-3"><StaffActions user={user} isSelf={user.userId === session.user.userId} onEdit={(record) => setStaffForm({ user: record })} onToggle={toggleStaff} /></div></article>)}</div>
+          {staffData.pagination.totalPages > 1 && <div className="flex flex-col gap-3 border-t border-line px-5 py-4 text-sm sm:flex-row sm:items-center sm:justify-between"><span>Page {staffPage} of {staffData.pagination.totalPages}</span><div className="flex gap-2"><button type="button" disabled={staffPage === 1} onClick={() => { setStaffLoading(true); setStaffPage((value) => value - 1) }} className="ga-btn-secondary min-h-11 px-4 text-sm">Previous</button><button type="button" disabled={staffPage === staffData.pagination.totalPages} onClick={() => { setStaffLoading(true); setStaffPage((value) => value + 1) }} className="ga-btn-secondary min-h-11 px-4 text-sm">Next</button></div></div>}
+        </>}
+      </div>
     </section> : <section className="mt-5"><div className="grid gap-3 sm:grid-cols-3"><div className="ga-card-flat p-4"><p className="text-xs font-bold uppercase tracking-wide text-muted-copy">Registered barangays</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{barangays.length}</p></div><div className="ga-card-flat p-4"><p className="text-xs font-bold uppercase tracking-wide text-muted-copy">Active service areas</p><p className="mt-1 text-2xl font-extrabold tabular-nums text-brand-green">{activeBarangayCount}</p></div><div className="ga-card-flat p-4"><p className="text-xs font-bold uppercase tracking-wide text-muted-copy">Inactive records</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{barangays.length - activeBarangayCount}</p></div></div>
       <div className="ga-card mt-4 grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_12rem]" aria-label="Barangay filters"><div><label htmlFor="barangay-search" className="sr-only">Search barangays</label><input id="barangay-search" value={barangaySearch} onChange={(event) => setBarangaySearch(event.target.value)} placeholder="Search name, code, city, or province" className="ga-input" /></div><div><label htmlFor="barangay-status" className="sr-only">Barangay status</label><select id="barangay-status" value={barangayStatus} onChange={(event) => setBarangayStatus(event.target.value)} className="ga-input"><option value="">All statuses</option><option value="true">Active</option><option value="false">Inactive</option></select></div></div>
       <div className="ga-card mt-4 overflow-hidden">{barangayLoading ? <LoadingRows label="Loading barangays" /> : barangayError ? <div className="p-6" role="alert"><h2 className="font-extrabold">Barangays could not be loaded</h2><p className="mt-2 text-sm text-muted-copy">{barangayError}</p><button type="button" onClick={() => { setBarangayLoading(true); setBarangayReload((value) => value + 1) }} className="ga-btn-primary mt-4">Try again</button></div> : visibleBarangays.length === 0 ? <div className="p-10 text-center"><span className="mx-auto grid size-12 place-items-center rounded-full bg-info-soft font-black text-brand-blue">0</span><h2 className="mt-4 font-extrabold">No barangays found</h2><p className="mt-2 text-sm text-muted-copy">Adjust the search or add an official barangay record.</p></div> : <><div className="hidden overflow-x-auto md:block"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-copy"><tr><th className="px-5 py-3">Barangay</th><th className="px-5 py-3">Jurisdiction</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-line">{visibleBarangays.map((barangay) => <tr key={barangay.barangayId} className="hover:bg-slate-50"><td className="px-5 py-4"><p className="font-bold">{barangay.barangayName}</p><p className="mt-1 text-xs text-muted-copy">{barangay.barangayCode || 'No barangay code recorded'}</p></td><td className="px-5 py-4"><p>{barangay.city}</p><p className="mt-1 text-xs text-muted-copy">{barangay.province}</p></td><td className="px-5 py-4"><StatusBadge active={barangay.isActive} /></td><td className="px-5 py-4"><div className="flex justify-end gap-2"><button type="button" onClick={() => setBarangayForm({ barangay })} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft">Edit</button><button type="button" onClick={() => toggleBarangay(barangay)} className={`min-h-11 rounded-lg px-3 text-sm font-bold ${barangay.isActive ? 'text-brand-red hover:bg-danger-soft' : 'text-brand-green hover:bg-success-soft'}`}>{barangay.isActive ? 'Deactivate' : 'Reactivate'}</button></div></td></tr>)}</tbody></table></div><div className="divide-y divide-line md:hidden">{visibleBarangays.map((barangay) => <article key={barangay.barangayId} className="p-5"><div className="flex items-start justify-between gap-3"><div><h2 className="font-extrabold">{barangay.barangayName}</h2><p className="mt-1 text-sm text-muted-copy">{barangay.barangayCode || 'No code'} · {barangay.city}, {barangay.province}</p></div><StatusBadge active={barangay.isActive} /></div><div className="mt-4 flex gap-2 border-t border-line pt-3"><button type="button" onClick={() => setBarangayForm({ barangay })} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft">Edit</button><button type="button" onClick={() => toggleBarangay(barangay)} className={`min-h-11 rounded-lg px-3 text-sm font-bold ${barangay.isActive ? 'text-brand-red hover:bg-danger-soft' : 'text-brand-green hover:bg-success-soft'}`}>{barangay.isActive ? 'Deactivate' : 'Reactivate'}</button></div></article>)}</div></>}</div>
@@ -422,7 +544,7 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
     {staffForm && <StaffFormDialog activeBarangays={activeBarangays} currentUserId={session.user.userId} initialRole={staffForm.role} user={staffForm.user} onBack={staffForm.user ? undefined : () => { setStaffForm(null); setStaffRolePickerOpen(true) }} onClose={() => setStaffForm(null)} onSave={saveStaff} />}
     {createdStaff && <StaffAccountCreatedDialog account={createdStaff} onClose={() => setCreatedStaff(null)} />}
     {barangayForm && <BarangayFormDialog barangay={barangayForm.barangay} onClose={() => setBarangayForm(null)} onSave={saveBarangay} />}
-    <ConfirmationDialog open={Boolean(confirmation)} title={confirmation?.title} description={confirmation?.description} actionLabel={confirmation?.actionLabel} destructive={confirmation?.destructive} onCancel={() => setConfirmation(null)} onConfirm={confirmStatusChange} />
+    <ConfirmationDialog open={Boolean(confirmation)} title={confirmation?.title} description={confirmation?.description} actionLabel={confirmation?.actionLabel} confirmationText={confirmation?.confirmationText} destructive={confirmation?.destructive} onCancel={() => setConfirmation(null)} onConfirm={confirmStatusChange} />
   </DashboardShell>
 }
 

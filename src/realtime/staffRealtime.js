@@ -20,6 +20,10 @@ export const NOTIFICATION_LIVE_EVENTS = Object.freeze([
   'notification.failed',
 ])
 
+export const STAFF_NOTIFICATION_LIVE_EVENTS = Object.freeze([
+  'staff.notification.created',
+])
+
 export function realtimeServerUrl(apiUrl = API_BASE_URL) {
   const url = new URL(apiUrl, typeof window === 'undefined' ? 'http://localhost' : window.location.origin)
   return `${url.protocol}//${url.host}`
@@ -47,4 +51,8 @@ export function connectStaffRealtime(accessToken, handlers = {}, createSocket = 
 
 export function connectNotificationRealtime(accessToken, handlers = {}, createSocket = io) {
   return connectRealtime(accessToken, NOTIFICATION_LIVE_EVENTS, handlers, createSocket)
+}
+
+export function connectStaffNotificationRealtime(accessToken, handlers = {}, createSocket = io) {
+  return connectRealtime(accessToken, STAFF_NOTIFICATION_LIVE_EVENTS, handlers, createSocket)
 }

@@ -34,6 +34,14 @@ async function requestJson(path, { body, headers, token, method = 'POST' } = {})
   return payload?.data
 }
 
+export async function requestServerTimestamp() {
+  const data = await requestJson('/health', { method: 'GET' })
+  if (!data?.timestamp || Number.isNaN(Date.parse(data.timestamp))) {
+    throw new Error('The server returned an unexpected time response.')
+  }
+  return data.timestamp
+}
+
 export function getLoginOutcome(data) {
   if (data?.requiresPasswordChange) return 'password-change'
   if (data?.requiresTotpEnrollment && data.totpSetupToken) return 'totp-enrollment'
@@ -100,6 +108,18 @@ export async function updateStaffUser(token, userId, user) {
   return data.user
 }
 
+export async function removeStaffUser(token, userId, confirmation) {
+  const data = await requestJson(`/users/${userId}`, { token, method: 'DELETE', body: { confirmation } })
+  if (!data?.user || !['ARCHIVE', 'DELETE'].includes(data.removalMode)) throw new Error('The server returned an unexpected staff-account removal response.')
+  return data
+}
+
+export async function restoreStaffUser(token, userId) {
+  const data = await requestJson(`/users/${userId}/restore`, { token })
+  if (!data?.user || data.user.archivedAt) throw new Error('The server returned an unexpected staff-account restore response.')
+  return data.user
+}
+
 export function buildStaffAccountPayload(form, existingUser = null) {
   const role = existingUser?.role ?? form.role
   const normalized = {
@@ -147,6 +167,51 @@ export async function requestDashboardOverview(token, filters = {}) {
 
 export async function requestStaffLogout(token) {
   return requestJson('/auth/logout', { token })
+}
+
+export async function requestOwnAccount(token) {
+  const data = await requestJson('/auth/account', { token, method: 'GET' })
+  if (!data?.user || !data?.security) throw new Error('The server returned an unexpected account response.')
+  return data
+}
+
+export async function updateOwnProfile(token, profile) {
+  const data = await requestJson('/auth/account', { token, method: 'PATCH', body: profile })
+  if (!data?.user) throw new Error('The server returned an unexpected profile response.')
+  return data.user
+}
+
+export async function changeOwnPassword(token, credentials) {
+  const data = await requestJson('/auth/account/password', { token, body: credentials })
+  if (typeof data?.revokedSessionCount !== 'number') throw new Error('The server returned an unexpected password response.')
+  return data
+}
+
+export async function regenerateOwnRecoveryCodes(token, credentials) {
+  const data = await requestJson('/auth/account/recovery-codes', { token, body: credentials })
+  if (!Array.isArray(data?.recoveryCodes)) throw new Error('The server returned an unexpected recovery-code response.')
+  return data.recoveryCodes
+}
+
+export async function startOwnTotpReplacement(token, credentials) {
+  const data = await requestJson('/auth/account/totp-replacement', { token, body: credentials })
+  if (!data?.secret || !data?.otpauthUri || !data?.replacementToken) throw new Error('The server returned an unexpected authenticator response.')
+  return data
+}
+
+export async function confirmOwnTotpReplacement(token, replacementToken, code) {
+  const data = await requestJson('/auth/account/totp-replacement/confirm', {
+    token,
+    body: { replacementToken, code },
+  })
+  if (!data?.user || !Array.isArray(data?.recoveryCodes)) throw new Error('The server returned an unexpected authenticator response.')
+  return data
+}
+
+export async function revokeOwnOtherSessions(token) {
+  const data = await requestJson('/auth/account/sessions/revoke-others', { token })
+  if (typeof data?.revokedSessionCount !== 'number') throw new Error('The server returned an unexpected session response.')
+  return data
 }
 
 export async function requestOpenDistributions(token) {
@@ -583,6 +648,14 @@ export async function createDistribution(token, distribution) {
   return data.distribution
 }
 
+export async function previewAssistantDistribution(token, distribution) {
+  const data = await requestJson('/distributions/assistant-preview', { token, body: distribution })
+  if (data?.conflictFree !== true || data?.draftOnly !== true || !data?.checkedAt) {
+    throw new Error('The server returned an unexpected distribution-draft preview.')
+  }
+  return data
+}
+
 export async function updateDistribution(token, distributionId, distribution) {
   const data = await requestJson(`/distributions/${distributionId}`, { token, method: 'PATCH', body: distribution })
   if (!data?.distribution) throw new Error('The server returned an unexpected distribution response.')
@@ -654,6 +727,30 @@ export async function requestNotificationList(token, filters = {}) {
   return data
 }
 
+export async function requestStaffNotifications(token, pageSize = 8) {
+  const data = await requestJson(`/staff-notifications${queryString({ pageSize })}`, { token, method: 'GET' })
+  if (!Array.isArray(data?.notifications) || typeof data?.unreadCount !== 'number') {
+    throw new Error('The server returned an unexpected staff-notification response.')
+  }
+  return data
+}
+
+export async function markStaffNotificationRead(token, notificationId) {
+  const data = await requestJson(`/staff-notifications/${notificationId}/read`, { token, method: 'PATCH' })
+  if (!data?.notification || typeof data?.unreadCount !== 'number') {
+    throw new Error('The server returned an unexpected staff-notification response.')
+  }
+  return data
+}
+
+export async function markAllStaffNotificationsRead(token) {
+  const data = await requestJson('/staff-notifications/read-all', { token })
+  if (typeof data?.updatedCount !== 'number' || data?.unreadCount !== 0) {
+    throw new Error('The server returned an unexpected staff-notification response.')
+  }
+  return data
+}
+
 export async function requestNotificationSummary(token, filters = {}) {
   const data = await requestJson(`/notifications/summary${queryString(filters)}`, { token, method: 'GET' })
   if (typeof data?.total !== 'number' || !data?.byStatus) throw new Error('The server returned an unexpected notification-summary response.')
@@ -678,6 +775,98 @@ export async function enqueueDistributionReminder(token, distributionId, sendAt,
     body: { notificationType: 'DISTRIBUTION_REMINDER', ...(sendAt ? { sendAt } : {}) },
   })
   if (!Array.isArray(data?.notifications) || typeof data?.queuedCount !== 'number') throw new Error('The server returned an unexpected notification-enqueue response.')
+  return data
+}
+
+export async function previewAssistantDistributionReminder(token, distributionId, reminder) {
+  const data = await requestJson(`/distributions/${distributionId}/notifications/assistant-preview`, {
+    token,
+    body: reminder,
+  })
+  if (!Array.isArray(data?.recipients) || typeof data?.recipientCount !== 'number' || !data?.excluded || !/^[a-f0-9]{64}$/.test(data?.previewHash)) {
+    throw new Error('The server returned an unexpected assistant reminder preview.')
+  }
+  return data
+}
+
+export async function enqueueAssistantDistributionReminder(token, distributionId, reminder, idempotencyKey = crypto.randomUUID()) {
+  const data = await requestJson(`/distributions/${distributionId}/notifications/assistant-enqueue`, {
+    token,
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: reminder,
+  })
+  if (!Array.isArray(data?.notifications) || typeof data?.queuedCount !== 'number') {
+    throw new Error('The server returned an unexpected assistant reminder response.')
+  }
+  return data
+}
+
+export async function recordStaffAssistantFeedback(token, feedback) {
+  const data = await requestJson('/chatbot/staff-feedback', { token, body: feedback })
+  if (data?.recorded !== true) throw new Error('The server returned an unexpected assistant-feedback response.')
+  return data
+}
+
+export async function requestStaffAssistantMessage(token, message, { onText, onStatus, signal } = {}) {
+  const response = await fetch(`${API_BASE_URL}/chatbot/staff-assistant/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify(message),
+    signal: AbortSignal.any([AbortSignal.timeout(40_000), ...(signal ? [signal] : [])]),
+  })
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null)
+    const error = new Error(payload?.error?.message ?? 'The answer could not be loaded. Please try again.')
+    error.status = response.status
+    error.code = payload?.error?.code
+    throw error
+  }
+  let data
+  if (response.headers.get('content-type')?.includes('text/event-stream')) {
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let pending = ''
+    try {
+      while (!data) {
+        const { value, done } = await reader.read()
+        if (done) throw new Error('The answer was interrupted. Please try again.')
+        pending += decoder.decode(value, { stream: true })
+        let newline
+        while ((newline = pending.indexOf('\n')) !== -1) {
+          const line = pending.slice(0, newline).trimEnd()
+          pending = pending.slice(newline + 1)
+          if (!line.startsWith('data: ')) continue
+          const event = JSON.parse(line.slice(6))
+          if (event.type === 'text' && typeof event.text === 'string' && event.text.length <= 2_000) onText?.(event.text)
+          if (event.type === 'status') onStatus?.(event.status)
+          if (event.type === 'error') throw new Error('The answer was interrupted. Please try again.')
+          if (event.type === 'done') { data = event.data; break }
+        }
+        if (pending.length > 16_000) throw new Error('The server returned an invalid answer stream.')
+      }
+    } finally {
+      await reader.cancel().catch(() => {})
+      reader.releaseLock()
+    }
+  } else {
+    data = (await response.json())?.data
+  }
+  if (!data?.messageText || typeof data.externalAiUsed !== 'boolean') throw new Error('The server returned an unexpected staff-assistant response.')
+  return data
+}
+
+export async function createPublicChatbotSession(language = 'en') {
+  const data = await requestJson('/chatbot/sessions', { body: { language } })
+  if (!data?.session?.sessionId || !data?.sessionToken) throw new Error('The server returned an unexpected chatbot-session response.')
+  return data
+}
+
+export async function submitPublicChatbotMessage(sessionId, sessionToken, messageText) {
+  const data = await requestJson(`/chatbot/sessions/${sessionId}/messages`, {
+    headers: { 'X-Chatbot-Session-Token': sessionToken },
+    body: { messageText },
+  })
+  if (!data?.userMessage || !data?.botMessage || !data?.session) throw new Error('The server returned an unexpected chatbot response.')
   return data
 }
 
@@ -805,7 +994,7 @@ const dashboardNavigation = Object.freeze({
     { label: 'Biometric identity', icon: 'biometrics', href: '/biometrics' },
     { label: 'Claim settlement', icon: 'ledger', href: '/dswd/ledger' },
     { label: 'Claim accountability', icon: 'receipt', href: '/claim-accountability' },
-    { label: 'Notifications', icon: 'notifications', href: '/notifications' },
+    { label: 'SMS delivery', icon: 'smsDelivery', href: '/notifications' },
     { label: 'Beneficiaries', icon: 'beneficiaries', href: '/beneficiaries' },
     { label: 'Staff & barangays', icon: 'administration', href: '/admin/administration' },
     { label: 'Authenticator recovery', icon: 'security', href: '/admin/staff-security' },
@@ -817,7 +1006,7 @@ const dashboardNavigation = Object.freeze({
     { label: 'Assistance programs', icon: 'programs', href: '/programs' },
     { label: 'Enrollment review', icon: 'enrollments', href: '/enrollments' },
     { label: 'Biometric identity', icon: 'biometrics', href: '/biometrics' },
-    { label: 'Notifications', icon: 'notifications', href: '/notifications' },
+    { label: 'SMS delivery', icon: 'smsDelivery', href: '/notifications' },
     { label: 'Beneficiaries', icon: 'beneficiaries', href: '/beneficiaries' },
     { label: 'Live monitoring', icon: 'monitoring', href: '/dswd/live-dashboard' },
     { label: 'Ledger', icon: 'ledger', href: '/dswd/ledger' },
@@ -831,7 +1020,7 @@ const dashboardNavigation = Object.freeze({
     { label: 'Enrollments', icon: 'enrollments', href: '/enrollments' },
     { label: 'Queue & schedules', icon: 'queue', href: '/facilitator/queue' },
     { label: 'Biometric identity', icon: 'biometrics', href: '/biometrics' },
-    { label: 'Notifications', icon: 'notifications', href: '/notifications' },
+    { label: 'SMS delivery', icon: 'smsDelivery', href: '/notifications' },
     { label: 'QR verification', icon: 'qr', href: '/facilitator/qr-verification' },
     { label: 'Claim accountability', icon: 'receipt', href: '/claim-accountability' },
   ],

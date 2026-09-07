@@ -82,6 +82,41 @@ p {
 }
 
 @layer components {
+  .ga-assistant-markdown {
+    min-width: 0;
+    font-size: 0.9375rem;
+    line-height: 1.7;
+    overflow-wrap: anywhere;
+  }
+
+  .ga-assistant-markdown > * + * { margin-top: 0.875rem; }
+  .ga-assistant-markdown h3, .ga-assistant-markdown strong { color: var(--color-ink); font-weight: 700; }
+  .ga-assistant-markdown h3 { font-size: 1rem; line-height: 1.5; }
+  .ga-assistant-markdown ul { list-style: disc; padding-left: 1.4rem; }
+  .ga-assistant-markdown ol { list-style: decimal; padding-left: 1.6rem; }
+  .ga-assistant-markdown li { padding-left: 0.25rem; }
+  .ga-assistant-markdown li + li { margin-top: 0.625rem; }
+  .ga-assistant-markdown li > * + * { margin-top: 0.5rem; }
+  .ga-assistant-markdown li::marker { color: var(--color-brand-blue); font-weight: 700; }
+  .ga-assistant-markdown blockquote {
+    border-left: 3px solid var(--color-brand-blue);
+    border-radius: 0 0.5rem 0.5rem 0;
+    padding: 0.75rem;
+    background: var(--color-info-soft);
+  }
+  .ga-assistant-markdown hr { border: 0; border-top: 1px solid var(--color-line); }
+  .ga-assistant-markdown code { border-radius: 0.25rem; padding: 0.1em 0.3em; background: var(--color-page); font-size: 0.875em; }
+  .ga-assistant-markdown pre { overflow-x: auto; padding: 0.75rem; border: 1px solid var(--color-line); border-radius: 0.5rem; background: var(--color-page); white-space: pre-wrap; }
+  .ga-assistant-markdown pre code { padding: 0; }
+  .ga-assistant-table { max-width: 100%; overflow-x: auto; border: 1px solid var(--color-line); border-radius: 0.5rem; }
+  .ga-assistant-table:focus-visible { outline: 2px solid var(--color-brand-blue); outline-offset: 3px; }
+  .ga-assistant-table table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+  .ga-assistant-table th, .ga-assistant-table td { padding: 0.625rem; text-align: left; vertical-align: top; }
+  .ga-assistant-table th { background: var(--color-info-soft); color: var(--color-ink); font-weight: 700; }
+  .ga-assistant-table tr + tr, .ga-assistant-table tbody tr:first-child { border-top: 1px solid var(--color-line); }
+  .ga-assistant-table th + th, .ga-assistant-table td + td { border-left: 1px solid var(--color-line); }
+  @media (max-width: 639px) { .ga-assistant-markdown { font-size: 1rem; } }
+
   .ga-card {
     @apply rounded-xl border border-line bg-white shadow-sm;
   }

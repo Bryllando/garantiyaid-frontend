@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
+import { PhilippineMobileField } from '../components/ui/philippine-mobile-field.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
 import {
@@ -91,7 +92,7 @@ function BeneficiaryFormDialog({ barangays, beneficiary, isFacilitator, onClose,
           <div><label htmlFor="beneficiary-sex" className="ga-label">Sex</label><select id="beneficiary-sex" required value={form.sex} onChange={(event) => change('sex', event.target.value)} className="ga-input mt-2"><option value="">Select sex</option>{['FEMALE', 'MALE', 'OTHER', 'UNKNOWN'].map((value) => <option key={value} value={value}>{humanize(value)}</option>)}</select></div>
           {!isFacilitator && <div><label htmlFor="beneficiary-barangay" className="ga-label">Barangay</label><select id="beneficiary-barangay" required value={form.barangayId} onChange={(event) => change('barangayId', event.target.value)} className="ga-input mt-2"><option value="">Select barangay</option>{barangays.map((barangay) => <option key={barangay.barangayId} value={barangay.barangayId}>{barangay.barangayName}, {barangay.city}</option>)}</select></div>}
           <div><FormField label="Sitio / Purok" id="beneficiary-sitio-purok" maxLength="120" placeholder="e.g. Sitio Riverside" value={form.sitioPurok} onChange={(value) => change('sitioPurok', value)} /><p className="mt-2 text-xs leading-5 text-muted-copy">Needed when a large Barangay is scheduled by service area.</p></div>
-          <FormField label="Mobile number" id="beneficiary-contact" inputMode="tel" placeholder="09171234567" value={form.contactNumber} onChange={(value) => change('contactNumber', value)} />
+          <PhilippineMobileField id="beneficiary-contact" label="Mobile number" value={form.contactNumber} onChange={(value) => change('contactNumber', value)} />
           <FormField label="Email address" id="beneficiary-email" type="email" value={form.email} onChange={(value) => change('email', value)} />
           <FormField label="PhilSys number" id="beneficiary-philsys" value={form.philsysNumber} onChange={(value) => change('philsysNumber', value)} />
           {beneficiary && !isFacilitator && <div><label htmlFor="beneficiary-status" className="ga-label">Record status</label><select id="beneficiary-status" value={form.status} onChange={(event) => change('status', event.target.value)} className="ga-input mt-2">{beneficiaryStatuses.slice(1).map((value) => <option key={value} value={value}>{humanize(value)}</option>)}</select></div>}

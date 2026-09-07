@@ -23,6 +23,7 @@ const NotificationManagementPage = lazy(() => import('./pages/NotificationManage
 const BiometricIdentityPage = lazy(() => import('./pages/BiometricIdentityPage.jsx'))
 const DswdOperationsPage = lazy(() => import('./pages/DswdOperationsPage.jsx'))
 const ClaimAccountabilityPage = lazy(() => import('./pages/ClaimAccountabilityPage.jsx'))
+const AccountSettingsPage = lazy(() => import('./pages/AccountSettingsPage.jsx'))
 
 function currentPath() {
   return window.location.pathname.replace(/\/$/, '') || '/'
@@ -134,6 +135,14 @@ function App() {
   } else if (path === '/dashboard') {
     page = session.accessToken && session.user ? (
       <DashboardPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
+    ) : (
+      <SessionExpiredPage onLogin={backToLogin} />
+    )
+  } else if (path === '/account') {
+    page = session.accessToken && session.user ? (
+      <Suspense fallback={<PageLoader label="Loading account settings..." />}>
+        <AccountSettingsPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
+      </Suspense>
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
     )

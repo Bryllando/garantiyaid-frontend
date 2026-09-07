@@ -5,6 +5,8 @@ import {
   approveEnrollment,
   activateProgram,
   buildStaffAccountPayload,
+  changeOwnPassword,
+  confirmOwnTotpReplacement,
   creditVerifiedClaim,
   createClaimDispute,
   createBarangay,
@@ -23,6 +25,8 @@ import {
   getLoginOutcome,
   issueClaimReceipt,
   isSessionExpiredError,
+  markAllStaffNotificationsRead,
+  markStaffNotificationRead,
   openDistribution,
   previewDistributionQrClaim,
   programCriterionExpectedValue,
@@ -49,12 +53,19 @@ import {
   requestNotificationList,
   requestNotificationQueueHealth,
   requestNotificationSummary,
+  requestServerTimestamp,
+  requestStaffNotifications,
   requestOpenDistributions,
+  requestOwnAccount,
   requestPrograms,
   requestStaffLogout,
   requestStaffUserList,
   requestStaffUsers,
   requestTotpSetup,
+  removeStaffUser,
+  restoreStaffUser,
+  regenerateOwnRecoveryCodes,
+  revokeOwnOtherSessions,
   requestTransactionReceipt,
   recordBiometricConsent,
   recordClaimReceiptPrint,
@@ -65,14 +76,24 @@ import {
   retryNotification,
   saveBiometricEnrollment,
   startEnrollmentReview,
+  startOwnTotpReplacement,
   submitClaimSignature,
   uploadBeneficiaryDocument,
   updateBarangay,
   updateStaffUser,
+  updateOwnProfile,
   verifyDistributionQrClaim,
   verifyBiometricClaim,
 } from '../src/auth/staffAuth.js'
-import { connectNotificationRealtime, connectStaffRealtime, DSWD_LIVE_EVENTS, NOTIFICATION_LIVE_EVENTS, realtimeServerUrl } from '../src/realtime/staffRealtime.js'
+import {
+  connectNotificationRealtime,
+  connectStaffNotificationRealtime,
+  connectStaffRealtime,
+  DSWD_LIVE_EVENTS,
+  NOTIFICATION_LIVE_EVENTS,
+  realtimeServerUrl,
+  STAFF_NOTIFICATION_LIVE_EVENTS,
+} from '../src/realtime/staffRealtime.js'
 
 test('login outcomes preserve the backend authentication handoff', () => {
   assert.equal(getLoginOutcome({ requiresPasswordChange: true }), 'password-change')
@@ -158,10 +179,10 @@ test('dashboard navigation is limited to the signed-in staff role', () => {
   assert.ok(dswdLabels.includes('Ledger'))
   assert.ok(dswdLabels.includes('Enrollment review'))
   assert.ok(dswdLabels.includes('Assistance programs'))
-  assert.ok(adminLabels.includes('Notifications'))
+  assert.ok(adminLabels.includes('SMS delivery'))
   assert.ok(adminLabels.includes('Claim settlement'))
-  assert.ok(dswdLabels.includes('Notifications'))
-  assert.ok(facilitatorLabels.includes('Notifications'))
+  assert.ok(dswdLabels.includes('SMS delivery'))
+  assert.ok(facilitatorLabels.includes('SMS delivery'))
   assert.equal(getDashboardNavigation('DSWD_STAFF').find(({ label }) => label === 'Live monitoring').href, '/dswd/live-dashboard')
   assert.equal(getDashboardNavigation('DSWD_STAFF').find(({ label }) => label === 'Ledger').href, '/dswd/ledger')
   assert.equal(getDashboardNavigation('DSWD_STAFF').find(({ label }) => label === 'Reports').href, '/reports')
@@ -176,6 +197,45 @@ test('dashboard navigation is limited to the signed-in staff role', () => {
   assert.deepEqual(getDashboardNavigation('UNKNOWN_ROLE'), [])
 })
 
+test('self-service account security preserves authenticated and one-time-secret contracts', async (context) => {
+  const originalFetch = globalThis.fetch
+  const requests = []
+  context.after(() => { globalThis.fetch = originalFetch })
+  const user = { userId: 'staff-1', email: 'staff@example.gov' }
+  const responses = [
+    { user, security: { recoveryCodesRemaining: 8, activeSessionCount: 2 } },
+    { user: { ...user, contactNumber: '09171234567' } },
+    { message: 'Password changed.', revokedSessionCount: 1 },
+    { recoveryCodes: Array.from({ length: 8 }, (_, index) => `CODE-${index}`) },
+    { secret: 'NEWSECRET', otpauthUri: 'otpauth://totp/GarantiyAid', replacementToken: 'replacement-token' },
+    { user, recoveryCodes: Array.from({ length: 8 }, (_, index) => `NEW-${index}`), revokedSessionCount: 1 },
+    { message: 'Other sessions signed out.', revokedSessionCount: 1 },
+  ]
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options })
+    return { ok: true, json: async () => ({ data: responses[requests.length - 1] }) }
+  }
+
+  const reauthentication = { currentPassword: 'Current private password', totpCode: '123456' }
+  await requestOwnAccount('staff-token')
+  await updateOwnProfile('staff-token', { contactNumber: '09171234567' })
+  await changeOwnPassword('staff-token', { ...reauthentication, newPassword: 'Different private password' })
+  await regenerateOwnRecoveryCodes('staff-token', reauthentication)
+  await startOwnTotpReplacement('staff-token', reauthentication)
+  await confirmOwnTotpReplacement('staff-token', 'replacement-token', '654321')
+  await revokeOwnOtherSessions('staff-token')
+
+  assert.match(requests[0].url, /\/auth\/account$/)
+  assert.equal(requests[0].options.method, 'GET')
+  assert.equal(requests[1].options.method, 'PATCH')
+  assert.match(requests[2].url, /\/auth\/account\/password$/)
+  assert.match(requests[3].url, /\/auth\/account\/recovery-codes$/)
+  assert.match(requests[4].url, /\/auth\/account\/totp-replacement$/)
+  assert.deepEqual(JSON.parse(requests[5].options.body), { replacementToken: 'replacement-token', code: '654321' })
+  assert.match(requests[6].url, /\/auth\/account\/sessions\/revoke-others$/)
+  requests.forEach(({ options }) => assert.equal(options.headers.Authorization, 'Bearer staff-token'))
+})
+
 test('staff and barangay administration preserve scoped account contracts', async (context) => {
   const originalFetch = globalThis.fetch
   const requests = []
@@ -184,6 +244,8 @@ test('staff and barangay administration preserve scoped account contracts', asyn
     { users: [], pagination: { page: 1, total: 0 } },
     { user: { userId: 'staff-1' }, temporaryPassword: 'SecureTemp_1234' },
     { user: { userId: 'staff-1', isActive: false } },
+    { user: { userId: 'staff-1', employeeId: 'DSWD-0002' }, removalMode: 'DELETE' },
+    { user: { userId: 'staff-1', archivedAt: null } },
     { barangays: [] },
     { barangay: { barangayId: 'barangay-1' } },
     { barangay: { barangayId: 'barangay-1', isActive: false } },
@@ -193,9 +255,11 @@ test('staff and barangay administration preserve scoped account contracts', asyn
     return { ok: true, json: async () => ({ data: responses[requests.length - 1] }) }
   }
 
-  await requestStaffUserList('admin-token', { page: 2, pageSize: 20, role: 'DSWD_STAFF', isActive: true, search: 'Maria' })
+  await requestStaffUserList('admin-token', { page: 2, pageSize: 20, role: 'DSWD_STAFF', archived: true, search: 'Maria' })
   const createdAccount = await createStaffUser('admin-token', { role: 'DSWD_STAFF', fullName: 'Maria Santos' })
   await updateStaffUser('admin-token', 'staff-1', { isActive: false })
+  await removeStaffUser('admin-token', 'staff-1', 'DELETE DSWD-0002')
+  await restoreStaffUser('admin-token', 'staff-1')
   await requestBarangayList('admin-token', { activeOnly: false })
   await createBarangay('admin-token', { barangayName: 'Barangay Sample', city: 'Sample City', province: 'Sample Province' })
   await updateBarangay('admin-token', 'barangay-1', { isActive: false })
@@ -208,13 +272,18 @@ test('staff and barangay administration preserve scoped account contracts', asyn
   const existing = { fullName: 'Facilitator Two', email: 'facilitator@example.com', contactNumber: null, role: 'BARANGAY_FACILITATOR', username: 'facilitator.two', barangayId: 'barangay-1' }
   assert.deepEqual(buildStaffAccountPayload({ ...facilitatorForm, role: 'DSWD_STAFF' }, existing), {})
 
-  assert.match(requests[0].url, /\/users\?page=2&pageSize=20&role=DSWD_STAFF&isActive=true&search=Maria$/)
+  assert.match(requests[0].url, /\/users\?page=2&pageSize=20&role=DSWD_STAFF&archived=true&search=Maria$/)
   assert.equal(createdAccount.temporaryPassword, 'SecureTemp_1234')
   assert.equal(Object.hasOwn(JSON.parse(requests[1].options.body), 'password'), false)
   assert.match(requests[2].url, /\/users\/staff-1$/)
   assert.equal(requests[2].options.method, 'PATCH')
-  assert.match(requests[3].url, /\/barangays\?activeOnly=false$/)
-  assert.match(requests[5].url, /\/barangays\/barangay-1$/)
+  assert.match(requests[3].url, /\/users\/staff-1$/)
+  assert.equal(requests[3].options.method, 'DELETE')
+  assert.deepEqual(JSON.parse(requests[3].options.body), { confirmation: 'DELETE DSWD-0002' })
+  assert.match(requests[4].url, /\/users\/staff-1\/restore$/)
+  assert.equal(requests[4].options.method, 'POST')
+  assert.match(requests[5].url, /\/barangays\?activeOnly=false$/)
+  assert.match(requests[7].url, /\/barangays\/barangay-1$/)
   requests.forEach(({ options }) => assert.equal(options.headers.Authorization, 'Bearer admin-token'))
 })
 
@@ -547,6 +616,45 @@ test('notification realtime client subscribes only to delivery lifecycle events'
   assert.equal(Object.hasOwn(listeners, 'dashboard.metrics.updated'), false)
   listeners['notification.sent']({ notificationId: 'notification-1', status: 'SENT' })
   assert.deepEqual(updates, [['notification.sent', { notificationId: 'notification-1', status: 'SENT' }]])
+  stop()
+})
+
+test('personal staff inbox uses its own API and user-targeted realtime event', async (context) => {
+  const originalFetch = globalThis.fetch
+  const requests = []
+  context.after(() => { globalThis.fetch = originalFetch })
+  const responses = [
+    { timestamp: '2026-09-01T12:00:00.000Z' },
+    { notifications: [{ notificationId: 'notification-1' }], unreadCount: 1 },
+    { notification: { notificationId: 'notification-1', readAt: '2026-09-01T12:01:00.000Z' }, unreadCount: 0 },
+    { updatedCount: 0, unreadCount: 0 },
+  ]
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options })
+    return { ok: true, json: async () => ({ data: responses[requests.length - 1] }) }
+  }
+
+  assert.equal(await requestServerTimestamp(), responses[0].timestamp)
+  await requestStaffNotifications('staff-token')
+  await markStaffNotificationRead('staff-token', 'notification-1')
+  await markAllStaffNotificationsRead('staff-token')
+  assert.match(requests[0].url, /\/health$/)
+  assert.match(requests[1].url, /\/staff-notifications\?pageSize=8$/)
+  assert.equal(requests[1].options.headers.Authorization, 'Bearer staff-token')
+  assert.equal(requests[2].options.method, 'PATCH')
+  assert.match(requests[3].url, /\/staff-notifications\/read-all$/)
+
+  const listeners = {}
+  const updates = []
+  const stop = connectStaffNotificationRealtime('staff-token', {
+    onUpdate: (eventName, payload) => updates.push([eventName, payload]),
+  }, () => ({
+    on(eventName, handler) { listeners[eventName] = handler; return this },
+    disconnect() {},
+  }))
+  assert.deepEqual(Object.keys(listeners).filter((event) => STAFF_NOTIFICATION_LIVE_EVENTS.includes(event)), [...STAFF_NOTIFICATION_LIVE_EVENTS])
+  listeners['staff.notification.created']({ notificationId: 'notification-1' })
+  assert.deepEqual(updates, [['staff.notification.created', { notificationId: 'notification-1' }]])
   stop()
 })
 
