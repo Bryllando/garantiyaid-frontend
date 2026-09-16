@@ -3,6 +3,8 @@ import { toast } from 'sonner'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Icon } from '../components/ui/icon.jsx'
+import { emailDeliveryFeedback, SecurityEmailStatus } from '../components/ui/SecurityEmailStatus.jsx'
+import { StaffEmailHistoryDialog } from '../components/ui/StaffEmailHistoryDialog.jsx'
 import { PhilippineMobileField } from '../components/ui/philippine-mobile-field.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
@@ -211,12 +213,31 @@ function StaffFormDialog({ activeBarangays, currentUserId, initialRole, onBack, 
 
 function StaffAccountCreatedDialog({ account, onClose }) {
   const dialogRef = useRef(null)
+  const acknowledgmentRef = useRef(null)
   const [passwordVisible, setPasswordVisible] = useState(false)
   const [copyStatus, setCopyStatus] = useState('')
+  const [credentialsRecorded, setCredentialsRecorded] = useState(false)
+  const [closeWarning, setCloseWarning] = useState(false)
   const { temporaryPassword, user } = account
   const loginIdentifier = user.username ? `${user.employeeId} or ${user.username}` : user.employeeId
 
   useEffect(() => { dialogRef.current?.showModal() }, [])
+
+  useEffect(() => {
+    if (credentialsRecorded) return undefined
+    const protectCredentials = (event) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', protectCredentials)
+    return () => window.removeEventListener('beforeunload', protectCredentials)
+  }, [credentialsRecorded])
+
+  function requestClose() {
+    if (!credentialsRecorded) {
+      setCloseWarning(true)
+      acknowledgmentRef.current?.focus()
+      return
+    }
+    dialogRef.current?.close()
+  }
 
   async function copyHandoff() {
     const handoff = [
@@ -230,55 +251,38 @@ function StaffAccountCreatedDialog({ account, onClose }) {
 
     try {
       await navigator.clipboard.writeText(handoff)
-      setCopyStatus('Secure handoff copied. Clear the clipboard after sharing it through an approved channel.')
+      setCopyStatus('Credentials copied. Share them privately, then clear your clipboard.')
     } catch {
-      toast.error('The secure handoff could not be copied. Copy each value manually.')
+      toast.error('Could not copy credentials. Record the Staff ID and temporary password manually.')
     }
   }
 
   return (
-    <dialog ref={dialogRef} onClose={onClose} aria-labelledby="staff-created-title" aria-describedby="staff-created-description" className="m-auto max-h-[calc(100dvh-2rem)] w-[min(42rem,calc(100%-2rem))] overflow-y-auto rounded-2xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/55 backdrop:backdrop-blur-[3px]">
+    <dialog ref={dialogRef} onCancel={(event) => { event.preventDefault(); requestClose() }} onClose={onClose} aria-labelledby="staff-created-title" aria-describedby="staff-created-description" className="m-auto max-h-[calc(100dvh-2rem)] w-[min(34rem,calc(100%-2rem))] overflow-y-auto rounded-xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/55">
       <div className="p-5 sm:p-7">
         <header className="flex items-start gap-4">
-          <span aria-hidden="true" className="grid size-12 shrink-0 place-items-center rounded-full bg-success-soft text-brand-green ring-1 ring-emerald-200">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" className="size-6"><path d="m5 12 4 4L19 6" /></svg>
-          </span>
           <div className="min-w-0 flex-1">
-            <p className="ga-eyebrow text-brand-green">Account created</p>
-            <h2 id="staff-created-title" className="mt-2 text-2xl font-extrabold tracking-tight">Securely hand off the new account</h2>
-            <p id="staff-created-description" className="mt-2 text-sm leading-6 text-muted-copy">These credentials are shown only in this window. Share them with {user.fullName} through an approved channel.</p>
+            <h2 id="staff-created-title" className="text-xl font-bold">Account created</h2>
+            <p id="staff-created-description" className="mt-2 text-sm leading-6 text-copy">Give these credentials privately to <strong>{user.fullName}</strong>. The temporary password is shown only here.</p>
           </div>
-          <button type="button" onClick={() => dialogRef.current?.close()} aria-label="Close account handoff" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-xl text-copy transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-blue">×</button>
+          <button type="button" onClick={requestClose} aria-label="Close account handoff" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-xl text-copy hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-blue">×</button>
         </header>
 
-        <div data-dialog-stagger className="mt-6 space-y-4">
-          <section className="overflow-hidden rounded-xl bg-brand-navy p-5 text-white shadow-sm" aria-label="Generated Staff ID">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div><p className="text-xs font-bold uppercase tracking-[0.12em] text-blue-200">Permanent Staff ID</p><p className="mt-2 font-mono text-2xl font-extrabold tracking-wide sm:text-3xl">{user.employeeId}</p></div>
-              <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-bold">System generated</span>
-            </div>
-            <p className="mt-3 text-sm leading-6 text-slate-300">This permanent Staff ID can be used to sign in{user.username ? '; the username remains available as an alternative.' : '.'}</p>
-          </section>
+        <dl className="mt-5 grid gap-3 border-y border-line py-4">
+          <div><dt className="text-sm text-muted-copy">Staff ID{user.username ? ' or username' : ''}</dt><dd className="mt-1 break-words font-mono text-lg font-bold">{loginIdentifier}</dd></div>
+          <div><dt className="text-sm text-muted-copy">Temporary password</dt><dd className="mt-1 flex min-w-0 items-center gap-2"><input readOnly aria-label="Temporary password" type={passwordVisible ? 'text' : 'password'} value={temporaryPassword} className="min-w-0 flex-1 rounded border-0 bg-slate-50 p-2 font-mono text-base font-bold focus-visible:outline-2 focus-visible:outline-brand-blue" /><button type="button" onClick={() => setPasswordVisible((visible) => !visible)} aria-pressed={passwordVisible} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">{passwordVisible ? 'Hide' : 'Show'}</button></dd></div>
+        </dl>
+        <button type="button" onClick={copyHandoff} className="ga-btn-primary mt-4 w-full"><Icon name="copy" className="size-5" />Copy credentials</button>
+        <p className="mt-2 text-xs leading-5 text-brand-green" role="status">{copyStatus}</p>
 
-          <section className="rounded-xl border border-line bg-slate-50 p-4 sm:p-5" aria-labelledby="handoff-credentials-title">
-            <div className="flex flex-wrap items-center justify-between gap-2"><h3 id="handoff-credentials-title" className="font-extrabold">One-time credential handoff</h3><span className="rounded-full border border-amber-200 bg-warning-soft px-2.5 py-1 text-xs font-bold text-brand-amber">Shown once</span></div>
-            <dl className="mt-4 grid gap-4 sm:grid-cols-2">
-              <div><dt className="text-xs font-bold uppercase tracking-wide text-muted-copy">Sign-in Staff ID{user.username ? ' or username' : ''}</dt><dd className="mt-1 break-all font-mono text-base font-extrabold text-ink">{loginIdentifier}</dd></div>
-              <div><dt className="text-xs font-bold uppercase tracking-wide text-muted-copy">Temporary password</dt><dd className="mt-1 flex min-w-0 items-center gap-2"><input readOnly aria-label="Temporary password" type={passwordVisible ? 'text' : 'password'} value={temporaryPassword} className="min-w-0 flex-1 border-0 bg-transparent p-0 font-mono text-base font-extrabold text-ink outline-none" /><button type="button" onClick={() => setPasswordVisible((visible) => !visible)} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">{passwordVisible ? 'Hide' : 'Show'}</button></dd></div>
-            </dl>
-          </section>
-
-          <section className="rounded-xl border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy">
-            <h3 className="font-extrabold text-ink">What happens at first sign-in</h3>
-            <ol className="mt-2 list-decimal space-y-1 pl-5"><li>Replace the temporary password with a private password.</li><li>Connect an authenticator app and verify the first TOTP code.</li><li>Save the one-time recovery codes before dashboard access.</li></ol>
-          </section>
+        <div className="mt-4">
+          <SecurityEmailStatus delivery={account.emailDelivery} live />
+          <p className="mt-2 text-xs leading-5 text-muted-copy">The email includes the Staff ID and setup steps, never the password. Check the staff member’s Email history for the final delivery status.</p>
         </div>
-
-        <p className="mt-4 min-h-5 text-xs font-semibold leading-5 text-brand-green" aria-live="polite">{copyStatus}</p>
-        <div className="mt-4 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end">
-          <button type="button" onClick={() => dialogRef.current?.close()} className="ga-btn-secondary">Done</button>
-          <button type="button" onClick={copyHandoff} className="ga-btn-primary"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-5"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>Copy secure handoff</button>
-        </div>
+        <p className="mt-4 text-sm leading-6 text-copy"><strong>First sign-in:</strong> Set a new password, connect an authenticator app, and save the recovery codes.</p>
+        <label className="mt-4 flex min-h-11 cursor-pointer items-start gap-3 text-sm leading-6 text-copy"><input ref={acknowledgmentRef} type="checkbox" checked={credentialsRecorded} onChange={(event) => { setCredentialsRecorded(event.target.checked); setCloseWarning(false) }} aria-describedby={closeWarning ? 'handoff-close-warning' : undefined} className="mt-1 size-5 shrink-0 accent-brand-blue" />I have recorded these credentials for the staff member.</label>
+        {closeWarning && <p id="handoff-close-warning" role="alert" className="mt-2 text-sm text-brand-red">Record the credentials and confirm above before closing. The password cannot be shown again.</p>}
+        <button type="button" onClick={requestClose} className="ga-btn-secondary mt-4 w-full">Done</button>
       </div>
     </dialog>
   )
@@ -373,10 +377,10 @@ function BarangayFormDialog({ barangay, onClose, onSave }) {
   )
 }
 
-function StaffActions({ isSelf, onEdit, onToggle, user }) {
-  if (user.archivedAt) return <button type="button" onClick={() => onToggle(user, 'restore')} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-bold text-brand-green hover:bg-success-soft focus-visible:outline-2 focus-visible:outline-brand-green"><Icon name="reset" />Restore account</button>
+function StaffActions({ isSelf, onEdit, onToggle, onEmailHistory, user }) {
+  if (user.archivedAt) return <div className="flex flex-wrap gap-2"><button type="button" onClick={() => onEmailHistory(user)} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">Email history</button><button type="button" onClick={() => onToggle(user, 'restore')} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-bold text-brand-green hover:bg-success-soft focus-visible:outline-2 focus-visible:outline-brand-green"><Icon name="reset" />Restore account</button></div>
   const archivesHistory = user.removalMode === 'ARCHIVE'
-  return <div className="flex flex-wrap gap-2"><button type="button" onClick={() => onEdit(user)} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">Edit</button><button type="button" disabled={isSelf} title={isSelf ? 'Another administrator must change your active status.' : user.isActive ? 'Block sign-in and revoke active sessions without deleting records.' : 'Restore sign-in access using the existing credentials.'} onClick={() => onToggle(user)} className={`min-h-11 rounded-lg px-3 text-sm font-bold focus-visible:outline-2 disabled:cursor-not-allowed disabled:text-slate-400 ${user.isActive ? 'text-brand-red hover:bg-danger-soft focus-visible:outline-brand-red' : 'text-brand-green hover:bg-success-soft focus-visible:outline-brand-green'}`}>{user.isActive ? 'Deactivate' : 'Reactivate'}</button>{!user.isActive && <button type="button" disabled={isSelf} title={archivesHistory ? 'Hide this account while preserving its linked official records.' : 'Permanently delete this unused account while retaining its audit entries.'} onClick={() => onToggle(user, true)} className={`inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-bold focus-visible:outline-2 disabled:cursor-not-allowed disabled:text-slate-400 ${archivesHistory ? 'text-brand-blue hover:bg-info-soft focus-visible:outline-brand-blue' : 'text-brand-red hover:bg-danger-soft focus-visible:outline-brand-red'}`}>{archivesHistory && <Icon name="archive" />}{archivesHistory ? 'Move to archive' : 'Delete'}</button>}</div>
+  return <div className="flex flex-wrap gap-2"><button type="button" onClick={() => onEmailHistory(user)} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">Email history</button><button type="button" onClick={() => onEdit(user)} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">Edit</button><button type="button" disabled={isSelf} title={isSelf ? 'Another administrator must change your active status.' : user.isActive ? 'Block sign-in and revoke active sessions without deleting records.' : 'Restore sign-in access using the existing credentials.'} onClick={() => onToggle(user)} className={`min-h-11 rounded-lg px-3 text-sm font-bold focus-visible:outline-2 disabled:cursor-not-allowed disabled:text-slate-400 ${user.isActive ? 'text-brand-red hover:bg-danger-soft focus-visible:outline-brand-red' : 'text-brand-green hover:bg-success-soft focus-visible:outline-brand-green'}`}>{user.isActive ? 'Deactivate' : 'Reactivate'}</button>{!user.isActive && <button type="button" disabled={isSelf} title={archivesHistory ? 'Hide this account while preserving its linked official records.' : 'Permanently delete this unused account while retaining its audit entries.'} onClick={() => onToggle(user, true)} className={`inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-bold focus-visible:outline-2 disabled:cursor-not-allowed disabled:text-slate-400 ${archivesHistory ? 'text-brand-blue hover:bg-info-soft focus-visible:outline-brand-blue' : 'text-brand-red hover:bg-danger-soft focus-visible:outline-brand-red'}`}>{archivesHistory && <Icon name="archive" />}{archivesHistory ? 'Move to archive' : 'Delete'}</button>}</div>
 }
 
 function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSessionExpired }) {
@@ -398,6 +402,7 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
   const [staffRolePickerOpen, setStaffRolePickerOpen] = useState(false)
   const [staffForm, setStaffForm] = useState(null)
   const [createdStaff, setCreatedStaff] = useState(null)
+  const [emailHistoryUser, setEmailHistoryUser] = useState(null)
   const [barangayForm, setBarangayForm] = useState(null)
   const [confirmation, setConfirmation] = useState(null)
   const showingArchived = staffFilters.archived === 'true'
@@ -449,7 +454,7 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
     try {
       const isEditing = Boolean(staffForm.user)
       if (isEditing) {
-        const saved = await updateStaffUser(session.accessToken, staffForm.user.userId, payload)
+        const { user: saved } = await updateStaffUser(session.accessToken, staffForm.user.userId, payload)
         toast.success('Staff account updated.', { description: `${saved.fullName} · ${STAFF_ROLE_LABELS[saved.role]}` })
       } else {
         setCreatedStaff(await createStaffUser(session.accessToken, payload))
@@ -476,8 +481,10 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
         toast.success('Staff account restored to the inactive list.', { description: `${action.record.employeeId} must be reactivated before sign-in.` })
         setStaffLoading(true); setStaffPage(1); setStaffReload((value) => value + 1)
       } else if (action.type === 'staff') {
-        await updateStaffUser(session.accessToken, action.record.userId, { isActive: !action.record.isActive })
-        toast.success(action.record.isActive ? 'Staff account deactivated and sessions revoked.' : 'Staff account reactivated.')
+        const result = await updateStaffUser(session.accessToken, action.record.userId, { isActive: !action.record.isActive })
+        toast.success(action.record.isActive ? 'Staff account deactivated and sessions revoked.' : 'Staff account reactivated.', {
+          description: emailDeliveryFeedback(result.emailDelivery),
+        })
         setStaffLoading(true); setStaffReload((value) => value + 1)
       } else {
         await updateBarangay(session.accessToken, action.record.barangayId, { isActive: !action.record.isActive })
@@ -531,8 +538,8 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
       <form onSubmit={applyStaffFilters} className={`ga-card mt-4 grid gap-3 p-4 sm:grid-cols-2 ${showingArchived ? 'xl:grid-cols-[minmax(0,1fr)_14rem_auto]' : 'xl:grid-cols-[minmax(0,1fr)_14rem_11rem_auto]'}`} aria-label={`${showingArchived ? 'Archived' : 'Current'} staff account filters`}><div><label htmlFor="staff-search" className="sr-only">Search staff accounts</label><input id="staff-search" value={staffDraft.search} onChange={(event) => setStaffDraft((current) => ({ ...current, search: event.target.value }))} placeholder="Search name, Staff ID, username, or email" className="ga-input" /></div><div><label htmlFor="staff-filter-role" className="sr-only">Staff role</label><select id="staff-filter-role" value={staffDraft.role} onChange={(event) => setStaffDraft((current) => ({ ...current, role: event.target.value }))} className="ga-input">{roles.map((role) => <option key={role || 'ALL'} value={role}>{role ? STAFF_ROLE_LABELS[role] : 'All roles'}</option>)}</select></div>{!showingArchived && <div><label htmlFor="staff-filter-status" className="sr-only">Account status</label><select id="staff-filter-status" value={staffDraft.isActive} onChange={(event) => setStaffDraft((current) => ({ ...current, isActive: event.target.value }))} className="ga-input"><option value="">All statuses</option><option value="true">Active</option><option value="false">Inactive</option></select></div>}<button type="submit" className="ga-btn-primary">Apply filters</button></form>
       <div className="ga-card mt-4 overflow-hidden">
         {staffLoading ? <LoadingRows label="Loading staff accounts" /> : staffError ? <div className="p-6" role="alert"><h2 className="font-extrabold">Staff accounts could not be loaded</h2><p className="mt-2 text-sm text-muted-copy">{staffError}</p><button type="button" onClick={() => { setStaffLoading(true); setStaffReload((value) => value + 1) }} className="ga-btn-primary mt-4">Try again</button></div> : staffRows.length === 0 ? <div className="p-10 text-center"><span className="mx-auto grid size-12 place-items-center rounded-full bg-info-soft font-black text-brand-blue">0</span><h2 className="mt-4 font-extrabold">{staffFilters.archived === 'true' ? 'No archived accounts' : 'No staff accounts found'}</h2><p className="mt-2 text-sm text-muted-copy">{staffFilters.archived === 'true' ? 'Archived staff accounts will appear here and can be restored.' : 'Adjust the filters or create the first account in this scope.'}</p></div> : <>
-          <div className="hidden overflow-x-auto lg:block"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-copy"><tr><th className="px-5 py-3">Staff member</th><th className="px-5 py-3">Role and scope</th><th className="px-5 py-3">Security</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-line">{staffRows.map((user) => <tr key={user.userId} className="hover:bg-slate-50"><td className="px-5 py-4"><div className="flex items-center gap-3"><span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-full bg-brand-navy text-xs font-bold text-white">{initials(user.fullName)}</span><div className="min-w-0"><p className="font-bold text-ink">{user.fullName}</p><p className="mt-1 text-xs text-muted-copy">{user.employeeId} · {user.username || 'Staff ID login'}</p><p className="mt-1 text-xs text-muted-copy">{user.email}</p></div></div></td><td className="px-5 py-4"><p className="font-bold">{STAFF_ROLE_LABELS[user.role]}</p><p className="mt-1 text-xs text-muted-copy">{user.barangay ? `${user.barangay.barangayName}, ${user.barangay.city}` : 'National or system-wide scope'}</p></td><td className="px-5 py-4"><p className={`font-bold ${user.archivedAt ? 'text-brand-blue' : user.totpEnabled ? 'text-brand-green' : 'text-brand-amber'}`}>{user.archivedAt ? 'History preserved' : user.totpEnabled ? 'TOTP active' : 'Setup required'}</p><p className="mt-1 text-xs text-muted-copy">{user.archivedAt ? 'Archived' : 'Updated'} {dateFormatter.format(new Date(user.archivedAt || user.updatedAt))}</p></td><td className="px-5 py-4"><StatusBadge active={user.isActive} archivedAt={user.archivedAt} /></td><td className="px-5 py-4"><div className="flex justify-end"><StaffActions user={user} isSelf={user.userId === session.user.userId} onEdit={(record) => setStaffForm({ user: record })} onToggle={toggleStaff} /></div></td></tr>)}</tbody></table></div>
-          <div className="divide-y divide-line lg:hidden">{staffRows.map((user) => <article key={user.userId} className="p-5"><div className="flex items-start gap-3"><span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-full bg-brand-navy text-xs font-bold text-white">{initials(user.fullName)}</span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><h2 className="font-extrabold">{user.fullName}</h2><StatusBadge active={user.isActive} archivedAt={user.archivedAt} /></div><p className="mt-1 text-sm text-muted-copy">{user.employeeId} · {STAFF_ROLE_LABELS[user.role]}</p><p className="mt-2 text-sm font-semibold text-copy">{user.barangay?.barangayName || 'National or system-wide scope'}</p><p className={`mt-2 text-sm font-bold ${user.archivedAt ? 'text-brand-blue' : user.totpEnabled ? 'text-brand-green' : 'text-brand-amber'}`}>{user.archivedAt ? `Archived ${dateFormatter.format(new Date(user.archivedAt))}` : user.totpEnabled ? 'TOTP active' : 'Authenticator setup required'}</p></div></div><div className="mt-4 border-t border-line pt-3"><StaffActions user={user} isSelf={user.userId === session.user.userId} onEdit={(record) => setStaffForm({ user: record })} onToggle={toggleStaff} /></div></article>)}</div>
+          <div className="hidden overflow-x-auto lg:block"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-copy"><tr><th className="px-5 py-3">Staff member</th><th className="px-5 py-3">Role and scope</th><th className="px-5 py-3">Security</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-line">{staffRows.map((user) => <tr key={user.userId} className="hover:bg-slate-50"><td className="px-5 py-4"><div className="flex items-center gap-3"><span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-full bg-brand-navy text-xs font-bold text-white">{initials(user.fullName)}</span><div className="min-w-0"><p className="font-bold text-ink">{user.fullName}</p><p className="mt-1 text-xs text-muted-copy">{user.employeeId} · {user.username || 'Staff ID login'}</p><p className="mt-1 text-xs text-muted-copy">{user.email}</p></div></div></td><td className="px-5 py-4"><p className="font-bold">{STAFF_ROLE_LABELS[user.role]}</p><p className="mt-1 text-xs text-muted-copy">{user.barangay ? `${user.barangay.barangayName}, ${user.barangay.city}` : 'National or system-wide scope'}</p></td><td className="px-5 py-4"><p className={`font-bold ${user.archivedAt ? 'text-brand-blue' : user.totpEnabled ? 'text-brand-green' : 'text-brand-amber'}`}>{user.archivedAt ? 'History preserved' : user.totpEnabled ? 'TOTP active' : 'Setup required'}</p><p className="mt-1 text-xs text-muted-copy">{user.archivedAt ? 'Archived' : 'Updated'} {dateFormatter.format(new Date(user.archivedAt || user.updatedAt))}</p></td><td className="px-5 py-4"><StatusBadge active={user.isActive} archivedAt={user.archivedAt} /></td><td className="px-5 py-4"><div className="flex justify-end"><StaffActions user={user} isSelf={user.userId === session.user.userId} onEdit={(record) => setStaffForm({ user: record })} onToggle={toggleStaff} onEmailHistory={setEmailHistoryUser} /></div></td></tr>)}</tbody></table></div>
+          <div className="divide-y divide-line lg:hidden">{staffRows.map((user) => <article key={user.userId} className="p-5"><div className="flex items-start gap-3"><span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-full bg-brand-navy text-xs font-bold text-white">{initials(user.fullName)}</span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><h2 className="font-extrabold">{user.fullName}</h2><StatusBadge active={user.isActive} archivedAt={user.archivedAt} /></div><p className="mt-1 text-sm text-muted-copy">{user.employeeId} · {STAFF_ROLE_LABELS[user.role]}</p><p className="mt-2 text-sm font-semibold text-copy">{user.barangay?.barangayName || 'National or system-wide scope'}</p><p className={`mt-2 text-sm font-bold ${user.archivedAt ? 'text-brand-blue' : user.totpEnabled ? 'text-brand-green' : 'text-brand-amber'}`}>{user.archivedAt ? `Archived ${dateFormatter.format(new Date(user.archivedAt))}` : user.totpEnabled ? 'TOTP active' : 'Authenticator setup required'}</p></div></div><div className="mt-4 border-t border-line pt-3"><StaffActions user={user} isSelf={user.userId === session.user.userId} onEdit={(record) => setStaffForm({ user: record })} onToggle={toggleStaff} onEmailHistory={setEmailHistoryUser} /></div></article>)}</div>
           {staffData.pagination.totalPages > 1 && <div className="flex flex-col gap-3 border-t border-line px-5 py-4 text-sm sm:flex-row sm:items-center sm:justify-between"><span>Page {staffPage} of {staffData.pagination.totalPages}</span><div className="flex gap-2"><button type="button" disabled={staffPage === 1} onClick={() => { setStaffLoading(true); setStaffPage((value) => value - 1) }} className="ga-btn-secondary min-h-11 px-4 text-sm">Previous</button><button type="button" disabled={staffPage === staffData.pagination.totalPages} onClick={() => { setStaffLoading(true); setStaffPage((value) => value + 1) }} className="ga-btn-secondary min-h-11 px-4 text-sm">Next</button></div></div>}
         </>}
       </div>
@@ -542,6 +549,7 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
     </section>}
     {staffRolePickerOpen && <StaffRoleDialog onClose={() => setStaffRolePickerOpen(false)} onSelect={(role) => { setStaffRolePickerOpen(false); setStaffForm({ user: null, role }) }} />}
     {staffForm && <StaffFormDialog activeBarangays={activeBarangays} currentUserId={session.user.userId} initialRole={staffForm.role} user={staffForm.user} onBack={staffForm.user ? undefined : () => { setStaffForm(null); setStaffRolePickerOpen(true) }} onClose={() => setStaffForm(null)} onSave={saveStaff} />}
+    {emailHistoryUser && <StaffEmailHistoryDialog key={emailHistoryUser.userId} user={emailHistoryUser} accessToken={session.accessToken} onClose={() => setEmailHistoryUser(null)} onSessionExpired={onSessionExpired} />}
     {createdStaff && <StaffAccountCreatedDialog account={createdStaff} onClose={() => setCreatedStaff(null)} />}
     {barangayForm && <BarangayFormDialog barangay={barangayForm.barangay} onClose={() => setBarangayForm(null)} onSave={saveBarangay} />}
     <ConfirmationDialog open={Boolean(confirmation)} title={confirmation?.title} description={confirmation?.description} actionLabel={confirmation?.actionLabel} confirmationText={confirmation?.confirmationText} destructive={confirmation?.destructive} onCancel={() => setConfirmation(null)} onConfirm={confirmStatusChange} />

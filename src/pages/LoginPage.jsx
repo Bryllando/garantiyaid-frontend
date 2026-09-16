@@ -3,7 +3,7 @@ import AuthShell from '../components/auth/AuthShell.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
 import { getAuthErrorMessage, getLoginOutcome, requestStaffLogin, storeStaffSession } from '../auth/staffAuth.js'
 
-function LoginPage({ onAuthenticated, onPasswordChangeRequired, onTotpRequired, onTotpEnrollmentRequired }) {
+function LoginPage({ onAuthenticated, onPasswordChangeRequired, onTotpRequired, onTotpEnrollmentRequired, securityReview = false }) {
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -53,8 +53,8 @@ function LoginPage({ onAuthenticated, onPasswordChangeRequired, onTotpRequired, 
           <>
             <div>
               <p className="ga-eyebrow">Authorized staff portal</p>
-              <h1 id="login-title" className="mt-2 text-3xl font-bold tracking-tight text-ink sm:text-4xl">Welcome back</h1>
-              <p className="mt-3 text-base leading-7 text-muted-copy">Use your official staff credentials to continue.</p>
+              <h1 id="login-title" className="mt-2 text-3xl font-bold tracking-tight text-ink sm:text-4xl">{securityReview ? 'Review your account security' : 'Welcome back'}</h1>
+              <p className="mt-3 text-base leading-7 text-muted-copy">{securityReview ? 'Sign in to continue to the account settings linked in your email.' : 'Use your official staff credentials to continue.'}</p>
             </div>
 
             <form className="mt-8 space-y-5" onSubmit={handleSubmit} aria-busy={isSubmitting}>

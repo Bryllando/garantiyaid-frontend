@@ -23,7 +23,7 @@ test('staff AI assistant is shared, role-aware, animated, responsive, and access
 
 test('staff guidance uses authenticated OpenRouter AI with bounded conversation context', () => {
   assert.match(authSource, /\/chatbot\/staff-assistant\/messages/)
-  assert.match(source, /requestStaffAssistantMessage\(accessToken, \{[\s\S]*messageText: content,[\s\S]*messages\.slice\(-6\)/)
+  assert.match(source, /requestStaffAssistantMessage\(accessToken, \{[\s\S]*messageText: content,[\s\S]*messages\.filter\(\(message\) => !message\.local\)\.slice\(-6\)/)
   assert.match(source, /OpenRouter AI · Sensitive patterns redacted/)
   assert.match(source, /GarantiyAid AI is thinking/)
 })
@@ -44,7 +44,7 @@ test('Admin AI scheduler creates only a reviewed distribution draft', () => {
   assert.match(source, /<AssistantDistributionScheduler/)
   assert.match(authSource, /\/distributions\/assistant-preview/)
   assert.match(schedulerSource, /previewAssistantDistribution/)
-  assert.match(schedulerSource, /createDistribution/)
+  assert.match(schedulerSource, /confirmAssistantDistribution/)
   assert.match(schedulerSource, /This creates a draft only/)
   assert.match(schedulerSource, /type="checkbox" checked=\{reviewed\}/)
 })

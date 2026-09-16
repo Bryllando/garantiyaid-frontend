@@ -96,6 +96,12 @@ export async function requestStaffUserList(token, filters = {}) {
   return data
 }
 
+export async function requestStaffEmailDeliveries(token, userId) {
+  const data = await requestJson(`/users/${encodeURIComponent(userId)}/email-deliveries`, { token, method: 'GET' })
+  if (!Array.isArray(data?.notifications)) throw new Error('The server returned an unexpected email-history response.')
+  return data.notifications
+}
+
 export async function createStaffUser(token, user) {
   const data = await requestJson('/users', { token, body: user })
   if (!data?.user || !data?.temporaryPassword) throw new Error('The server returned an unexpected staff-account response.')
@@ -105,7 +111,7 @@ export async function createStaffUser(token, user) {
 export async function updateStaffUser(token, userId, user) {
   const data = await requestJson(`/users/${userId}`, { token, method: 'PATCH', body: user })
   if (!data?.user) throw new Error('The server returned an unexpected staff-account response.')
-  return data.user
+  return data
 }
 
 export async function removeStaffUser(token, userId, confirmation) {
@@ -656,6 +662,15 @@ export async function previewAssistantDistribution(token, distribution) {
   return data
 }
 
+export async function confirmAssistantDistribution(token, distribution, approvalId) {
+  const data = await requestJson('/distributions/assistant-confirm', {
+    token, headers: { 'Idempotency-Key': approvalId },
+    body: { ...distribution, approvalId, confirmed: true },
+  })
+  if (!data?.distribution) throw new Error('The server returned an unexpected distribution confirmation. Retry the same confirmation to retrieve its result.')
+  return data.distribution
+}
+
 export async function updateDistribution(token, distributionId, distribution) {
   const data = await requestJson(`/distributions/${distributionId}`, { token, method: 'PATCH', body: distribution })
   if (!data?.distribution) throw new Error('The server returned an unexpected distribution response.')
@@ -705,8 +720,8 @@ export async function createDistributionAllocations(token, distributionId, enrol
   return data
 }
 
-export async function requestDistributionSchedules(token, distributionId) {
-  const data = await requestJson(`/distributions/${distributionId}/schedules?page=1&pageSize=100`, { token, method: 'GET' })
+export async function requestDistributionSchedules(token, distributionId, filters = {}) {
+  const data = await requestJson(`/distributions/${distributionId}/schedules${queryString({ page: 1, pageSize: 100, ...filters })}`, { token, method: 'GET' })
   if (!Array.isArray(data?.schedules) || !data?.summary) throw new Error('The server returned an unexpected schedule-list response.')
   return data
 }
@@ -789,7 +804,7 @@ export async function previewAssistantDistributionReminder(token, distributionId
   return data
 }
 
-export async function enqueueAssistantDistributionReminder(token, distributionId, reminder, idempotencyKey = crypto.randomUUID()) {
+export async function enqueueAssistantDistributionReminder(token, distributionId, reminder, idempotencyKey = reminder.approvalId) {
   const data = await requestJson(`/distributions/${distributionId}/notifications/assistant-enqueue`, {
     token,
     headers: { 'Idempotency-Key': idempotencyKey },

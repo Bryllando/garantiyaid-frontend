@@ -10,6 +10,7 @@ import BeneficiaryManagementPage from './pages/BeneficiaryManagementPage.jsx'
 import EnrollmentReviewPage from './pages/EnrollmentReviewPage.jsx'
 import { NotFoundPage, PrivacyPage, SessionExpiredPage } from './pages/SystemPages.jsx'
 import { clearStaffSession, getStoredStaffSession, requestStaffLogout } from './auth/staffAuth.js'
+import { accountReturnPath } from './auth/account-return-path.js'
 import { Toaster } from './components/ui/sonner.jsx'
 import { PageLoader } from './components/ui/spinner.jsx'
 
@@ -32,6 +33,13 @@ function currentPath() {
 function App() {
   const [path, setPath] = useState(currentPath)
   const [pendingLogin, setPendingLogin] = useState(null)
+  const [returnTo, setReturnTo] = useState(() => accountReturnPath(window.location.pathname + window.location.search)
+    ?? accountReturnPath(sessionStorage.getItem('garantiyaid.accountReturnTo')))
+
+  useEffect(() => {
+    if (returnTo) sessionStorage.setItem('garantiyaid.accountReturnTo', returnTo)
+    else sessionStorage.removeItem('garantiyaid.accountReturnTo')
+  }, [returnTo])
 
   useEffect(() => {
     const handlePopState = () => {
@@ -45,7 +53,7 @@ function App() {
 
   function navigate(nextPath) {
     window.history.pushState({}, '', nextPath)
-    setPath(currentPath())
+    window.dispatchEvent(new PopStateEvent('popstate'))
 
     const hash = new URL(nextPath, window.location.origin).hash
     requestAnimationFrame(() => {
@@ -67,10 +75,14 @@ function App() {
 
   function finishAuthentication() {
     setPendingLogin(null)
-    navigate('/dashboard')
+    const destination = accountReturnPath(returnTo) ?? '/dashboard'
+    setReturnTo(null)
+    sessionStorage.removeItem('garantiyaid.accountReturnTo')
+    navigate(destination)
   }
 
   function expireSession() {
+    setReturnTo(accountReturnPath(window.location.pathname + window.location.search))
     clearStaffSession()
     navigate('/session-expired')
   }
@@ -82,6 +94,8 @@ function App() {
     } catch {
       // Clear the device session even when the server cannot be reached.
     } finally {
+      setReturnTo(null)
+      sessionStorage.removeItem('garantiyaid.accountReturnTo')
       clearStaffSession()
       navigate('/login')
     }
@@ -92,9 +106,10 @@ function App() {
 
   if (path === '/privacy') {
     page = <PrivacyPage />
-  } else if (path === '/login') {
+  } else if (path === '/login' || (path === '/account' && !(session.accessToken && session.user))) {
     page = (
       <LoginPage
+        securityReview={Boolean(returnTo)}
         onAuthenticated={finishAuthentication}
         onPasswordChangeRequired={(credentials) => {
           setPendingLogin(credentials)

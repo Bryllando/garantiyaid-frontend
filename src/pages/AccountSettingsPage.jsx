@@ -5,6 +5,7 @@ import PasswordStrengthField from '../components/auth/PasswordStrengthField.jsx'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Icon } from '../components/ui/icon.jsx'
+import { emailDeliveryFeedback, SecurityEmailStatus } from '../components/ui/SecurityEmailStatus.jsx'
 import { PhilippineMobileField } from '../components/ui/philippine-mobile-field.jsx'
 import { InputOTP, InputOTPGroup, InputOTPSlot, REGEXP_ONLY_DIGITS } from '../components/ui/input-otp.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
@@ -352,7 +353,10 @@ function AccountSettingsPage({ session, onLogout, onNavigate, onSessionExpired }
         security: { ...current.security, activeSessionCount: 1 },
       }))
       toast.success('Password changed securely.', {
-        description: data.revokedSessionCount ? `${data.revokedSessionCount} other session(s) were signed out.` : 'Your current secure session remains active.',
+        description: [
+          data.revokedSessionCount ? `${data.revokedSessionCount} other session(s) were signed out.` : 'Your current secure session remains active.',
+          emailDeliveryFeedback(data.emailDelivery),
+        ].filter(Boolean).join(' '),
       })
     } catch (error) {
       reportRequestError(error, setPasswordError)
@@ -428,7 +432,9 @@ function AccountSettingsPage({ session, onLogout, onNavigate, onSessionExpired }
           activeSessionCount: 1,
         },
       }))
-      toast.success('New authenticator connected.', { description: 'The previous authenticator and recovery codes no longer work.' })
+      toast.success('New authenticator connected.', {
+        description: ['The previous authenticator and recovery codes no longer work.', emailDeliveryFeedback(data.emailDelivery)].filter(Boolean).join(' '),
+      })
     } catch (error) {
       reportRequestError(error, setSecurityError)
     } finally {
@@ -549,6 +555,7 @@ function AccountSettingsPage({ session, onLogout, onNavigate, onSessionExpired }
                   <input id="account-email" type="email" autoComplete="email" maxLength="150" required value={profile.email} onChange={(event) => { setProfile((value) => ({ ...value, email: event.target.value })); setProfileError('') }} aria-describedby={profileError ? 'profile-form-error' : undefined} className="ga-input mt-2" />
                 </div>
                 <PhilippineMobileField id="account-contact" value={profile.contactNumber} onChange={(contactNumber) => { setProfile((value) => ({ ...value, contactNumber })); setProfileError('') }} describedBy={profileError ? 'profile-form-error' : undefined} />
+                <SecurityEmailStatus delivery={security.securityEmail} configuration className="sm:col-span-2" />
                 {profileError && <p id="profile-form-error" role="alert" className="rounded-lg border border-red-200 bg-danger-soft px-4 py-3 text-sm text-brand-red sm:col-span-2">{profileError}</p>}
                 <div className="sm:col-span-2 sm:flex sm:justify-end"><button type="submit" disabled={profileBusy || !profileDirty} className="ga-btn-primary w-full sm:w-auto">{profileBusy ? <LoadingLabel>Saving...</LoadingLabel> : 'Save contact details'}</button></div>
               </form>
@@ -578,7 +585,7 @@ function AccountSettingsPage({ session, onLogout, onNavigate, onSessionExpired }
                 <div>
                   <label htmlFor="password-totp" className="ga-label">Current authentication code</label>
                   <p className="mt-1 text-xs leading-5 text-muted-copy">Enter the six-digit code from the authenticator currently connected to this account.</p>
-                  <InputOTP id="password-totp" maxLength={6} pattern={REGEXP_ONLY_DIGITS} inputMode="numeric" autoComplete="one-time-code" required value={password.totpCode} onChange={(value) => { setPassword((current) => ({ ...current, totpCode: value })); setPasswordError('') }} containerClassName="mt-3 justify-start">
+                  <InputOTP id="password-totp" maxLength={6} pattern={REGEXP_ONLY_DIGITS} inputMode="numeric" autoComplete="one-time-code" required value={password.totpCode} onChange={(value) => { setPassword((current) => ({ ...current, totpCode: value })); setPasswordError('') }} containerClassName="mt-3">
                     <InputOTPGroup>{Array.from({ length: 6 }, (_, index) => <InputOTPSlot key={index} index={index} invalid={Boolean(passwordError)} />)}</InputOTPGroup>
                   </InputOTP>
                 </div>

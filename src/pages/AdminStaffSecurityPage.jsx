@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import { Icon } from '../components/ui/icon.jsx'
+import { emailDeliveryFeedback } from '../components/ui/SecurityEmailStatus.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
 import { getAuthErrorMessage, isSessionExpiredError, requestStaffUsers, resetStaffTotp, STAFF_ROLE_LABELS } from '../auth/staffAuth.js'
@@ -83,7 +84,10 @@ function AdminStaffSecurityPage({ session, onLogout, onNavigate, onSessionExpire
       )))
       setTarget(null)
       setVerification(emptyVerification)
-      setSuccess(`${data.user.fullName}'s authenticator was reset. ${data.revokedSessionCount} active session(s) were revoked.`)
+      setSuccess([
+        `${data.user.fullName}'s authenticator was reset. ${data.revokedSessionCount} active session(s) were revoked.`,
+        emailDeliveryFeedback(data.emailDelivery),
+      ].filter(Boolean).join(' '))
     } catch (requestError) {
       setError(getAuthErrorMessage(requestError))
     } finally {

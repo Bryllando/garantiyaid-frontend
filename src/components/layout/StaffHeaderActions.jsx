@@ -8,18 +8,22 @@ import {
 import { connectStaffNotificationRealtime } from '../../realtime/staffRealtime.js'
 import { Icon } from '../ui/icon.jsx'
 import { LoadingLabel } from '../ui/spinner.jsx'
+import { SecurityEmailStatus } from '../ui/SecurityEmailStatus.jsx'
+import { getPhilippineDayPeriod } from './philippine-day-period.js'
 
 const philippineDate = new Intl.DateTimeFormat('en-PH', {
   timeZone: 'Asia/Manila',
-  month: 'short',
+  weekday: 'long',
+  month: 'long',
   day: 'numeric',
   year: 'numeric',
 })
 const philippineTime = new Intl.DateTimeFormat('en-PH', {
   timeZone: 'Asia/Manila',
-  hour: '2-digit',
+  hour: 'numeric',
   minute: '2-digit',
   second: '2-digit',
+  hour12: true,
 })
 const notificationTime = new Intl.DateTimeFormat('en-PH', {
   timeZone: 'Asia/Manila',
@@ -29,10 +33,15 @@ const notificationTime = new Intl.DateTimeFormat('en-PH', {
   minute: '2-digit',
 })
 
-export function PhilippineClock() {
+export function PhilippineClock({ onDayPeriodChange }) {
   const offsetRef = useRef(0)
   const [now, setNow] = useState(() => new Date())
   const [serverSynced, setServerSynced] = useState(false)
+  const dayPeriod = getPhilippineDayPeriod(now)
+
+  useEffect(() => {
+    onDayPeriodChange(dayPeriod)
+  }, [dayPeriod, onDayPeriodChange])
 
   const syncWithServer = useCallback(async () => {
     const requestedAt = Date.now()
@@ -64,16 +73,12 @@ export function PhilippineClock() {
   }, [syncWithServer])
 
   return (
-    <div className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-1.5 text-right text-copy sm:border sm:border-line sm:bg-slate-50 sm:px-3" title={serverSynced ? 'Synced with the GarantiyAid server' : 'Using this device clock until the server reconnects'}>
-      <Icon name="clock" className="hidden size-4 text-brand-blue sm:block" strokeWidth={2} />
-      <span className="leading-tight">
-        <time dateTime={now.toISOString()} className="block whitespace-nowrap text-[0.7rem] font-bold tabular-nums text-ink sm:text-xs">
-          {philippineTime.format(now)}
-        </time>
-        <span className="hidden whitespace-nowrap text-[0.65rem] font-semibold text-muted-copy xl:block">
-          {philippineDate.format(now)} · PHT
-        </span>
-      </span>
+    <div className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-lg border border-slate-300/80 bg-slate-200/75 px-3 py-2.5 text-copy shadow-sm sm:px-4" title={serverSynced ? 'Philippine Standard Time · Synced with the GarantiyAid server' : 'Philippine Standard Time · Using this device clock until the server reconnects'}>
+      <Icon name="calendar" className="size-[1.125rem] shrink-0 text-brand-navy" />
+      <time dateTime={now.toISOString()} className="flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0.5 text-xs leading-5 sm:text-[0.8125rem]">
+        <span>{philippineDate.format(now)}</span>
+        <span className="whitespace-nowrap tabular-nums">at {philippineTime.format(now)} <span className="text-[0.625rem] font-medium text-muted-copy">PHT</span></span>
+      </time>
     </div>
   )
 }
@@ -141,6 +146,7 @@ export function StaffNotificationCenter({ accessToken, onNavigate }) {
     if (!open) return undefined
     // oxlint-disable-next-line react/set-state-in-effect -- reconcile persisted state whenever the popover opens.
     loadNotifications()
+    const refreshTimer = window.setInterval(loadNotifications, 15000)
     const closePopover = (event) => {
       if (event.key === 'Escape') {
         setOpen(false)
@@ -152,6 +158,7 @@ export function StaffNotificationCenter({ accessToken, onNavigate }) {
     document.addEventListener('keydown', closePopover)
     document.addEventListener('pointerdown', closePopover)
     return () => {
+      window.clearInterval(refreshTimer)
       document.removeEventListener('keydown', closePopover)
       document.removeEventListener('pointerdown', closePopover)
     }
@@ -208,7 +215,7 @@ export function StaffNotificationCenter({ accessToken, onNavigate }) {
         aria-expanded={open}
         aria-controls="staff-notification-popover"
         onClick={() => setOpen((value) => !value)}
-        className="relative grid size-11 cursor-pointer place-items-center rounded-lg border border-line bg-white text-copy transition-colors hover:border-blue-200 hover:bg-info-soft hover:text-brand-blue focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
+        className="relative grid size-11 cursor-pointer place-items-center rounded-xl border border-line bg-white text-copy transition-colors hover:border-blue-200 hover:bg-info-soft hover:text-brand-blue focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"
       >
         <Icon name="notifications" className="size-5" strokeWidth={2} />
         {unreadCount > 0 && (
@@ -219,8 +226,8 @@ export function StaffNotificationCenter({ accessToken, onNavigate }) {
       </button>
 
       {open && (
-        <section id="staff-notification-popover" aria-label="Staff notifications" className="fixed left-4 right-4 top-[4.35rem] z-50 overflow-hidden rounded-2xl border border-line bg-white shadow-2xl sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-96">
-          <div className="border-b border-line bg-gradient-to-br from-slate-50 to-blue-50/70 px-4 py-4">
+        <section id="staff-notification-popover" aria-label="Staff notifications" className="absolute right-0 top-full z-50 mt-3 flex max-h-[calc(100dvh-12rem)] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-2xl">
+          <div className="shrink-0 border-b border-line bg-gradient-to-br from-slate-50 to-blue-50/70 px-4 py-4">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-base font-extrabold text-ink">Notifications</h2>
@@ -242,7 +249,7 @@ export function StaffNotificationCenter({ accessToken, onNavigate }) {
             </div>
           )}
 
-          <div className="max-h-[min(28rem,calc(100dvh-9rem))] overflow-y-auto">
+          <div className="min-h-0 max-h-[min(28rem,calc(100dvh-9rem))] overflow-y-auto">
             {loading ? (
               <div className="grid min-h-40 place-items-center px-6 text-sm font-semibold text-muted-copy"><LoadingLabel>Loading notifications...</LoadingLabel></div>
             ) : notifications.length === 0 ? (
@@ -263,6 +270,7 @@ export function StaffNotificationCenter({ accessToken, onNavigate }) {
                           <span className={`block text-sm text-ink ${unread ? 'font-extrabold' : 'font-bold'}`}>{notification.title}</span>
                           <span className="mt-1 block text-xs leading-5 text-muted-copy">{notification.message}</span>
                           <time dateTime={notification.createdAt} className="mt-1.5 block text-[0.7rem] font-semibold text-slate-500">{notificationTime.format(new Date(notification.createdAt))}</time>
+                          {notification.emailDelivery && <SecurityEmailStatus delivery={notification.emailDelivery} compact className="mt-1" />}
                           {unread && <span className="sr-only">Unread notification.</span>}
                         </span>
                         {notification.targetPath && <Icon name="chevronRight" className="mt-1 size-4 shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5" />}

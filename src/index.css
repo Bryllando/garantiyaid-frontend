@@ -7,6 +7,8 @@
   --color-brand-green: #087a5b;
   --color-brand-amber: #a95408;
   --color-brand-red: #b4232c;
+  --color-shell-blue: #06264d;
+  --color-shell-header: #edf4fa;
   --color-ink: #10213a;
   --color-copy: #40516a;
   --color-muted-copy: #5f7087;
@@ -82,6 +84,107 @@ p {
 }
 
 @layer components {
+  .ga-staff-shell {
+    --sidebar-duration: 280ms;
+    --sidebar-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .ga-staff-sidebar {
+    background: var(--color-shell-blue);
+    box-shadow: 4px 0 24px rgb(6 38 77 / 0.12);
+    transition: width var(--sidebar-duration) var(--sidebar-ease),
+      translate var(--sidebar-duration) var(--sidebar-ease),
+      transform var(--sidebar-duration) var(--sidebar-ease);
+  }
+
+  .ga-shell-content {
+    transition: padding-left var(--sidebar-duration) var(--sidebar-ease);
+  }
+
+  .ga-sidebar-backdrop {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity var(--sidebar-duration) ease-out,
+      visibility 0s linear var(--sidebar-duration);
+  }
+
+  .ga-sidebar-backdrop[data-open="true"] {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition-delay: 0s;
+  }
+
+  .ga-sidebar-toggle > svg {
+    transition: transform var(--sidebar-duration) var(--sidebar-ease);
+  }
+
+  .ga-sidebar-link,
+  .ga-sidebar-account {
+    transition: padding var(--sidebar-duration) var(--sidebar-ease),
+      background-color 160ms ease-out, border-color 160ms ease-out, color 160ms ease-out;
+  }
+
+  .ga-sidebar-link {
+    white-space: nowrap;
+  }
+
+  @media (min-width: 1024px) {
+    .ga-staff-sidebar[data-collapsed="false"] .ga-sidebar-label {
+      animation: ga-sidebar-label-enter var(--sidebar-duration) var(--sidebar-ease);
+    }
+  }
+
+  @keyframes ga-sidebar-label-enter {
+    from { opacity: 0; transform: translateX(-6px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .ga-sidebar-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    scroll-padding-block: 1rem;
+  }
+
+  .ga-sidebar-scroll:hover,
+  .ga-sidebar-scroll:focus-within {
+    scrollbar-color: rgb(255 255 255 / 0.4) transparent;
+  }
+
+  .ga-sidebar-link[aria-current="page"]::before {
+    content: "";
+    position: absolute;
+    inset: 0.65rem auto 0.65rem -1px;
+    width: 3px;
+    border-radius: 3px;
+    background: white;
+  }
+
+  .ga-sidebar-link:active,
+  .ga-sidebar-account:active {
+    background-color: rgb(255 255 255 / 0.2);
+  }
+
+  .ga-staff-header {
+    box-shadow: 0 3px 14px rgb(24 52 97 / 0.035);
+  }
+
+  .ga-profile-menu[open] > summary {
+    border-color: rgb(255 255 255 / 0.5);
+    background: rgb(255 255 255 / 0.2);
+  }
+
+  .ga-profile-menu[open] .ga-profile-panel {
+    animation: ga-profile-enter 160ms ease-out;
+    transform-origin: bottom left;
+  }
+
+  @keyframes ga-profile-enter {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
   .ga-assistant-markdown {
     min-width: 0;
     font-size: 0.9375rem;

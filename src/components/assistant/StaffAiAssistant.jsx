@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { animate } from 'animejs'
 import {
   enqueueAssistantDistributionReminder,
+  confirmAssistantDistribution,
   previewAssistantDistributionReminder,
   recordStaffAssistantFeedback,
   requestDistributionList,
@@ -12,6 +13,11 @@ import {
 import AssistantDistributionScheduler from './AssistantDistributionScheduler.jsx'
 import { Icon } from '../ui/icon.jsx'
 import { LoadingLabel } from '../ui/spinner.jsx'
+import { messageIntent, routingReplies } from './staff-message-intent.js'
+import AssistantTaskDetails from './AssistantTaskDetails.jsx'
+import { collectTaskDetails, detailCopy, isTaskCancellation, isTaskQuestion, nextTaskField, setTaskValue, taskReply, translated } from './task-details.js'
+import { allPages, formatPreviewTime, reminderFormFromTask, reminderRequest, resolveServiceArea, UNRESOLVED_AREA } from './task-preview.js'
+import { confirmationSnapshot, uncertainConfirmation, retryConfirmationMessage, pendingConfirmation } from './confirmation-state.js'
 
 const AssistantMessage = lazy(() => import('./AssistantMessage.js'))
 
@@ -56,7 +62,7 @@ function formatEvent(distribution) {
     day: 'numeric',
     year: 'numeric',
   }).format(new Date(`${distribution.distributionDate}T00:00:00+08:00`))
-  return `${distribution.title} · ${date}`
+  return `${distribution.title} · ${date} · ${distribution.barangay?.barangayName || distribution.location || distribution.distributionId}`
 }
 
 function formatSchedule(value) {
@@ -68,17 +74,6 @@ function formatSchedule(value) {
     hour: 'numeric',
     minute: '2-digit',
   }).format(new Date(value))
-}
-
-function messageIntent(message, userRole) {
-  const normalized = message.toLowerCase()
-  if (/\b(hello|hi|hey|kumusta|maayong|test|testing|tubag)\b/.test(normalized)) return 'greeting'
-  if (userRole === 'SYSTEM_ADMIN' && /\b(create|draft|plan|himo|buhat|plano)\b/.test(normalized) && /\b(distribution|event|schedule)\b/.test(normalized)) return 'distributionDraft'
-  if (/\b(text|sms|message|remind|notify|notification|textan|mensahe|pahibalo|ipadala)\b/.test(normalized)) return 'reminder'
-  if (/\b(schedule|queue|distribution|event)\b/.test(normalized)) return 'schedule'
-  if (/\b(status|delivery|failed|sent)\b/.test(normalized)) return 'delivery'
-  if (/\b(beneficiary|beneficiaries|benepisyaryo|contact|sitio|purok)\b/.test(normalized)) return 'beneficiary'
-  return 'help'
 }
 
 function AssistantFeedback({ busy, status, onRate }) {
@@ -98,7 +93,8 @@ function AssistantFeedback({ busy, status, onRate }) {
 
 function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
   const [open, setOpen] = useState(false)
-  const [view, setView] = useState('home')
+  const [recovery, setRecovery] = useState(() => pendingConfirmation(user?.userId))
+  const [view, setView] = useState(() => pendingConfirmation(user?.userId) ? 'recovery' : 'home')
   const [messages, setMessages] = useState([])
   const [chatInput, setChatInput] = useState('')
   const [streamingText, setStreamingText] = useState('')
@@ -122,15 +118,23 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
+  const [pendingTask, setPendingTask] = useState(null)
+  const [editingDetail, setEditingDetail] = useState('')
+  const [detailError, setDetailError] = useState('')
+  const [guidedReminder, setGuidedReminder] = useState(false)
+  const [uncertain, setUncertain] = useState(false)
+  const submittingRef = useRef(false)
   const launcherRef = useRef(null)
   const panelRef = useRef(null)
+  const contentRef = useRef(null)
   const closeRef = useRef(null)
   const messageEndRef = useRef(null)
   const chatRequestRef = useRef(null)
+  const lookupRunRef = useRef(0)
   const experience = roleExperience[user?.role] ?? roleExperience.BARANGAY_FACILITATOR
   const selectedDistribution = distributions.find((row) => row.distributionId === form.distributionId)
 
-  const visibleDistributions = useMemo(() => distributions.filter((row) => row.status !== 'CANCELLED'), [distributions])
+  const visibleDistributions = useMemo(() => distributions.filter((row) => ['DRAFT', 'OPEN'].includes(row.status)), [distributions])
 
   useEffect(() => {
     if (!open) return undefined
@@ -159,7 +163,17 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
     messageEndRef.current?.scrollIntoView({ block: 'nearest' })
   }, [messages, streamingText, chatStatus])
 
+  useEffect(() => {
+    if (view === 'home') return
+    const heading = contentRef.current?.querySelector('h3')
+    if (!heading) return
+    contentRef.current.scrollTop = 0
+    heading.tabIndex = -1
+    heading.focus({ preventScroll: true })
+  }, [view])
+
   useEffect(() => () => {
+    lookupRunRef.current += 1
     chatRequestRef.current?.abort()
     chatRequestRef.current = null
   }, [accessToken])
@@ -185,23 +199,26 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
   }
 
   async function loadDistributions() {
-    if (distributions.length) return distributions
+    const run = ++lookupRunRef.current
     setBusy('distributions')
     setError('')
     try {
-      const data = await requestDistributionList(accessToken, { page: 1, pageSize: 100 })
-      setDistributions(data.distributions)
-      return data.distributions
+      const rows = await allPages((page) => requestDistributionList(accessToken, page), 'distributions')
+      if (run !== lookupRunRef.current) return null
+      setDistributions(rows)
+      return rows
     } catch (requestError) {
+      if (run !== lookupRunRef.current) return null
       if (requestError.status === 401) onSessionExpired?.()
       setError(requestError.message)
-      return []
+      return null
     } finally {
-      setBusy('')
+      if (run === lookupRunRef.current) setBusy('')
     }
   }
 
   async function startReminder() {
+    setGuidedReminder(false)
     setView('compose')
     setLastIntent('PREPARE_AREA_REMINDER')
     setFeedbackStatus('')
@@ -210,14 +227,16 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
     setResult(null)
     setError('')
     const rows = await loadDistributions()
-    const usable = rows.filter((row) => row.status !== 'CANCELLED')
+    if (!rows) return
+    const usable = rows.filter((row) => ['DRAFT', 'OPEN'].includes(row.status))
     if (!form.distributionId && usable[0]) {
       setForm((current) => ({ ...current, distributionId: usable[0].distributionId }))
       await loadServiceAreas(usable[0].distributionId)
     }
   }
 
-  async function loadServiceAreas(distributionId) {
+  async function loadServiceAreas(distributionId, requestedArea) {
+    const run = ++lookupRunRef.current
     if (!distributionId) {
       setServiceAreas([])
       return
@@ -225,32 +244,29 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
     setBusy('areas')
     setError('')
     try {
-      const data = await requestDistributionSchedules(accessToken, distributionId)
-      const areas = [...new Set(data.schedules.map((schedule) => schedule.beneficiary?.sitioPurok?.trim()).filter(Boolean))]
+      const schedules = await allPages((page) => requestDistributionSchedules(accessToken, distributionId, page), 'schedules')
+      if (run !== lookupRunRef.current) return
+      const areas = [...new Set(schedules.map((schedule) => schedule.beneficiary?.sitioPurok?.trim()).filter(Boolean))]
         .sort((left, right) => left.localeCompare(right, 'en-PH'))
       setServiceAreas(areas)
-      setForm((current) => ({ ...current, serviceArea: areas.includes(current.serviceArea) ? current.serviceArea : '' }))
+      setForm((current) => ({ ...current, serviceArea: requestedArea !== undefined ? resolveServiceArea(requestedArea, areas) : areas.includes(current.serviceArea) ? current.serviceArea : guidedReminder ? UNRESOLVED_AREA : '' }))
     } catch (requestError) {
+      if (run !== lookupRunRef.current) return
       if (requestError.status === 401) onSessionExpired?.()
       setError(requestError.message)
       setServiceAreas([])
     } finally {
-      setBusy('')
+      if (run === lookupRunRef.current) setBusy('')
     }
   }
 
   function reminderPayload() {
-    return {
-      messageTemplate: form.messageTemplate.trim(),
-      ...(form.serviceArea ? { serviceArea: form.serviceArea } : {}),
-      ...(form.deliveryMode === 'scheduled' && form.sendAt
-        ? { sendAt: new Date(form.sendAt).toISOString() }
-        : { sendAt: new Date().toISOString() }),
-    }
+    return reminderRequest(form)
   }
 
   async function handlePreview(event) {
     event.preventDefault()
+    if (busy) return
     setError('')
     setReviewed(false)
     if (!form.distributionId) return setError('Choose a distribution event before previewing recipients.')
@@ -259,8 +275,11 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
 
     setBusy('preview')
     try {
-      const data = await previewAssistantDistributionReminder(accessToken, form.distributionId, reminderPayload())
-      setPreview(data)
+      const request = reminderPayload()
+      const data = await previewAssistantDistributionReminder(accessToken, form.distributionId, request)
+      if (form.deliveryMode === 'scheduled' && (!data.checkedAt || new Date(reminderPayload().sendAt) <= new Date(data.checkedAt))) throw new Error('The requested queue time has passed according to the server. Choose a future Philippine date and time.')
+      setPreview(confirmationSnapshot({ ...data, distributionId: form.distributionId }, request))
+      setUncertain(false)
       setView('preview')
     } catch (requestError) {
       if (requestError.status === 401) onSessionExpired?.()
@@ -271,27 +290,56 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
   }
 
   async function confirmReminder() {
-    if (!preview || !reviewed) return
+    if (!preview || !reviewed || busy || submittingRef.current) return
+    submittingRef.current = true
     setBusy('confirm')
     setError('')
+    const request = { ...preview.request, approvalId: preview.approvalId, confirmed: true, expectedRecipientCount: preview.recipientCount, expectedPreviewHash: preview.previewHash }
+    rememberConfirmation({ kind: 'reminder', approvalId: preview.approvalId, distributionId: preview.distributionId, request })
     try {
-      const data = await enqueueAssistantDistributionReminder(accessToken, form.distributionId, {
-        ...reminderPayload(),
-        confirmed: true,
-        expectedRecipientCount: preview.recipientCount,
-        expectedPreviewHash: preview.previewHash,
-      })
+      const data = await enqueueAssistantDistributionReminder(accessToken, preview.distributionId, request)
       setResult({ kind: 'reminder', ...data })
+      setPendingTask(null)
+      setUncertain(false)
+      rememberConfirmation(null)
       setLastIntent('PREPARE_AREA_REMINDER')
       setFeedbackStatus('')
       setView('success')
     } catch (requestError) {
       if (requestError.status === 401) onSessionExpired?.()
-      setError(requestError.message)
-      if (requestError.code === 'NOTIFICATION_PREVIEW_CHANGED') setView('compose')
+      const unknown = uncertainConfirmation(requestError)
+      setUncertain(unknown)
+      setError(unknown ? retryConfirmationMessage : requestError.message)
+      if (!unknown) { rememberConfirmation(null); setPreview(null); setReviewed(false); setView('compose') }
     } finally {
+      submittingRef.current = false
       setBusy('')
     }
+  }
+
+  function rememberConfirmation(attempt) {
+    pendingConfirmation(user?.userId, attempt)
+    setRecovery(attempt)
+  }
+
+  async function recoverConfirmation() {
+    if (!recovery || submittingRef.current) return
+    submittingRef.current = true
+    setBusy('confirm')
+    setError('')
+    try {
+      const outcome = recovery.kind === 'distribution'
+        ? { kind: 'distribution', distribution: await confirmAssistantDistribution(accessToken, recovery.request, recovery.approvalId) }
+        : { kind: 'reminder', ...await enqueueAssistantDistributionReminder(accessToken, recovery.distributionId, recovery.request, recovery.approvalId) }
+      rememberConfirmation(null)
+      setPendingTask(null)
+      setResult(outcome)
+      setView('success')
+    } catch (requestError) {
+      if (requestError.status === 401) onSessionExpired?.()
+      setError(uncertainConfirmation(requestError) ? retryConfirmationMessage : requestError.message)
+      if (!uncertainConfirmation(requestError)) rememberConfirmation(null)
+    } finally { submittingRef.current = false; setBusy('') }
   }
 
   function navigate(path) {
@@ -299,17 +347,99 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
     onNavigate?.(path)
   }
 
+  function taskMessage(content) {
+    setMessages((current) => [...current, { role: 'assistant', content, local: true }])
+    setExternalAiUsed(null)
+  }
+
+  function keepTaskDetails(update) {
+    setPendingTask(update.task)
+    setDetailError(update.error)
+    if (!update.error) setEditingDetail('')
+    taskMessage(update.error || taskReply(update.task, language))
+  }
+
+  function beginTask(kind, content = '') {
+    if (pendingTask) return taskMessage(translated(detailCopy.switch, language))
+    if (kind === 'distributionDraft' && user?.role !== 'SYSTEM_ADMIN') return
+    setLastIntent(kind === 'reminder' ? 'PREPARE_AREA_REMINDER' : 'CREATE_DISTRIBUTION_DRAFT')
+    setFeedbackStatus('')
+    setError('')
+    keepTaskDetails(collectTaskDetails({ kind, values: {} }, content, { initial: true }))
+  }
+
+  function cancelTask() {
+    setPendingTask(null)
+    setEditingDetail('')
+    setDetailError('')
+    taskMessage(translated(detailCopy.cancelled, language))
+    requestAnimationFrame(() => document.getElementById('garantiyaid-ai-message')?.focus())
+  }
+
+  async function previewTask() {
+    if (!pendingTask || nextTaskField(pendingTask) || busy) return
+    if (pendingTask.kind === 'distributionDraft') return setView('scheduler')
+    setGuidedReminder(true)
+    setPreview(null)
+    setReviewed(false)
+    setError('')
+    setView('compose')
+    setForm(reminderFormFromTask(pendingTask.values, []))
+    setServiceAreas([])
+    const rows = await loadDistributions()
+    if (!rows) return
+    const mapped = reminderFormFromTask(pendingTask.values, rows.filter((row) => ['DRAFT', 'OPEN'].includes(row.status)))
+    setForm(mapped)
+    if (mapped.distributionId) await loadServiceAreas(mapped.distributionId, pendingTask.values.serviceArea)
+  }
+
+  function backFromPreview(values) {
+    if (pendingTask && values) setPendingTask((task) => ({ ...task, values }))
+    setEditingDetail('')
+    setDetailError('')
+    resetWorkflow()
+  }
+
+  function backFromReminder() {
+    backFromPreview(guidedReminder ? {
+      ...pendingTask.values,
+      distribution: selectedDistribution?.title || pendingTask.values.distribution,
+      distributionId: form.distributionId,
+      serviceArea: form.serviceArea === UNRESOLVED_AREA ? pendingTask.values.serviceArea : form.serviceArea || 'All scheduled service areas',
+      messageTemplate: form.messageTemplate, deliveryMode: form.deliveryMode,
+      ...(form.deliveryMode === 'scheduled' ? { date: form.sendAt.slice(0, 10), startTime: form.sendAt.slice(11, 16) } : {}),
+    } : undefined)
+  }
+
+  async function reloadReminderChoices() {
+    const rows = await loadDistributions()
+    if (rows && form.distributionId) await loadServiceAreas(form.distributionId, form.serviceArea === UNRESOLVED_AREA ? pendingTask?.values.serviceArea : form.serviceArea || 'All scheduled service areas')
+  }
+
   async function sendChat(event) {
     event.preventDefault()
     const content = chatInput.trim()
-    if (!content || chatRequestRef.current) return
-    const intent = messageIntent(content, user?.role)
-    setMessages((current) => [...current, { role: 'user', content }])
+    if (!content || busy || chatRequestRef.current) return
+    const classifiedIntent = messageIntent(content, user?.role)
+    const guidanceDuringTask = pendingTask && isTaskQuestion(content)
+    const intent = guidanceDuringTask && !['greeting', 'schedule', 'delivery', 'beneficiary', 'help'].includes(classifiedIntent) ? 'help' : classifiedIntent
+    setMessages((current) => [...current, { role: 'user', content, local: Boolean(pendingTask || ['reminder', 'distributionDraft'].includes(intent)) }])
     setLastIntent(intent.replace(/([A-Z])/g, '_$1').toUpperCase())
     setFeedbackStatus('')
     setChatInput('')
-    if (intent === 'reminder') return void startReminder()
-    if (intent === 'distributionDraft') return setView('scheduler')
+    setError('')
+    if (pendingTask) {
+      if (isTaskCancellation(content)) return cancelTask()
+      if (intent === 'cancel') return taskMessage(routingReplies.cancel[language])
+      if (['reminder', 'distributionDraft'].includes(intent) && intent !== pendingTask.kind) return taskMessage(translated(detailCopy.switch, language))
+      if (!guidanceDuringTask) return keepTaskDetails(collectTaskDetails(pendingTask, content, { key: editingDetail || nextTaskField(pendingTask)?.key, initial: intent === pendingTask.kind }))
+    }
+    if (routingReplies[intent]) {
+      setMessages((current) => [...current, { role: 'assistant', content: routingReplies[intent][language] }])
+      setExternalAiUsed(null)
+      return
+    }
+    if (intent === 'reminder' || intent === 'distributionDraft') return beginTask(intent, content)
     setBusy('chat')
     setError('')
     setStreamingText('')
@@ -321,7 +451,7 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
         language,
         intent: intent.toUpperCase(),
         messageText: content,
-        history: messages.slice(-6).map((message) => ({ role: message.role, content: message.content.slice(0, 1000) })),
+        history: messages.filter((message) => !message.local).slice(-6).map((message) => ({ role: message.role, content: message.content.slice(0, 1000) })),
       }, {
         signal: controller.signal,
         onText: (text) => { if (chatRequestRef.current === controller) setStreamingText(text) },
@@ -368,6 +498,7 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
   }
 
   function resetWorkflow() {
+    lookupRunRef.current += 1
     setView('home')
     setPreview(null)
     setReviewed(false)
@@ -378,37 +509,37 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
 
   return (
     <>
-      {open && (
-        <section id="garantiyaid-ai-panel" ref={panelRef} role="dialog" aria-modal="false" aria-labelledby="garantiyaid-ai-title" className="fixed inset-x-3 bottom-3 top-[5.5rem] z-[60] flex flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-lg sm:inset-x-auto sm:bottom-6 sm:right-6 sm:top-auto sm:h-[min(44rem,calc(100dvh-7rem))] sm:w-[min(29rem,calc(100vw-3rem))]">
-          <header className="shrink-0 border-b border-blue-900/20 bg-brand-navy px-4 py-4 text-white">
+      {(
+        <section id="garantiyaid-ai-panel" hidden={!open} style={open ? undefined : { display: 'none' }} ref={panelRef} role="dialog" aria-modal="false" aria-labelledby="garantiyaid-ai-title" className="fixed inset-x-3 bottom-3 top-[5.5rem] z-[60] flex flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-lg sm:inset-x-auto sm:bottom-6 sm:right-6 sm:top-auto sm:h-[min(44rem,calc(100dvh-7rem))] sm:w-[min(29rem,calc(100vw-3rem))]">
+          <header className="shrink-0 border-b border-blue-900/20 bg-brand-navy px-4 py-3 text-white">
             <div className="flex items-center gap-3">
-              <span className="grid size-12 shrink-0 place-items-center rounded-xl bg-white shadow-sm">
-                <img src="/GarantiyAid-AI-logo.svg" alt="" width="64" height="64" className="size-10" />
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white shadow-sm">
+                <img src="/GarantiyAid-AI-logo.svg" alt="" width="64" height="64" className="size-9" />
               </span>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <h2 id="garantiyaid-ai-title" className="truncate text-base font-bold">GarantiyAid AI</h2>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/15 px-2 py-1 text-[0.6875rem] font-bold text-emerald-100"><span className="size-1.5 rounded-full bg-emerald-300" />{busy === 'chat' ? 'Thinking' : 'Ready'}</span>
-                </div>
-                <p className="mt-0.5 truncate text-xs text-blue-100">{STAFF_ROLE_LABELS[user?.role] ?? 'Authorized staff'} · Controlled assistant</p>
+                <h2 id="garantiyaid-ai-title" className="whitespace-nowrap text-base font-bold">GarantiyAid AI</h2>
+                <p className="mt-1 truncate text-xs text-blue-100">{STAFF_ROLE_LABELS[user?.role] ?? 'Authorized staff'}</p>
               </div>
-              <label className="sr-only" htmlFor="staff-ai-language">Assistant language</label>
-              <select id="staff-ai-language" value={language} onChange={(event) => setLanguage(event.target.value)} className="min-h-11 max-w-24 rounded-lg border border-white/20 bg-white/10 px-2 text-xs font-bold text-white outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
-                {Object.entries(LANGUAGE_LABELS).map(([value, label]) => <option key={value} value={value} className="text-ink">{label}</option>)}
-              </select>
               <button ref={closeRef} type="button" onClick={closeAssistant} aria-label="Close GarantiyAid AI" className="grid size-11 shrink-0 place-items-center rounded-lg text-blue-100 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
                 <Icon name="close" />
               </button>
             </div>
+            <div className="mt-2 flex items-center justify-between gap-3 border-t border-white/10 pt-2">
+              <span role="status" className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${recovery ? 'bg-amber-300/15 text-amber-100' : 'bg-emerald-400/15 text-emerald-100'}`}><span aria-hidden="true" className="size-1.5 rounded-full bg-current" />{busy === 'chat' ? 'Thinking' : recovery ? 'Result pending' : 'Ready to help'}</span>
+              <label className="sr-only" htmlFor="staff-ai-language">Assistant language</label>
+              <select id="staff-ai-language" value={language} onChange={(event) => setLanguage(event.target.value)} className="min-h-11 w-28 rounded-lg border border-white/20 bg-white/10 px-2 text-xs font-bold text-white outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
+                {Object.entries(LANGUAGE_LABELS).map(([value, label]) => <option key={value} value={value} className="text-ink">{label}</option>)}
+              </select>
+            </div>
           </header>
 
-          <div className="flex-1 overflow-y-auto bg-page p-4" aria-live="polite">
+          <div ref={contentRef} data-assistant-content className="min-h-0 flex-1 overflow-y-auto bg-page p-4">
             {view === 'home' && (
               <div className="space-y-4">
                 <div className="flex items-start gap-3">
                   <img src="/GarantiyAid-AI-logo.svg" alt="" width="64" height="64" className="mt-1 size-8 shrink-0" />
                   <div className="max-w-[85%] rounded-2xl rounded-tl-md border border-line bg-white px-4 py-3 text-sm leading-6 text-copy shadow-sm">
-                    <p className="font-bold text-ink">Maayong adlaw, {user?.fullName?.split(' ')[0] || 'Staff'}.</p>
+                    <p className="font-bold text-ink">{language === 'en' ? 'Good day' : language === 'fil' ? 'Magandang araw' : 'Maayong adlaw'}, {user?.fullName?.split(' ')[0] || 'Staff'}.</p>
                     <p className="mt-1">{experience.greeting[language]}</p>
                   </div>
                 </div>
@@ -437,19 +568,21 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
                   </div>
                 </div>}
                 {error && <p role="alert" className="rounded-xl border border-red-200 bg-danger-soft p-3 text-sm font-semibold text-brand-red">{error}</p>}
+                {pendingTask && <AssistantTaskDetails task={pendingTask} editing={editingDetail} onEdit={(key) => { setEditingDetail(key); setDetailError('') }} onSave={(key, value) => keepTaskDetails(setTaskValue(pendingTask, key, value))} onCancel={cancelTask} onPreview={previewTask} language={language} error={detailError} busy={Boolean(busy)} />}
+                <p role="status" className="sr-only">{busy !== 'chat' && messages.at(-1)?.role === 'assistant' ? messages.at(-1).content : ''}</p>
                 <div ref={messageEndRef} />
 
-                <fieldset disabled={busy === 'chat'} className="min-w-0 border-0 pt-2 disabled:opacity-60">
+                {!pendingTask && <fieldset disabled={busy === 'chat'} className="min-w-0 border-0 pt-2 disabled:opacity-60">
                   <p className="text-xs font-bold uppercase tracking-[0.1em] text-muted-copy">Suggested actions</p>
                   <div className="mt-3 grid gap-2">
                     {user?.role === 'SYSTEM_ADMIN' && (
-                      <button type="button" onClick={() => { setView('scheduler'); setLastIntent('CREATE_DISTRIBUTION_DRAFT'); setFeedbackStatus(''); setError('') }} className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-blue-200 bg-info-soft px-4 text-left font-bold text-brand-blue transition-[background-color,border-color,transform] hover:-translate-y-0.5 hover:border-brand-blue hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue motion-reduce:transform-none">
+                      <button type="button" onClick={() => beginTask('distributionDraft')} className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-blue-200 bg-info-soft px-4 text-left font-bold text-brand-blue transition-[background-color,border-color,transform] hover:-translate-y-0.5 hover:border-brand-blue hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue motion-reduce:transform-none">
                         <Icon name="calendar" className="size-5 shrink-0" />
                         <span className="flex-1">Draft a distribution event</span>
                         <Icon name="chevronRight" className="size-4" />
                       </button>
                     )}
-                    <button type="button" onClick={startReminder} className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-blue-200 bg-info-soft px-4 text-left font-bold text-brand-blue transition-[background-color,border-color,transform] hover:-translate-y-0.5 hover:border-brand-blue hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue motion-reduce:transform-none">
+                    <button type="button" onClick={() => beginTask('reminder')} className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-blue-200 bg-info-soft px-4 text-left font-bold text-brand-blue transition-[background-color,border-color,transform] hover:-translate-y-0.5 hover:border-brand-blue hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue motion-reduce:transform-none">
                       <Icon name="smsDelivery" className="size-5 shrink-0" />
                       <span className="flex-1">Prepare an area reminder</span>
                       <Icon name="chevronRight" className="size-4" />
@@ -465,7 +598,8 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
                       <Icon name="chevronRight" className="size-4" />
                     </button>
                   </div>
-                </fieldset>
+                  <details className="mt-3 text-sm"><summary className="min-h-11 cursor-pointer rounded-lg py-3 font-semibold text-muted-copy focus-visible:outline-2 focus-visible:outline-brand-blue">Use an existing form</summary><div className="grid gap-2 pt-2">{user?.role === 'SYSTEM_ADMIN' && <button type="button" onClick={() => setView('scheduler')} className="ga-btn-secondary">Distribution form</button>}<button type="button" onClick={startReminder} className="ga-btn-secondary">Reminder form</button></div></details>
+                </fieldset>}
                 {messages.length > 0 && <AssistantFeedback busy={feedbackBusy || busy === 'chat'} status={feedbackStatus} onRate={submitFeedback} />}
               </div>
             )}
@@ -473,9 +607,12 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
             {view === 'scheduler' && user?.role === 'SYSTEM_ADMIN' && (
               <AssistantDistributionScheduler
                 accessToken={accessToken}
-                onBack={resetWorkflow}
+                onBack={backFromPreview}
+                taskDetails={pendingTask?.kind === 'distributionDraft' ? pendingTask.values : undefined}
+                onPendingConfirmation={rememberConfirmation}
                 onSessionExpired={onSessionExpired}
                 onDone={(distribution) => {
+                  setPendingTask(null)
                   setResult({ kind: 'distribution', distribution })
                   setLastIntent('CREATE_DISTRIBUTION_DRAFT')
                   setFeedbackStatus('')
@@ -486,16 +623,20 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
 
             {view === 'compose' && (
               <form onSubmit={handlePreview} className="space-y-5" noValidate>
+                <fieldset disabled={Boolean(busy)} className="min-w-0 space-y-5 border-0 p-0 disabled:opacity-60">
+                <legend className="sr-only">Reminder details</legend>
                 <div>
-                  <button type="button" onClick={resetWorkflow} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue"><Icon name="arrowLeft" className="size-4" /> Assistant home</button>
+                  <button type="button" onClick={backFromReminder} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue"><Icon name="arrowLeft" className="size-4" /> {guidedReminder ? 'Collected details' : 'Assistant home'}</button>
                   <p className="mt-2 text-xs font-bold uppercase tracking-[0.1em] text-brand-blue">Guided workflow</p>
                   <h3 className="mt-1 text-xl font-bold text-ink">Prepare area reminder</h3>
                   <p className="mt-2 text-sm leading-6 text-muted-copy">Only active, scheduled beneficiaries with valid Philippine mobile numbers will be included.</p>
                 </div>
 
+                {guidedReminder && <div className="rounded-xl border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy"><p className="font-bold text-ink">Match your requested event and area</p><p>Event: {pendingTask.values.distribution}. Area: {pendingTask.values.serviceArea}.</p><p className="mt-1">Only a unique exact match is selected. Choose any unmatched record below, then review before confirming.</p></div>}
+
                 <div>
                   <label htmlFor="ai-distribution" className="ga-label">Distribution event</label>
-                  <select id="ai-distribution" required value={form.distributionId} disabled={busy === 'distributions'} onChange={(event) => { const distributionId = event.target.value; setForm((current) => ({ ...current, distributionId })); void loadServiceAreas(distributionId) }} className="ga-input mt-2">
+                  <select id="ai-distribution" required value={form.distributionId} disabled={busy === 'distributions'} onChange={(event) => { const distributionId = event.target.value; setForm((current) => ({ ...current, distributionId, serviceArea: UNRESOLVED_AREA })); void loadServiceAreas(distributionId, guidedReminder ? pendingTask.values.serviceArea : undefined) }} className="ga-input mt-2">
                     <option value="">Choose an event</option>
                     {visibleDistributions.map((distribution) => <option key={distribution.distributionId} value={distribution.distributionId}>{formatEvent(distribution)}</option>)}
                   </select>
@@ -505,6 +646,7 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
                 <div>
                   <label htmlFor="ai-service-area" className="ga-label">Sitio / Purok</label>
                   <select id="ai-service-area" value={form.serviceArea} disabled={!form.distributionId || busy === 'areas'} onChange={(event) => setForm((current) => ({ ...current, serviceArea: event.target.value }))} className="ga-input mt-2">
+                    <option value={UNRESOLVED_AREA}>Choose the recipient area</option>
                     <option value="">All scheduled service areas</option>
                     {serviceAreas.map((area) => <option key={area} value={area}>{area}</option>)}
                   </select>
@@ -519,7 +661,7 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
                   </div>
                 </fieldset>
 
-                {form.deliveryMode === 'scheduled' && <div><label htmlFor="ai-send-at" className="ga-label">Delivery date and time</label><input id="ai-send-at" type="datetime-local" required value={form.sendAt} onChange={(event) => setForm((current) => ({ ...current, sendAt: event.target.value }))} className="ga-input mt-2" /><p className="mt-2 text-xs text-muted-copy">Must be before every selected beneficiary’s session.</p></div>}
+                {form.deliveryMode === 'scheduled' && <div><label htmlFor="ai-send-at" className="ga-label">Queue date and time (PHT)</label><input id="ai-send-at" type="datetime-local" required value={form.sendAt} onChange={(event) => setForm((current) => ({ ...current, sendAt: event.target.value }))} className="ga-input mt-2" /><p className="mt-2 text-xs text-muted-copy">Philippine time, regardless of your device time zone. Must be before every selected beneficiary’s session.</p></div>}
 
                 <div>
                   <div className="flex items-end justify-between gap-3"><label htmlFor="ai-message" className="ga-label">SMS message template</label><span className="text-xs tabular-nums text-muted-copy">{form.messageTemplate.length}/320</span></div>
@@ -529,23 +671,29 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
 
                 {error && <div role="alert" className="rounded-xl border border-red-200 bg-danger-soft p-4 text-sm font-semibold text-brand-red"><p>{error}</p><p className="mt-1 font-normal">Review the fields and try again.</p></div>}
 
-                <button type="submit" disabled={Boolean(busy) || !form.distributionId} className="ga-btn-primary w-full">{busy === 'preview' ? <LoadingLabel>Checking recipients...</LoadingLabel> : 'Preview recipients and message'}</button>
+                </fieldset>
+                {busy && <p role="status" className="text-sm text-muted-copy"><LoadingLabel>{busy === 'preview' ? 'Checking recipients...' : 'Loading authorized records...'}</LoadingLabel></p>}
+                {error && <button type="button" onClick={reloadReminderChoices} disabled={Boolean(busy)} className="ga-btn-secondary w-full">Reload event choices</button>}
+                <button type="submit" disabled={Boolean(busy) || !form.distributionId || form.serviceArea === UNRESOLVED_AREA} className="ga-btn-primary w-full">{busy === 'preview' ? <LoadingLabel>Checking recipients...</LoadingLabel> : 'Preview recipients and message'}</button>
               </form>
             )}
 
             {view === 'preview' && preview && (
               <div className="space-y-5">
                 <div>
-                  <button type="button" onClick={() => { setView('compose'); setError('') }} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue"><Icon name="arrowLeft" className="size-4" /> Edit reminder</button>
+                  <button type="button" disabled={Boolean(busy) || uncertain} onClick={() => { setView('compose'); setPreview(null); setReviewed(false); setError('') }} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue"><Icon name="arrowLeft" className="size-4" /> Edit reminder</button>
                   <p className="mt-2 text-xs font-bold uppercase tracking-[0.1em] text-brand-green">Secure preview</p>
                   <h3 className="mt-1 text-xl font-bold text-ink">Review before queueing</h3>
-                  <p className="mt-2 text-sm leading-6 text-muted-copy">No message has been queued yet.</p>
+                  <p className="mt-2 text-sm leading-6 text-muted-copy">{uncertain ? 'The previous confirmation may have completed. Recover its result below.' : 'No message has been queued yet.'}</p>
                 </div>
+
+                <dl className="space-y-3 rounded-xl border border-line bg-white p-4 text-sm"><div><dt className="text-muted-copy">Distribution event</dt><dd className="mt-1 font-bold text-ink">{preview.distribution?.title || selectedDistribution?.title}</dd></div><div><dt className="text-muted-copy">Recipient area</dt><dd className="mt-1 font-bold text-ink">{form.serviceArea || 'All scheduled service areas'}</dd></div><div><dt className="text-muted-copy">Queue timing</dt><dd className="mt-1 font-bold text-ink">{form.deliveryMode === 'scheduled' ? formatPreviewTime(`${form.sendAt}:00+08:00`) : 'Immediately after confirmation (server time)'}</dd></div></dl>
 
                 <dl className="grid grid-cols-2 gap-3">
                   <div className="rounded-xl border border-emerald-200 bg-success-soft p-4"><dt className="text-xs font-bold text-brand-green">Recipients</dt><dd className="mt-1 text-2xl font-bold tabular-nums text-ink">{preview.recipientCount}</dd></div>
                   <div className="rounded-xl border border-amber-200 bg-warning-soft p-4"><dt className="text-xs font-bold text-brand-amber">Excluded</dt><dd className="mt-1 text-2xl font-bold tabular-nums text-ink">{preview.excludedCount}</dd></div>
                 </dl>
+                {preview.checkedAt && <p className="text-xs text-muted-copy">Checked {formatPreviewTime(preview.checkedAt)}</p>}
 
                 {preview.excludedCount > 0 && <div className="rounded-xl border border-line bg-white p-4 text-sm text-copy"><p className="font-bold text-ink">Excluded safely</p><p className="mt-2">Invalid or missing contact: {preview.excluded.invalidContactCount}</p><p className="mt-1">Already claimed: {preview.excluded.completedClaimCount}</p></div>}
 
@@ -564,10 +712,26 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
 
                 <div className="rounded-xl border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-copy"><p className="flex items-start gap-2 font-bold text-brand-amber"><Icon name="info" className="mt-0.5 size-4 shrink-0" />SMS is a notice, not claim authorization.</p><p className="mt-1">The official schedule, QR credential, and identity verification still control claiming.</p></div>
 
-                <label className="flex min-h-12 cursor-pointer items-start gap-3 rounded-xl border border-line bg-white p-4 text-sm leading-6 text-copy"><input type="checkbox" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} className="mt-1 size-5 shrink-0 accent-brand-blue" /><span>I reviewed the recipients, message, delivery time, and official-event details.</span></label>
+                <p className="rounded-xl border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy">This approval covers the displayed recipients, message, and queue timing. It expires {formatPreviewTime(preview.approvalExpiresAt)}. SMS delivery is currently simulated.</p>
+                <label className="flex min-h-12 cursor-pointer items-start gap-3 rounded-xl border border-line bg-white p-4 text-sm leading-6 text-copy"><input type="checkbox" checked={reviewed} disabled={Boolean(busy) || uncertain} onChange={(event) => setReviewed(event.target.checked)} className="mt-1 size-5 shrink-0 accent-brand-blue" /><span>I reviewed the recipients, message, delivery time, and official-event details.</span></label>
 
                 {error && <div role="alert" className="rounded-xl border border-red-200 bg-danger-soft p-4 text-sm font-semibold text-brand-red">{error}</div>}
-                <button type="button" onClick={confirmReminder} disabled={!reviewed || preview.recipientCount === 0 || Boolean(busy)} className="ga-btn-primary w-full">{busy === 'confirm' ? <LoadingLabel>Queueing reminders...</LoadingLabel> : `Confirm and queue ${preview.recipientCount} reminder${preview.recipientCount === 1 ? '' : 's'}`}</button>
+                <button type="button" onClick={confirmReminder} disabled={!reviewed || preview.recipientCount === 0 || Boolean(busy)} className="ga-btn-primary w-full">{busy === 'confirm' ? <LoadingLabel>Confirming reminders...</LoadingLabel> : uncertain ? 'Retry same confirmation' : `Confirm and queue ${preview.recipientCount} reminder${preview.recipientCount === 1 ? '' : 's'}`}</button>
+              </div>
+            )}
+
+            {view === 'recovery' && (
+              <div className="space-y-4 py-4">
+                <span aria-hidden="true" className="grid size-12 place-items-center rounded-xl border border-blue-200 bg-info-soft text-brand-blue"><Icon name="info" className="size-6" /></span>
+                <div><p className="text-xs font-bold uppercase tracking-[0.1em] text-brand-blue">Confirmation pending</p><h3 className="mt-2 text-xl font-bold text-ink">Recover your confirmation</h3></div>
+                <p className="text-sm leading-6 text-copy">A previous confirmation did not finish on this screen. Recover its result before starting another task. This uses the original approval to prevent duplicate records.</p>
+                {recovery && <dl className="space-y-3 rounded-xl border border-line bg-white p-4 text-sm"><div><dt className="text-muted-copy">Approved action</dt><dd className="mt-1 break-words font-bold text-ink">{recovery.kind === 'distribution' ? recovery.request.title : 'Queue distribution reminders'}</dd></div><div><dt className="text-muted-copy">Confirmation reference</dt><dd className="mt-1 break-all font-mono text-xs text-copy">{recovery.approvalId}</dd></div></dl>}
+                {error && <p role="alert" className="rounded-xl border border-red-200 bg-danger-soft p-4 text-sm text-brand-red">{error}</p>}
+                {recovery ? (
+                  <button type="button" onClick={recoverConfirmation} disabled={Boolean(busy)} className="ga-btn-primary w-full">{busy ? <LoadingLabel>Recovering result...</LoadingLabel> : 'Recover previous confirmation'}</button>
+                ) : (
+                  <><p className="text-sm text-muted-copy">Review distribution or delivery records before preparing another request if the previous approval is unavailable.</p><button type="button" onClick={resetWorkflow} className="ga-btn-secondary w-full">Back to assistant</button></>
+                )}
               </div>
             )}
 
@@ -576,6 +740,7 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
                 <span aria-hidden="true" className="mx-auto grid size-16 place-items-center rounded-full bg-success-soft text-brand-green"><Icon name="check" className="size-8" strokeWidth={2.4} /></span>
                 <p className="mt-5 text-xs font-bold uppercase tracking-[0.1em] text-brand-green">{result.kind === 'distribution' ? 'Draft created' : 'Reminder approved'}</p>
                 <h3 className="mt-2 text-2xl font-bold text-ink">{result.kind === 'distribution' ? result.distribution.title : `${result.queuedCount} reminder${result.queuedCount === 1 ? '' : 's'} queued`}</h3>
+                <p className="mt-2 break-all text-xs text-muted-copy">Reference: {result.kind === 'distribution' ? result.distribution.distributionId : result.approvalId}</p>
                 <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-muted-copy">{result.kind === 'distribution' ? 'The event remains a draft. Review it in Distribution setup before allocating beneficiaries, generating schedules, sending notices, or opening field operations.' : 'The existing notification worker will process the approved records. Current environment: simulated SMS only, so no real phone received a text.'}</p>
                 <div className="mt-5 text-left"><AssistantFeedback busy={feedbackBusy} status={feedbackStatus} onRate={submitFeedback} /></div>
                 <div className="mt-6 grid gap-3">
