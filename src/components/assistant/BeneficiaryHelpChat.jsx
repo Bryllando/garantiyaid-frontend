@@ -7,22 +7,22 @@ import { Spinner } from '../ui/spinner.jsx'
 const COPY = {
   en: {
     label: 'English',
-    welcome: 'Hello. I can give general guidance about documents, programs, distribution, enrollment, and the claim process.',
-    prompts: ['What documents may be required?', 'How does the claim process work?', 'I need staff assistance'],
+    welcome: 'I explain how GarantiyAid works and give general guidance about programs, documents, enrollment, distribution, and claims. I cannot access personal records.',
+    prompts: ['What is GarantiyAid and how do I apply?', 'What documents may be required?', 'How does the claim process work?', 'I need staff assistance'],
     placeholder: 'Ask a general assistance question...',
     unavailable: 'GarantiyAid Help cannot connect to the service. Check your connection, then try again.',
   },
   fil: {
     label: 'Filipino',
-    welcome: 'Kumusta. Makapagbibigay ako ng pangkalahatang gabay tungkol sa dokumento, programa, distribusyon, enrollment, at pag-claim.',
-    prompts: ['Anong dokumento ang maaaring kailanganin?', 'Paano ang proseso ng pag-claim?', 'Kailangan ko ng tulong ng staff'],
+    welcome: 'Ipinapaliwanag ko kung paano gumagana ang GarantiyAid at nagbibigay ako ng pangkalahatang gabay tungkol sa programa, dokumento, enrollment, distribusyon, at claim. Hindi ako makakabukas ng personal na rekord.',
+    prompts: ['Ano ang GarantiyAid at paano ako mag-a-apply?', 'Anong dokumento ang maaaring kailanganin?', 'Paano ang proseso ng pag-claim?', 'Kailangan ko ng tulong ng staff'],
     placeholder: 'Magtanong tungkol sa pangkalahatang serbisyo...',
     unavailable: 'Hindi makakonekta ang GarantiyAid Help sa serbisyo. Suriin ang koneksyon at subukan muli.',
   },
   ceb: {
     label: 'Cebuano',
-    welcome: 'Kumusta. Makahatag ko og kinatibuk-ang giya bahin sa dokumento, programa, distribution, enrollment, ug claim process.',
-    prompts: ['Unsang dokumento ang posibleng kinahanglan?', 'Unsaon ang claim process?', 'Kinahanglan ko og tabang sa staff'],
+    welcome: 'Akong ipasabot unsaon pagtrabaho sa GarantiyAid ug mohatag ko og kinatibuk-ang giya bahin sa programa, dokumento, enrollment, distribution, ug claim. Dili ko makaabli og personal nga rekord.',
+    prompts: ['Unsa ang GarantiyAid ug unsaon pag-apply?', 'Unsang dokumento ang posibleng kinahanglan?', 'Unsaon ang claim process?', 'Kinahanglan ko og tabang sa staff'],
     placeholder: 'Pangutana bahin sa kinatibuk-ang serbisyo...',
     unavailable: 'Dili makakonekta ang GarantiyAid Help sa serbisyo. Susiha ang koneksyon ug sulayi pag-usab.',
   },
