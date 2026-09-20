@@ -24,7 +24,7 @@ export function distributionFormFromTask(values, programs, barangays) {
     barangayId: uniqueMatch(barangays, values.barangayId || values.barangay, ['barangayId', 'barangayName'])?.barangayId || '',
     title: values.title, distributionDate: values.date, startTime: values.startTime,
     endTime: values.endTime, slotDurationMinutes: values.slotDurationMinutes,
-    location: values.location, verificationRequirement: values.verificationRequirement,
+    location: values.location, deliveryMode: values.deliveryMode || 'PHYSICAL_GOODS', verificationRequirement: values.verificationRequirement,
   }
 }
 

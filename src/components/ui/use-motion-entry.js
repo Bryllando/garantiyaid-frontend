@@ -5,6 +5,8 @@ export function useMotionEntry(stateKey) {
   const target = useRef(null)
 
   useEffect(() => {
+    if (!target.current) return undefined
+
     const scope = createScope({
       root: target,
       mediaQueries: { reducedMotion: '(prefers-reduced-motion: reduce)' },

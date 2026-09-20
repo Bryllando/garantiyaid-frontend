@@ -18,7 +18,7 @@ test('initial scheduling request retains explicit dates and times while asking f
 
 test('successive answers retain prior values, accept labelled corrections, and complete only when all fields exist', () => {
   let task = collect(empty(), 'Create a schedule tomorrow from 9 AM to noon', { initial: true }).task
-  for (const [key, value] of [['program', 'Example Program'], ['barangay', 'Example Barangay'], ['location', 'Community Hall'], ['slotDurationMinutes', '30 minutes'], ['verificationRequirement', 'QR'], ['title', 'Community distribution']]) {
+  for (const [key, value] of [['program', 'Example Program'], ['barangay', 'Example Barangay'], ['location', 'Community Hall'], ['slotDurationMinutes', '30 minutes'], ['deliveryMode', 'physical goods'], ['verificationRequirement', 'QR'], ['title', 'Community distribution']]) {
     assert.equal(nextTaskField(task).key, key)
     const result = collect(task, value, { key })
     assert.equal(result.error, '', key)
@@ -60,6 +60,7 @@ test('time window and slot validation prevents a misleading complete state', () 
   assert.ok(set(empty(), 'slotDurationMinutes', '4').error)
   assert.ok(set(empty(), 'slotDurationMinutes', '30.5').error)
   for (const value of ['QR_AND_BIOMETRIC', 'QR and biometric', 'QR + biometric']) assert.equal(set(empty(), 'verificationRequirement', value).task.values.verificationRequirement, 'QR_AND_BIOMETRIC')
+  assert.equal(set(empty(), 'deliveryMode', 'physical goods').task.values.deliveryMode, 'PHYSICAL_GOODS')
 })
 
 test('reminders collect scope and message, and only scheduled mode requires date/time', () => {

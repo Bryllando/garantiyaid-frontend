@@ -21,6 +21,8 @@ export default function ClaimReceiptDialog({ receipt, onClose, onDispute, onPrin
   const [error, setError] = useState('')
   const snapshot = receipt.snapshot
   const evidence = snapshot.verificationEvidence
+  const release = snapshot.assistance
+  const physicalRelease = release.deliveryMode === 'PHYSICAL_GOODS'
   const qrValue = `${window.location.origin}/claim-accountability?distribution=${snapshot.distribution.distributionId}&claim=${snapshot.claim.claimId}&receipt=${encodeURIComponent(receipt.receiptNo)}&hash=${receipt.evidenceHash}`
 
   useEffect(() => { dialogRef.current?.showModal() }, [])
@@ -68,8 +70,13 @@ export default function ClaimReceiptDialog({ receipt, onClose, onDispute, onPrin
               <ReceiptField label="Venue" value={snapshot.distribution.location} />
               <ReceiptField label="Queue / session" value={`#${snapshot.service.queueNumber} · ${snapshot.service.sessionLabel}`} />
               <ReceiptField label="Recorded claim status" value={humanize(snapshot.claim.claimStatus)} />
+              <ReceiptField label="Release method" value={humanize(release.deliveryMode || 'SIMULATED_WALLET')} />
+              <ReceiptField label="Released by" value={release.releasedBy ? `${release.releasedBy.fullName} (${release.releasedBy.employeeId})` : evidence.transaction?.processedBy ? `${evidence.transaction.processedBy.fullName} (${evidence.transaction.processedBy.employeeId})` : null} />
+              <ReceiptField label="Release time" value={release.releasedAt ? dateTime.format(new Date(release.releasedAt)) : snapshot.claim.claimedAt ? dateTime.format(new Date(snapshot.claim.claimedAt)) : null} />
             </dl>
           </section>
+
+          {physicalRelease && <section className="mt-6 rounded-xl border border-emerald-200 bg-success-soft p-5" aria-labelledby="receipt-release-heading"><div className="flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-lg bg-white text-brand-green shadow-sm"><Icon name="check" /></span><div><p className="text-xs font-bold uppercase tracking-[0.1em] text-brand-green">Physical handover recorded</p><h3 id="receipt-release-heading" className="mt-1 text-lg font-extrabold text-ink">Release evidence</h3></div></div><dl className="mt-5 grid gap-4 border-t border-emerald-200 pt-4 text-sm sm:grid-cols-2"><ReceiptField label="Evidence type" value={humanize(release.evidence?.type)} /><ReceiptField label="Evidence reference" value={release.evidence?.reference} mono />{release.evidence?.notes && <div className="sm:col-span-2"><ReceiptField label="Release notes" value={release.evidence.notes} /></div>}</dl></section>}
 
           <section className="mt-7 rounded-xl border border-line bg-slate-50 p-5" aria-labelledby="receipt-evidence-heading">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
@@ -80,7 +87,7 @@ export default function ClaimReceiptDialog({ receipt, onClose, onDispute, onPrin
                   <li className="flex gap-3"><span aria-hidden="true" className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-success-soft text-brand-green"><Icon name="check" className="size-3" strokeWidth={2.5} /></span><span><strong className="text-ink">Identity method:</strong> {humanize(snapshot.claim.verificationMethod)}</span></li>
                   <li className="flex gap-3"><span aria-hidden="true" className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-success-soft text-brand-green"><Icon name="check" className="size-3" strokeWidth={2.5} /></span><span><strong className="text-ink">Facial match:</strong> {evidence.biometric ? `${Number(evidence.biometric.matchScore) * 100}% match · ${Number(evidence.biometric.livenessScore) * 100}% liveness` : 'Not required or not recorded'}</span></li>
                   <li className="flex gap-3"><span aria-hidden="true" className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-success-soft text-brand-green"><Icon name="check" className="size-3" strokeWidth={2.5} /></span><span><strong className="text-ink">Digital signature:</strong> {evidence.signature ? `${evidence.signature.method} · ${evidence.signature.pointCount ?? 0} captured points` : 'Not required or not recorded'}</span></li>
-                  <li className="flex gap-3"><span aria-hidden="true" className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-success-soft text-brand-green"><Icon name="check" className="size-3" strokeWidth={2.5} /></span><span><strong className="text-ink">Ledger record:</strong> {evidence.transaction?.referenceNo ?? 'No benefit-credit reference at issuance'}</span></li>
+                  <li className="flex gap-3"><span aria-hidden="true" className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-success-soft text-brand-green"><Icon name="check" className="size-3" strokeWidth={2.5} /></span><span><strong className="text-ink">{physicalRelease ? 'Release record' : 'Ledger record'}:</strong> {physicalRelease ? release.evidence?.reference ?? 'Evidence reference unavailable' : evidence.transaction?.referenceNo ?? 'No benefit-credit reference at issuance'}</span></li>
                 </ul>
               </div>
               <div className="mx-auto shrink-0 rounded-xl border border-line bg-white p-3 text-center sm:mx-0"><QRCodeSVG value={qrValue} size={132} level="M" marginSize={1} /><p className="mt-2 text-[0.68rem] font-bold uppercase tracking-[0.08em] text-muted-copy">Verify record</p></div>
@@ -89,12 +96,12 @@ export default function ClaimReceiptDialog({ receipt, onClose, onDispute, onPrin
               <ReceiptField label="Evidence hash" value={receipt.evidenceHash} mono />
               <ReceiptField label="Signature hash" value={evidence.signature?.imageSha256} mono />
               <ReceiptField label="Verified by" value={evidence.verifiedBy ? `${evidence.verifiedBy.fullName} (${evidence.verifiedBy.employeeId})` : null} />
-              <ReceiptField label="Processed by" value={evidence.transaction?.processedBy ? `${evidence.transaction.processedBy.fullName} (${evidence.transaction.processedBy.employeeId})` : null} />
+              <ReceiptField label="Processed by" value={release.releasedBy ? `${release.releasedBy.fullName} (${release.releasedBy.employeeId})` : evidence.transaction?.processedBy ? `${evidence.transaction.processedBy.fullName} (${evidence.transaction.processedBy.employeeId})` : null} />
             </dl>
           </section>
 
           <p className="mt-5 rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">Important:</strong> Keep this receipt. If any detail is incorrect or the beneficiary denies the claim, file a dispute using this receipt number. The original record remains preserved while an independent reviewer investigates.</p>
-          <p className="mt-4 text-xs leading-5 text-muted-copy">Prototype accountability record. It does not connect to a government disbursement or banking rail.</p>
+          <p className="mt-4 text-xs leading-5 text-muted-copy">{physicalRelease ? 'Physical assistance release record. No wallet credit was required or created.' : 'Prototype accountability record. It does not connect to a government disbursement or banking rail.'}</p>
 
           {error && <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-danger-soft p-3 text-sm font-semibold text-brand-red">{error}</p>}
           <footer data-claim-receipt-actions className="mt-6 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end">

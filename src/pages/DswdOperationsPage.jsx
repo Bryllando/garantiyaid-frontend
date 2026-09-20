@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
+import IndividualWalletWorkspace from '../components/wallets/IndividualWalletWorkspace.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import { LoadingLabel, Spinner } from '../components/ui/spinner.jsx'
@@ -115,6 +116,7 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
   const [transactionType, setTransactionType] = useState('')
   const [transactionStatus, setTransactionStatus] = useState('')
   const [transactionPage, setTransactionPage] = useState(1)
+  const [ledgerMode, setLedgerMode] = useState('events')
   const isDswd = session.user.role === 'DSWD_STAFF'
   const isAdmin = session.user.role === 'SYSTEM_ADMIN'
   const canAccess = isDswd || (view === 'ledger' && isAdmin)
@@ -201,7 +203,7 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
     Promise.all([
       requestDistributionDashboard(session.accessToken, selectedId),
       requestDistributionTransactions(session.accessToken, selectedId, { page: transactionPage, pageSize: 20, type: transactionType, status: transactionStatus }),
-      selectedDistribution?.status === 'OPEN'
+      selectedDistribution?.status === 'OPEN' && selectedDistribution?.deliveryMode === 'SIMULATED_WALLET'
         ? requestCreditableClaims(session.accessToken, selectedId, { page: 1, pageSize: 100 })
         : Promise.resolve({ claims: [], summary: { creditableClaimCount: 0 }, pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 } }),
       requestDistributionReconciliation(session.accessToken, selectedId),
@@ -221,7 +223,7 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
       })
       .finally(() => { if (active) setIsLoadingLedger(false) })
     return () => { active = false }
-  }, [canAccess, onSessionExpired, refreshKey, selectedDistribution?.status, selectedId, session.accessToken, transactionPage, transactionStatus, transactionType, view])
+  }, [canAccess, onSessionExpired, refreshKey, selectedDistribution?.deliveryMode, selectedDistribution?.status, selectedId, session.accessToken, transactionPage, transactionStatus, transactionType, view])
 
   function applyFilters(event) {
     event.preventDefault()
@@ -309,18 +311,22 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
             <span role="status" aria-atomic="true" className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${connectionStyles}`}>{connection === 'connecting' && <Spinner aria-hidden="true" className="size-3" />}{connection === 'connected' ? 'Live connected' : connection === 'connecting' ? 'Connecting' : 'Live disconnected'}</span>
           </div>
           <h1 className="ga-page-title mt-2">{pageTitle}</h1>
-          <p className="ga-page-copy">{view === 'live' ? 'Monitor distributions, queues, claims, verification activity, and operational anomalies as updates occur.' : 'Review simulated fund utilization and trace transaction entries by distribution event.'}</p>
+          <p className="ga-page-copy">{view === 'live' ? 'Monitor distributions, queues, claims, verification activity, and operational anomalies as updates occur.' : ledgerMode === 'wallets' ? 'Locate an individual beneficiary wallet, review its history, and record an internal simulated transfer.' : 'Review simulated fund utilization and trace transaction entries by distribution event.'}</p>
           <p className="mt-2 text-xs font-semibold text-muted-copy" aria-live="polite" aria-atomic="true">{liveMessage}</p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
-          <button type="button" onClick={refresh} disabled={isRefreshing} className="ga-btn-secondary">{isRefreshing ? <LoadingLabel>Refreshing...</LoadingLabel> : 'Refresh data'}</button>
+          {(view === 'live' || ledgerMode === 'events') && <button type="button" onClick={refresh} disabled={isRefreshing} className="ga-btn-secondary">{isRefreshing ? <LoadingLabel>Refreshing...</LoadingLabel> : 'Refresh data'}</button>}
           <button type="button" onClick={() => onNavigate(view === 'live' ? '/dswd/ledger' : '/dswd/live-dashboard')} className="ga-btn-primary">{view === 'live' ? 'Open simulated ledger' : 'Open live dashboard'}</button>
         </div>
       </header>
 
-      <Filters draft={draftFilters} setDraft={setDraftFilters} error={filterError} onApply={applyFilters} />
+      {view === 'ledger' && <div role="group" aria-label="Simulated ledger workspace" className="mt-6 inline-flex w-full rounded-xl border border-line bg-white p-1 shadow-sm sm:w-auto"><button type="button" aria-pressed={ledgerMode === 'events'} onClick={() => setLedgerMode('events')} className={`min-h-11 flex-1 rounded-lg px-5 text-sm font-bold sm:flex-none ${ledgerMode === 'events' ? 'bg-brand-navy text-white' : 'text-copy hover:bg-slate-50'}`}>Distribution settlement</button><button type="button" aria-pressed={ledgerMode === 'wallets'} onClick={() => setLedgerMode('wallets')} className={`min-h-11 flex-1 rounded-lg px-5 text-sm font-bold sm:flex-none ${ledgerMode === 'wallets' ? 'bg-brand-navy text-white' : 'text-copy hover:bg-slate-50'}`}>Individual wallets</button></div>}
 
-      {isLoading ? <LoadingDashboard ledger={view === 'ledger'} /> : mainError ? (
+      {(view === 'live' || ledgerMode === 'events') && <Filters draft={draftFilters} setDraft={setDraftFilters} error={filterError} onApply={applyFilters} />}
+
+      {view === 'ledger' && ledgerMode === 'wallets' ? (
+        <IndividualWalletWorkspace session={session} loadingReceiptId={loadingReceiptId} onReceipt={openReceipt} onSessionExpired={onSessionExpired} />
+      ) : isLoading ? <LoadingDashboard ledger={view === 'ledger'} /> : mainError ? (
         <section className="mt-7 rounded-xl border border-amber-200 bg-white p-6" role="alert"><h2 className="text-xl font-extrabold text-ink">Unable to load DSWD operations data</h2><p className="mt-2 text-sm leading-6 text-muted-copy">{mainError}</p><button type="button" onClick={refresh} className="ga-btn-primary mt-4">Try again</button></section>
       ) : view === 'live' ? (
         <LiveDashboard overview={overview} />
@@ -402,14 +408,14 @@ function LedgerDashboard({ overview, distributions, selectedId, selectedDistribu
     <div className="mt-7">
       <section className="rounded-xl border border-blue-200 bg-brand-navy p-5 text-white shadow-sm sm:p-6"><div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.14em] text-blue-200">Simulation disclosure</p><h2 className="mt-2 text-xl font-extrabold">Accountable prototype ledger</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">These balances and transactions demonstrate system controls only. No real funds are stored, transferred, or released.</p></div><p className="rounded-full bg-white/10 px-3 py-2 text-xs font-bold text-emerald-300">Real funds moved: No</p></div></section>
 
-      <section className="ga-card mt-6 grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.65fr)] lg:items-end sm:p-6"><div><label htmlFor="ledger-distribution" className="ga-label">Distribution event</label><select id="ledger-distribution" value={selectedId} onChange={(event) => selectDistribution(event.target.value)} className="ga-input mt-2 cursor-pointer font-semibold">{distributions.map((distribution) => <option key={distribution.distributionId} value={distribution.distributionId}>{distribution.title} · {distribution.distributionDate}</option>)}</select></div><dl className="grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-4 text-sm"><div><dt className="text-xs text-muted-copy">Program</dt><dd className="mt-1 font-bold text-ink">{selectedDistribution?.program.programCode}</dd></div><div><dt className="text-xs text-muted-copy">Barangay</dt><dd className="mt-1 font-bold text-ink">{selectedDistribution?.barangay.barangayName}</dd></div></dl></section>
+      <section className="ga-card mt-6 grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.65fr)] lg:items-end sm:p-6"><div><label htmlFor="ledger-distribution" className="ga-label">Distribution event</label><select id="ledger-distribution" value={selectedId} onChange={(event) => selectDistribution(event.target.value)} className="ga-input mt-2 cursor-pointer font-semibold">{distributions.map((distribution) => <option key={distribution.distributionId} value={distribution.distributionId}>{distribution.title} · {distribution.distributionDate}</option>)}</select></div><dl className="grid grid-cols-3 gap-3 rounded-lg bg-slate-50 p-4 text-sm"><div><dt className="text-xs text-muted-copy">Program</dt><dd className="mt-1 font-bold text-ink">{selectedDistribution?.program.programCode}</dd></div><div><dt className="text-xs text-muted-copy">Barangay</dt><dd className="mt-1 font-bold text-ink">{selectedDistribution?.barangay.barangayName}</dd></div><div><dt className="text-xs text-muted-copy">Delivery</dt><dd className="mt-1 font-bold text-ink">{selectedDistribution?.deliveryMode ? humanize(selectedDistribution.deliveryMode) : '—'}</dd></div></dl></section>
 
       {isLoading ? <LoadingDashboard ledger /> : error ? <section className="mt-6 rounded-xl border border-amber-200 bg-white p-6" role="alert"><h2 className="font-extrabold text-ink">Unable to load the selected ledger</h2><p className="mt-2 text-sm text-muted-copy">{error}</p><button type="button" onClick={retry} className="ga-btn-primary mt-4">Try again</button></section> : (
         <>
           <section className="mt-6" aria-labelledby="ledger-summary-heading"><div className="flex items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-brand-green">Selected event</p><h2 id="ledger-summary-heading" className="mt-1 text-xl font-extrabold text-ink">Fund utilization</h2></div><p className="hidden text-xs text-muted-copy sm:block">Global net credited: {formatMoney(overview.fundUtilization?.netCreditedAmount)}</p></div><div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><MoneyCard label="Allocated" value={summary.fundUtilization.allocatedAmount} /><MoneyCard label="Net credited" value={summary.fundUtilization.netCreditedAmount} tone="success" /><MoneyCard label="Remaining" value={summary.fundUtilization.remainingAmount} tone="pending" /><MoneyCard label="Reversed" value={summary.fundUtilization.reversedAmount} tone="pending" /><MoneyCard label="Failed" value={summary.fundUtilization.failedAmount} /></div></section>
 
           <div className="mt-6 grid items-start gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(22rem,0.75fr)]">
-            <CreditQueue claims={creditableClaims?.claims ?? []} count={creditableClaims?.summary.creditableClaimCount ?? 0} distributionStatus={selectedDistribution?.status} disabled={isMutating} onCredit={onCredit} />
+            <CreditQueue claims={creditableClaims?.claims ?? []} count={creditableClaims?.summary.creditableClaimCount ?? 0} deliveryMode={selectedDistribution?.deliveryMode} distributionStatus={selectedDistribution?.status} disabled={isMutating} onCredit={onCredit} />
             <ReconciliationPanel reconciliation={reconciliation} />
           </div>
 
@@ -423,20 +429,22 @@ function LedgerDashboard({ overview, distributions, selectedId, selectedDistribu
   )
 }
 
-function CreditQueue({ claims, count, distributionStatus, disabled, onCredit }) {
+function CreditQueue({ claims, count, deliveryMode, distributionStatus, disabled, onCredit }) {
   return (
     <section className="ga-card overflow-hidden" aria-labelledby="credit-queue-heading">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line p-5 sm:p-6">
         <div><p className="ga-eyebrow">Verified claims</p><h2 id="credit-queue-heading" className="mt-1 text-xl font-extrabold text-ink">Ready for simulated credit</h2><p className="mt-2 text-sm leading-6 text-muted-copy">Each credit updates the claim, allocation, wallet, ledger, and audit trail atomically.</p></div>
         <span className="rounded-full border border-blue-200 bg-info-soft px-3 py-1.5 text-xs font-bold text-brand-blue">{count} ready</span>
       </div>
-      {distributionStatus !== 'OPEN' ? <div className="p-6"><p className="rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">Crediting unavailable:</strong> verified claims can only be credited while the distribution is Open.</p></div> : claims.length === 0 ? <div className="p-8 text-center"><span aria-hidden="true" className="mx-auto grid size-11 place-items-center rounded-full bg-success-soft font-black text-brand-green">✓</span><h3 className="mt-4 font-extrabold text-ink">No claims awaiting credit</h3><p className="mt-2 text-sm text-muted-copy">Newly verified claims will appear here automatically.</p></div> : <ul className="divide-y divide-line">{claims.map((claim) => <li key={claim.claimId} className="p-5 transition-colors hover:bg-slate-50"><div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="font-extrabold text-ink">{beneficiaryName(claim.beneficiary)}</p><span className="rounded-full border border-emerald-200 bg-success-soft px-2.5 py-1 text-xs font-bold text-brand-green">Verified</span></div><p className="mt-1 text-sm text-muted-copy">Queue {claim.schedule?.queueNumber ?? '—'} · {humanize(claim.verificationMethod)}</p><p className="mt-2 text-lg font-black tabular-nums text-ink">{formatMoney(claim.allocation?.amount)}</p></div><button type="button" onClick={() => onCredit(claim)} disabled={disabled} className="ga-btn-primary shrink-0">Review and credit</button></div></li>)}</ul>}
+      {deliveryMode === 'PHYSICAL_GOODS' ? <div className="p-6"><div className="rounded-xl border border-blue-200 bg-info-soft p-5"><p className="font-extrabold text-ink">Physical release workflow</p><p className="mt-2 text-sm leading-6 text-copy">Verified claims are handed over and marked released by the assigned Barangay Facilitator. They do not enter the simulated wallet credit queue.</p></div></div> : distributionStatus !== 'OPEN' ? <div className="p-6"><p className="rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">Crediting unavailable:</strong> verified claims can only be credited while the distribution is Open.</p></div> : claims.length === 0 ? <div className="p-8 text-center"><span aria-hidden="true" className="mx-auto grid size-11 place-items-center rounded-full bg-success-soft font-black text-brand-green">✓</span><h3 className="mt-4 font-extrabold text-ink">No claims awaiting credit</h3><p className="mt-2 text-sm text-muted-copy">Newly verified claims will appear here automatically.</p></div> : <ul className="divide-y divide-line">{claims.map((claim) => <li key={claim.claimId} className="p-5 transition-colors hover:bg-slate-50"><div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="font-extrabold text-ink">{beneficiaryName(claim.beneficiary)}</p><span className="rounded-full border border-emerald-200 bg-success-soft px-2.5 py-1 text-xs font-bold text-brand-green">Verified</span></div><p className="mt-1 text-sm text-muted-copy">Queue {claim.schedule?.queueNumber ?? '—'} · {humanize(claim.verificationMethod)}</p><p className="mt-2 text-lg font-black tabular-nums text-ink">{formatMoney(claim.allocation?.amount)}</p></div><button type="button" onClick={() => onCredit(claim)} disabled={disabled} className="ga-btn-primary shrink-0">Review and credit</button></div></li>)}</ul>}
     </section>
   )
 }
 
 const reconciliationLabels = {
   VERIFIED_CLAIM_AWAITING_CREDIT: 'Verified claim awaiting credit',
+  VERIFIED_PHYSICAL_CLAIM_AWAITING_RELEASE: 'Verified physical claim awaiting release',
+  CLAIMED_WITHOUT_PHYSICAL_RELEASE_EVIDENCE: 'Claimed physical record missing release evidence',
   CLAIMED_WITHOUT_COMPLETED_CREDIT: 'Claimed record without completed credit',
   VOIDED_WITHOUT_COMPLETE_REVERSAL: 'Voided claim without complete reversal',
   WALLET_LEDGER_BALANCE_MISMATCH: 'Wallet and ledger balance mismatch',
@@ -451,9 +459,9 @@ function ReconciliationPanel({ reconciliation }) {
       : { label: 'Mismatch detected', style: 'border-red-200 bg-danger-soft text-brand-red', icon: '!' }
   return (
     <section className="ga-card overflow-hidden" aria-labelledby="reconciliation-heading">
-      <div className="border-b border-line p-5 sm:p-6"><div className="flex items-start justify-between gap-4"><div><p className="ga-eyebrow">Control check</p><h2 id="reconciliation-heading" className="mt-1 text-xl font-extrabold text-ink">Distribution reconciliation</h2></div><span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold ${state.style}`}><span aria-hidden="true">{state.icon}</span>{state.label}</span></div><p className="mt-2 text-sm leading-6 text-muted-copy">Compare verified claims with completed and reversed ledger entries.</p></div>
-      <dl className="grid grid-cols-2 gap-px bg-line"><div className="bg-white p-4"><dt className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">Expected claimed</dt><dd className="mt-2 text-lg font-black tabular-nums text-ink">{formatMoney(reconciliation.expectedClaimedAmount)}</dd></div><div className="bg-white p-4"><dt className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">Net credited</dt><dd className={`mt-2 text-lg font-black tabular-nums ${reconciliation.ledgerBalanced ? 'text-brand-green' : 'text-brand-red'}`}>{formatMoney(reconciliation.netCreditedAmount)}</dd></div><div className="bg-white p-4"><dt className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">Completed credits</dt><dd className="mt-2 text-lg font-black tabular-nums text-ink">{reconciliation.completedBenefitCreditCount}</dd></div><div className="bg-white p-4"><dt className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">Reversed credits</dt><dd className="mt-2 text-lg font-black tabular-nums text-ink">{reconciliation.reversedBenefitCreditCount}</dd></div></dl>
-      <div className="border-t border-line p-5"><h3 className="text-sm font-extrabold text-ink">Exceptions ({reconciliation.exceptions.length})</h3>{reconciliation.exceptions.length === 0 ? <p className="mt-3 text-sm leading-6 text-brand-green">All claims and ledger entries reconcile. This event is ready for closure review.</p> : <ul className="mt-3 space-y-2">{reconciliation.exceptions.map((exception, index) => <li key={`${exception.code}-${exception.claimId ?? exception.walletId ?? index}`} className={`rounded-lg border p-3 text-sm leading-5 ${exception.code === 'VERIFIED_CLAIM_AWAITING_CREDIT' ? 'border-amber-200 bg-warning-soft text-copy' : 'border-red-200 bg-danger-soft text-copy'}`}><strong className="text-ink">{reconciliationLabels[exception.code] ?? humanize(exception.code)}</strong>{exception.claimId && <span className="mt-1 block font-mono text-xs text-muted-copy">Claim {exception.claimId.slice(0, 8)}</span>}</li>)}</ul>}</div>
+      <div className="border-b border-line p-5 sm:p-6"><div className="flex items-start justify-between gap-4"><div><p className="ga-eyebrow">Control check</p><h2 id="reconciliation-heading" className="mt-1 text-xl font-extrabold text-ink">Distribution reconciliation</h2></div><span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold ${state.style}`}><span aria-hidden="true">{state.icon}</span>{state.label}</span></div><p className="mt-2 text-sm leading-6 text-muted-copy">{reconciliation.deliveryMode === 'PHYSICAL_GOODS' ? 'Confirm each verified claim has one complete physical release record. Wallet credit and reversal entries are not required.' : 'Compare verified claims with completed and reversed ledger entries.'}</p></div>
+      <dl className="grid grid-cols-2 gap-px bg-line">{reconciliation.deliveryMode === 'PHYSICAL_GOODS' ? <><div className="bg-white p-4"><dt className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">Released claims</dt><dd className="mt-2 text-lg font-black tabular-nums text-brand-green">{reconciliation.physicalReleasedCount}</dd></div><div className="bg-white p-4"><dt className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">Released value</dt><dd className="mt-2 text-lg font-black tabular-nums text-ink">{formatMoney(reconciliation.physicalReleasedAmount)}</dd></div></> : <><div className="bg-white p-4"><dt className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">Expected wallet credit</dt><dd className="mt-2 text-lg font-black tabular-nums text-ink">{formatMoney(reconciliation.expectedWalletCreditedAmount ?? reconciliation.expectedClaimedAmount)}</dd></div><div className="bg-white p-4"><dt className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">Net credited</dt><dd className={`mt-2 text-lg font-black tabular-nums ${reconciliation.ledgerBalanced ? 'text-brand-green' : 'text-brand-red'}`}>{formatMoney(reconciliation.netCreditedAmount)}</dd></div><div className="bg-white p-4"><dt className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">Completed credits</dt><dd className="mt-2 text-lg font-black tabular-nums text-ink">{reconciliation.completedBenefitCreditCount}</dd></div><div className="bg-white p-4"><dt className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">Reversed credits</dt><dd className="mt-2 text-lg font-black tabular-nums text-ink">{reconciliation.reversedBenefitCreditCount}</dd></div></>}</dl>
+      <div className="border-t border-line p-5"><h3 className="text-sm font-extrabold text-ink">Exceptions ({reconciliation.exceptions.length})</h3>{reconciliation.exceptions.length === 0 ? <p className="mt-3 text-sm leading-6 text-brand-green">All claims match the configured delivery workflow. This event is ready for closure review.</p> : <ul className="mt-3 space-y-2">{reconciliation.exceptions.map((exception, index) => <li key={`${exception.code}-${exception.claimId ?? exception.walletId ?? index}`} className={`rounded-lg border p-3 text-sm leading-5 ${['VERIFIED_CLAIM_AWAITING_CREDIT', 'VERIFIED_PHYSICAL_CLAIM_AWAITING_RELEASE'].includes(exception.code) ? 'border-amber-200 bg-warning-soft text-copy' : 'border-red-200 bg-danger-soft text-copy'}`}><strong className="text-ink">{reconciliationLabels[exception.code] ?? humanize(exception.code)}</strong>{exception.claimId && <span className="mt-1 block font-mono text-xs text-muted-copy">Claim {exception.claimId.slice(0, 8)}</span>}</li>)}</ul>}</div>
     </section>
   )
 }

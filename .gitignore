@@ -12,6 +12,9 @@ dist
 dist-ssr
 artifacts/assistant-phase6/
 artifacts/email-ui/
+.env
+.env.*
+!.env.example
 *.local
 
 # Editor directories and files

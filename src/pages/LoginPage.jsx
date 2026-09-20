@@ -81,7 +81,10 @@ function LoginPage({ onAuthenticated, onPasswordChangeRequired, onTotpRequired, 
               </div>
 
               <div>
-                <label htmlFor="password" className="ga-label">Password</label>
+                <div className="flex items-center justify-between gap-4">
+                  <label htmlFor="password" className="ga-label">Password</label>
+                  <a href="/forgot-password" className="rounded text-sm font-bold text-brand-blue hover:text-brand-blue-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">Forgot password?</a>
+                </div>
                 <div className="relative mt-2">
                   <input
                     id="password"

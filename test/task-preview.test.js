@@ -16,6 +16,7 @@ test('lookup resolves only one exact authorized record, never a partial or dupli
   assert.equal(mapped.distributionDate, '2026-10-09')
   assert.equal(mapped.slotDurationMinutes, '45')
   assert.equal(mapped.startTime, '09:00')
+  assert.equal(mapped.deliveryMode, 'PHYSICAL_GOODS')
 })
 
 test('lookup includes later pages and fails on incomplete or failed responses', async () => {

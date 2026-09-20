@@ -60,6 +60,22 @@ export async function requestStaffLogin(credentials) {
   return data
 }
 
+export async function requestPasswordReset(account) {
+  const data = await requestJson('/auth/password-reset/request', { body: { account } })
+  if (!data?.message) throw new Error('The server returned an unexpected password-reset response.')
+  return data
+}
+
+export async function completeStaffPasswordReset(token, newPassword) {
+  const data = await requestJson('/auth/password-reset/complete', {
+    body: { token, newPassword },
+  })
+  if (!data?.message || typeof data.revokedSessionCount !== 'number') {
+    throw new Error('The server returned an unexpected password-reset response.')
+  }
+  return data
+}
+
 export async function requestTotpSetup(token) {
   const data = await requestJson('/auth/totp/setup', { token })
 
@@ -308,6 +324,16 @@ export async function requestDistributionClaims(token, distributionId, filters =
   return data
 }
 
+export async function markPhysicalClaimReleased(token, distributionId, claimId, evidence, idempotencyKey = crypto.randomUUID()) {
+  const data = await requestJson(`/distributions/${distributionId}/claims/${claimId}/release`, {
+    token,
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: evidence,
+  })
+  if (!data?.claim || !data?.release || !data?.lifecycle) throw new Error('The server returned an unexpected physical-release response.')
+  return data
+}
+
 export async function issueClaimReceipt(token, distributionId, claimId) {
   const data = await requestJson(`/distributions/${distributionId}/claims/${claimId}/receipt`, { token, body: {} })
   if (!data?.receipt?.receiptNo || !data.receipt.evidenceHash) throw new Error('The server returned an unexpected claim-receipt response.')
@@ -351,6 +377,34 @@ export async function creditVerifiedClaim(token, distributionId, claimId, descri
 export async function requestDistributionReconciliation(token, distributionId) {
   const data = await requestJson(`/distributions/${distributionId}/reconciliation`, { token, method: 'GET' })
   if (!data?.reconciliation || !data?.simulation) throw new Error('The server returned an unexpected reconciliation response.')
+  return data
+}
+
+export async function requestWalletByBeneficiary(token, beneficiaryId) {
+  const data = await requestJson(`/wallets/beneficiaries/${encodeURIComponent(beneficiaryId.trim())}`, { token, method: 'GET' })
+  if (!data?.beneficiary || !Object.hasOwn(data, 'wallet') || !data?.simulation) throw new Error('The server returned an unexpected simulated-wallet response.')
+  return data
+}
+
+export async function createSimulatedWallet(token, beneficiaryId) {
+  const data = await requestJson('/wallets', { token, body: { beneficiaryId } })
+  if (!data?.wallet || typeof data.created !== 'boolean' || !data?.simulation) throw new Error('The server returned an unexpected simulated-wallet response.')
+  return data
+}
+
+export async function requestWalletTransactions(token, walletId, filters = {}) {
+  const data = await requestJson(`/wallets/${walletId}/transactions${queryString(filters)}`, { token, method: 'GET' })
+  if (!Array.isArray(data?.transactions) || !data?.pagination || !data?.simulation) throw new Error('The server returned an unexpected wallet-history response.')
+  return data
+}
+
+export async function createSimulatedTransfer(token, walletId, transfer, idempotencyKey = crypto.randomUUID()) {
+  const data = await requestJson(`/wallets/${walletId}/transfers`, {
+    token,
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: transfer,
+  })
+  if (!data?.sourceTransaction || !data?.recipientTransaction || !data?.sourceWallet || !data?.recipientWallet || !data?.simulation) throw new Error('The server returned an unexpected simulated-transfer response.')
   return data
 }
 
@@ -470,6 +524,18 @@ export async function saveBiometricEnrollment(token, beneficiaryId, file, consen
   })
   if (!data?.biometricProfile || !data?.processing) throw new Error('The server returned an unexpected biometric-enrollment response.')
   return data
+}
+
+export async function requestBiometricDuplicateCases(token, filters = {}) {
+  const data = await requestJson(`/biometric-duplicate-cases${queryString(filters)}`, { token, method: 'GET' })
+  if (!Array.isArray(data?.cases) || !data?.summary || !data?.pagination) throw new Error('The server returned an unexpected duplicate-review response.')
+  return data
+}
+
+export async function reviewBiometricDuplicateCase(token, duplicateCaseId, review) {
+  const data = await requestJson(`/biometric-duplicate-cases/${duplicateCaseId}/review`, { token, body: review })
+  if (!data?.duplicateCase) throw new Error('The server returned an unexpected duplicate-review response.')
+  return data.duplicateCase
 }
 
 export async function deleteBiometricEnrollment(token, beneficiaryId) {
@@ -614,7 +680,15 @@ export const closeProgram = (token, programId) => programAction(token, programId
 export const cancelProgram = (token, programId) => programAction(token, programId, 'cancel')
 
 export function programCriterionExpectedValue(fieldName, operator, input) {
-  if (operator === 'REQUIRED') return true
+  if (fieldName === 'MANUAL_REVIEW') {
+    if (operator !== 'REQUIRED') throw new Error('Manual review must use the Required condition.')
+    return true
+  }
+  if (fieldName === 'DOCUMENT_TYPE') {
+    if (operator !== 'REQUIRED' || !input.trim()) throw new Error('Select a required document type.')
+    return input.trim().toUpperCase()
+  }
+  if (operator === 'REQUIRED') throw new Error('The selected data field does not support the Required condition.')
   const values = ['IN', 'NOT_IN'].includes(operator)
     ? input.split(',').map((value) => value.trim()).filter(Boolean)
     : [input.trim()]
@@ -734,6 +808,27 @@ export async function generateDistributionSchedules(token, distributionId, idemp
   })
   if (!Array.isArray(data?.schedules) || !data?.summary) throw new Error('The server returned an unexpected schedule-generation response.')
   return data
+}
+
+export async function rescheduleDistributionSchedule(token, distributionId, scheduleId, slotId) {
+  const data = await requestJson(`/distributions/${distributionId}/schedules/${scheduleId}/reschedule`, {
+    token,
+    body: { slotId },
+  })
+  if (!data?.schedule) throw new Error('The server returned an unexpected schedule response.')
+  return data.schedule
+}
+
+export async function cancelDistributionSchedule(token, distributionId, scheduleId) {
+  const data = await requestJson(`/distributions/${distributionId}/schedules/${scheduleId}/cancel`, { token })
+  if (!data?.schedule) throw new Error('The server returned an unexpected schedule response.')
+  return data.schedule
+}
+
+export async function reactivateDistributionSchedule(token, distributionId, scheduleId) {
+  const data = await requestJson(`/distributions/${distributionId}/schedules/${scheduleId}/reactivate`, { token })
+  if (!data?.schedule) throw new Error('The server returned an unexpected schedule response.')
+  return data.schedule
 }
 
 export async function requestNotificationList(token, filters = {}) {
@@ -933,6 +1028,14 @@ export async function requestEnrollmentList(token, filters = {}) {
   return data
 }
 
+export async function requestEnrollment(token, enrollmentId) {
+  const data = await requestJson(`/enrollments/${enrollmentId}`, { token, method: 'GET' })
+  if (!data?.enrollment?.eligibilityEvaluation) {
+    throw new Error('The server returned an unexpected enrollment-detail response.')
+  }
+  return data.enrollment
+}
+
 async function enrollmentAction(token, enrollmentId, action, body) {
   const data = await requestJson(`/enrollments/${enrollmentId}/${action}`, { token, body })
   if (!data?.enrollment) throw new Error('The server returned an unexpected enrollment response.')
@@ -941,7 +1044,7 @@ async function enrollmentAction(token, enrollmentId, action, body) {
 
 export const startEnrollmentReview = (token, enrollmentId) => enrollmentAction(token, enrollmentId, 'start-review')
 export const requestEnrollmentCorrection = (token, enrollmentId, reason) => enrollmentAction(token, enrollmentId, 'request-correction', { reason })
-export const approveEnrollment = (token, enrollmentId, remarks = '') => enrollmentAction(token, enrollmentId, 'approve', { remarks })
+export const approveEnrollment = (token, enrollmentId, { remarks = '', manualDecisions = [] } = {}) => enrollmentAction(token, enrollmentId, 'approve', { remarks, manualDecisions })
 export const rejectEnrollment = (token, enrollmentId, reason) => enrollmentAction(token, enrollmentId, 'reject', { reason })
 export const resubmitEnrollment = (token, enrollmentId) => enrollmentAction(token, enrollmentId, 'resubmit')
 
@@ -1005,6 +1108,7 @@ const overviewItem = { label: 'Overview', icon: 'overview', href: '/dashboard' }
 const dashboardNavigation = Object.freeze({
   SYSTEM_ADMIN: [
     overviewItem,
+    { label: 'Assistance programs', icon: 'programs', href: '/programs' },
     { label: 'Distribution setup', icon: 'distributions', href: '/distributions/manage' },
     { label: 'Biometric identity', icon: 'biometrics', href: '/biometrics' },
     { label: 'Claim settlement', icon: 'ledger', href: '/dswd/ledger' },
@@ -1031,6 +1135,7 @@ const dashboardNavigation = Object.freeze({
   ],
   BARANGAY_FACILITATOR: [
     overviewItem,
+    { label: 'Assistance programs', icon: 'programs', href: '/programs' },
     { label: 'Beneficiaries', icon: 'beneficiaries', href: '/beneficiaries' },
     { label: 'Enrollments', icon: 'enrollments', href: '/enrollments' },
     { label: 'Queue & schedules', icon: 'queue', href: '/facilitator/queue' },

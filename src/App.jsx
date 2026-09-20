@@ -16,6 +16,7 @@ import { PageLoader } from './components/ui/spinner.jsx'
 
 const ProgramManagementPage = lazy(() => import('./pages/ProgramManagementPage.jsx'))
 const InitialPasswordPage = lazy(() => import('./pages/InitialPasswordPage.jsx'))
+const PasswordResetPage = lazy(() => import('./pages/PasswordResetPage.jsx'))
 const TotpSetupPage = lazy(() => import('./pages/TotpSetupPage.jsx'))
 const TotpVerificationPage = lazy(() => import('./pages/TotpVerificationPage.jsx'))
 const DistributionManagementPage = lazy(() => import('./pages/DistributionManagementPage.jsx'))
@@ -106,6 +107,8 @@ function App() {
 
   if (path === '/privacy') {
     page = <PrivacyPage />
+  } else if (path === '/forgot-password' || path === '/reset-password') {
+    page = <Suspense fallback={<PageLoader label="Loading secure recovery..." />}><PasswordResetPage mode={path === '/reset-password' ? 'complete' : 'request'} /></Suspense>
   } else if (path === '/login' || (path === '/account' && !(session.accessToken && session.user))) {
     page = (
       <LoginPage

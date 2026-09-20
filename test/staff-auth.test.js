@@ -8,6 +8,8 @@ import {
   changeOwnPassword,
   confirmOwnTotpReplacement,
   creditVerifiedClaim,
+  createSimulatedTransfer,
+  createSimulatedWallet,
   createClaimDispute,
   createBarangay,
   createStaffUser,
@@ -16,6 +18,7 @@ import {
   createBeneficiary,
   createProgram,
   createProgramCriterion,
+  cancelDistributionSchedule,
   enqueueDistributionReminder,
   deleteBiometricEnrollment,
   generateDistributionQrTokens,
@@ -26,6 +29,7 @@ import {
   issueClaimReceipt,
   isSessionExpiredError,
   markAllStaffNotificationsRead,
+  markPhysicalClaimReleased,
   markStaffNotificationRead,
   openDistribution,
   previewDistributionQrClaim,
@@ -36,6 +40,7 @@ import {
   requestBeneficiaryList,
   requestBiometricAttempts,
   requestBiometricConsents,
+  requestBiometricDuplicateCases,
   requestBiometricStatus,
   requestCreditableClaims,
   requestClaimDisputes,
@@ -49,6 +54,7 @@ import {
   requestDistributionReport,
   requestDistributionTransactions,
   requestFundUtilizationReport,
+  requestEnrollment,
   requestEnrollmentList,
   requestNotificationList,
   requestNotificationQueueHealth,
@@ -58,6 +64,8 @@ import {
   requestOpenDistributions,
   requestOwnAccount,
   requestPrograms,
+  reactivateDistributionSchedule,
+  rescheduleDistributionSchedule,
   requestStaffLogout,
   requestStaffUserList,
   requestStaffUsers,
@@ -67,10 +75,13 @@ import {
   regenerateOwnRecoveryCodes,
   revokeOwnOtherSessions,
   requestTransactionReceipt,
+  requestWalletByBeneficiary,
+  requestWalletTransactions,
   recordBiometricConsent,
   recordClaimReceiptPrint,
   resetStaffTotp,
   reviewClaimDispute,
+  reviewBiometricDuplicateCase,
   reverseBenefitCredit,
   revokeBiometricConsent,
   retryNotification,
@@ -179,6 +190,8 @@ test('dashboard navigation is limited to the signed-in staff role', () => {
   assert.ok(dswdLabels.includes('Ledger'))
   assert.ok(dswdLabels.includes('Enrollment review'))
   assert.ok(dswdLabels.includes('Assistance programs'))
+  assert.ok(adminLabels.includes('Assistance programs'))
+  assert.ok(facilitatorLabels.includes('Assistance programs'))
   assert.ok(adminLabels.includes('SMS delivery'))
   assert.ok(adminLabels.includes('Claim settlement'))
   assert.ok(dswdLabels.includes('SMS delivery'))
@@ -353,7 +366,7 @@ test('program and distribution setup preserve lifecycle and idempotency contract
   await generateDistributionQrTokens('admin-token', 'distribution-1')
 
   assert.equal(programCriterionExpectedValue('AGE', 'GREATER_THAN_OR_EQUAL', '18'), 18)
-  assert.deepEqual(programCriterionExpectedValue('DOCUMENT_TYPE', 'IN', 'VALID_ID, PWD_ID'), ['VALID_ID', 'PWD_ID'])
+  assert.equal(programCriterionExpectedValue('DOCUMENT_TYPE', 'REQUIRED', ' valid_id '), 'VALID_ID')
   assert.equal(programCriterionExpectedValue('MANUAL_REVIEW', 'REQUIRED', ''), true)
   assert.throws(() => programCriterionExpectedValue('AGE', 'EQUALS', 'invalid'), /valid non-negative number/i)
   assert.match(requests[1].url, /\/programs\/program-1\/criteria$/)
@@ -379,6 +392,7 @@ test('beneficiary and enrollment workflows preserve scoped backend contracts', a
       { documents: [] },
       { programs: [], pagination: { page: 1 } },
       { enrollments: [], pagination: { page: 1 } },
+      { enrollment: { enrollmentId: 'enrollment-1', eligibilityEvaluation: { overallStatus: 'REVIEW_REQUIRED' } } },
       { enrollment: { enrollmentId: 'enrollment-1' } },
       { enrollment: { enrollmentId: 'enrollment-1' } },
     ]
@@ -390,16 +404,26 @@ test('beneficiary and enrollment workflows preserve scoped backend contracts', a
   await requestBeneficiaryDocuments('staff-token', 'beneficiary-1')
   await requestPrograms('staff-token', { pageSize: 100, status: 'ACTIVE' })
   await requestEnrollmentList('staff-token', { page: 1, status: 'PENDING' })
+  await requestEnrollment('staff-token', 'enrollment-1')
   await startEnrollmentReview('staff-token', 'enrollment-1')
-  await approveEnrollment('staff-token', 'enrollment-1')
+  await approveEnrollment('staff-token', 'enrollment-1', {
+    remarks: 'All evidence reviewed.',
+    manualDecisions: [{ criterionId: 'criterion-1', passed: true, remarks: 'Home visit verified.' }],
+  })
 
   assert.match(requests[0].url, /\/beneficiaries\?page=1&pageSize=20&status=ACTIVE&search=Juan$/)
   assert.deepEqual(JSON.parse(requests[1].options.body), { firstName: 'Juan', lastName: 'Dela Cruz' })
   assert.match(requests[2].url, /\/beneficiaries\/beneficiary-1\/documents$/)
   assert.match(requests[3].url, /\/programs\?pageSize=100&status=ACTIVE$/)
   assert.match(requests[4].url, /\/enrollments\?page=1&status=PENDING$/)
-  assert.match(requests[5].url, /\/enrollments\/enrollment-1\/start-review$/)
-  assert.match(requests[6].url, /\/enrollments\/enrollment-1\/approve$/)
+  assert.match(requests[5].url, /\/enrollments\/enrollment-1$/)
+  assert.equal(requests[5].options.method, 'GET')
+  assert.match(requests[6].url, /\/enrollments\/enrollment-1\/start-review$/)
+  assert.match(requests[7].url, /\/enrollments\/enrollment-1\/approve$/)
+  assert.deepEqual(JSON.parse(requests[7].options.body), {
+    remarks: 'All evidence reviewed.',
+    manualDecisions: [{ criterionId: 'criterion-1', passed: true, remarks: 'Home visit verified.' }],
+  })
   requests.forEach(({ options }) => assert.equal(options.headers.Authorization, 'Bearer staff-token'))
 })
 
@@ -472,6 +496,37 @@ test('biometric identity workflow preserves consent, multipart capture, idempote
   assert.equal(requests[6].options.headers['Content-Type'], undefined)
 })
 
+test('duplicate biometric review preserves restricted list and attested decision contracts', async (context) => {
+  const originalFetch = globalThis.fetch
+  const requests = []
+  context.after(() => { globalThis.fetch = originalFetch })
+  const duplicateCase = { duplicateCaseId: 'case-1', status: 'PENDING' }
+  const responses = [
+    { cases: [duplicateCase], summary: { countsByStatus: { PENDING: 1 } }, pagination: { page: 1, total: 1 } },
+    { duplicateCase: { ...duplicateCase, status: 'CLEARED' } },
+  ]
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options })
+    return { ok: true, json: async () => ({ data: responses[requests.length - 1] }) }
+  }
+
+  await requestBiometricDuplicateCases('oversight-token', { page: 1, pageSize: 20, status: 'PENDING' })
+  await reviewBiometricDuplicateCase('oversight-token', 'case-1', {
+    action: 'CLEAR_AS_DISTINCT',
+    reviewNotes: 'Identity documents and in-person review confirm distinct people.',
+    attestation: true,
+  })
+
+  assert.match(requests[0].url, /\/biometric-duplicate-cases\?page=1&pageSize=20&status=PENDING$/)
+  assert.match(requests[1].url, /\/biometric-duplicate-cases\/case-1\/review$/)
+  assert.equal(requests[1].options.headers.Authorization, 'Bearer oversight-token')
+  assert.deepEqual(JSON.parse(requests[1].options.body), {
+    action: 'CLEAR_AS_DISTINCT',
+    reviewNotes: 'Identity documents and in-person review confirm distinct people.',
+    attestation: true,
+  })
+})
+
 test('reports, CSV export, and audit logs preserve oversight API contracts', async (context) => {
   const originalFetch = globalThis.fetch
   const requests = []
@@ -489,7 +544,7 @@ test('reports, CSV export, and audit logs preserve oversight API contracts', asy
       ok: true,
       headers: { get: (name) => isCsv && name === 'content-disposition' ? 'attachment; filename="distribution-report.csv"' : null },
       json: async () => ({ data: responses[requests.length - 1] }),
-      text: async () => 'report_version,distribution_id\nGYA-PHASE8-1,distribution-1',
+      text: async () => 'report_version,distribution_id\nGYA-REPORT-1,distribution-1',
     }
   }
 
@@ -504,7 +559,7 @@ test('reports, CSV export, and audit logs preserve oversight API contracts', asy
   assert.match(requests[3].url, /\/reports\/distributions\/distribution-1\/export\.csv$/)
   requests.forEach(({ options }) => assert.equal(options.headers.Authorization, 'Bearer oversight-token'))
   assert.equal(exported.filename, 'distribution-report.csv')
-  assert.match(exported.csv, /GYA-PHASE8-1/)
+  assert.match(exported.csv, /GYA-REPORT-1/)
   await assert.rejects(() => requestDistributionReport('token', 'distribution-1', 'UNKNOWN'), /valid report type/i)
 })
 
@@ -568,6 +623,37 @@ test('verified claim settlement preserves credit, receipt, reversal, and reconci
   assert.equal(requests[4].options.headers['Idempotency-Key'], '22222222-2222-4222-8222-222222222222')
   assert.deepEqual(JSON.parse(requests[4].options.body), { reason: 'Incorrect beneficiary record' })
   requests.forEach(({ options }) => assert.equal(options.headers.Authorization, 'Bearer oversight-token'))
+})
+
+test('individual wallet workflow preserves lookup, creation, history, transfer, and idempotency contracts', async (context) => {
+  const originalFetch = globalThis.fetch
+  const requests = []
+  context.after(() => { globalThis.fetch = originalFetch })
+  const responses = [
+    { beneficiary: { beneficiaryId: 'beneficiary-1' }, wallet: null, simulation: { realFundsMoved: false } },
+    { wallet: { walletId: 'wallet-1' }, created: true, simulation: { realFundsMoved: false } },
+    { transactions: [], pagination: { page: 1, totalPages: 0 }, simulation: { realFundsMoved: false } },
+    { sourceTransaction: { transactionId: 'debit-1' }, recipientTransaction: { transactionId: 'credit-1' }, sourceWallet: { walletId: 'wallet-1' }, recipientWallet: { walletId: 'wallet-2' }, simulation: { realFundsMoved: false } },
+  ]
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options })
+    return { ok: true, json: async () => ({ data: responses[requests.length - 1] }) }
+  }
+
+  await requestWalletByBeneficiary('dswd-token', 'beneficiary-1')
+  await createSimulatedWallet('dswd-token', 'beneficiary-1')
+  await requestWalletTransactions('dswd-token', 'wallet-1', { page: 1, pageSize: 10 })
+  await createSimulatedTransfer('dswd-token', 'wallet-1', { recipientBeneficiaryId: 'beneficiary-2', amount: 250, description: 'Test transfer' }, '33333333-3333-4333-8333-333333333333')
+
+  assert.match(requests[0].url, /\/wallets\/beneficiaries\/beneficiary-1$/)
+  assert.equal(requests[0].options.method, 'GET')
+  assert.match(requests[1].url, /\/wallets$/)
+  assert.deepEqual(JSON.parse(requests[1].options.body), { beneficiaryId: 'beneficiary-1' })
+  assert.match(requests[2].url, /\/wallets\/wallet-1\/transactions\?page=1&pageSize=10$/)
+  assert.match(requests[3].url, /\/wallets\/wallet-1\/transfers$/)
+  assert.equal(requests[3].options.headers['Idempotency-Key'], '33333333-3333-4333-8333-333333333333')
+  assert.deepEqual(JSON.parse(requests[3].options.body), { recipientBeneficiaryId: 'beneficiary-2', amount: 250, description: 'Test transfer' })
+  requests.forEach(({ options }) => assert.equal(options.headers.Authorization, 'Bearer dswd-token'))
 })
 
 test('DSWD realtime client authenticates once and forwards subscribed events', () => {
@@ -714,6 +800,26 @@ test('facilitator queue and QR verification preserve scoped backend contracts', 
   assert.equal(requests[3].options.headers['Idempotency-Key'], '11111111-1111-4111-8111-111111111111')
 })
 
+test('facilitator schedule actions use only schedule mutation endpoints', async (context) => {
+  const originalFetch = globalThis.fetch
+  const requests = []
+  context.after(() => { globalThis.fetch = originalFetch })
+
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options })
+    return { ok: true, json: async () => ({ data: { schedule: { scheduleId: 'schedule-1' } } }) }
+  }
+
+  await cancelDistributionSchedule('facilitator-token', 'distribution-1', 'schedule-1')
+  await reactivateDistributionSchedule('facilitator-token', 'distribution-1', 'schedule-1')
+  await rescheduleDistributionSchedule('facilitator-token', 'distribution-1', 'schedule-1', 'slot-2')
+
+  assert.match(requests[0].url, /\/distributions\/distribution-1\/schedules\/schedule-1\/cancel$/)
+  assert.match(requests[1].url, /\/distributions\/distribution-1\/schedules\/schedule-1\/reactivate$/)
+  assert.match(requests[2].url, /\/distributions\/distribution-1\/schedules\/schedule-1\/reschedule$/)
+  assert.deepEqual(JSON.parse(requests[2].options.body), { slotId: 'slot-2' })
+})
+
 test('claim receipts and independent disputes preserve authenticated accountability contracts', async (context) => {
   const originalFetch = globalThis.fetch
   const requests = []
@@ -753,4 +859,42 @@ test('claim receipts and independent disputes preserve authenticated accountabil
   assert.match(requests[5].url, /\/claim-disputes\/dispute-1\/review$/)
   assert.deepEqual(JSON.parse(requests[5].options.body), { action: 'START_REVIEW' })
   requests.forEach(({ options }) => assert.equal(options.headers.Authorization, 'Bearer staff-token'))
+})
+
+test('physical release preserves evidence and idempotency contracts', async (context) => {
+  const originalFetch = globalThis.fetch
+  const requests = []
+  context.after(() => { globalThis.fetch = originalFetch })
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options })
+    return {
+      ok: true,
+      json: async () => ({
+        data: {
+          claim: { claimId: 'claim-1', claimStatus: 'CLAIMED' },
+          release: { method: 'PHYSICAL_GOODS' },
+          lifecycle: { allocationStatus: 'CLAIMED' },
+        },
+      }),
+    }
+  }
+
+  const evidence = {
+    evidenceType: 'OFFICIAL_RELEASE_LOG',
+    evidenceReference: 'LOG-12-ROW-4',
+    notes: 'Two food packs released.',
+    beneficiaryAcknowledged: true,
+  }
+  await markPhysicalClaimReleased(
+    'facilitator-token',
+    'distribution-1',
+    'claim-1',
+    evidence,
+    '11111111-1111-4111-8111-111111111111',
+  )
+
+  assert.match(requests[0].url, /\/distributions\/distribution-1\/claims\/claim-1\/release$/)
+  assert.equal(requests[0].options.headers.Authorization, 'Bearer facilitator-token')
+  assert.equal(requests[0].options.headers['Idempotency-Key'], '11111111-1111-4111-8111-111111111111')
+  assert.deepEqual(JSON.parse(requests[0].options.body), evidence)
 })

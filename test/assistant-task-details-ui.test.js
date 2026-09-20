@@ -13,7 +13,7 @@ test('task summary renders labelled fields, editable values, progress, and an ho
     const partial = render({ kind: 'distributionDraft', values: { program: 'Example <Program>', date: '2026-09-09', startTime: '09:00' } })
     assert.match(partial, /Example &lt;Program&gt;/)
     assert.match(partial, /Wednesday, September 9, 2026/)
-    assert.match(partial, /<progress[^>]*max="9" value="3"/)
+    assert.match(partial, /<progress[^>]*max="10" value="3"/)
     assert.match(partial, /aria-label="Edit Program"/)
     assert.match(partial, /<label for="ai-task-detail"[^>]*>Barangay/)
     assert.match(partial, /aria-describedby="ai-task-detail-help"/)

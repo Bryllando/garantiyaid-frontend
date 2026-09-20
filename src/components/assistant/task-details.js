@@ -9,6 +9,7 @@ export const taskFields = {
     field('endTime', 'End time (PHT)', ['What time should it end? Include AM or PM.', 'Anong oras matatapos? Isama ang AM o PM.', 'Unsang orasa mahuman? Iapil ang AM o PM.'], 'time'),
     field('location', 'Venue', ['Where will it take place?', 'Saan ito gaganapin?', 'Asa kini ipahigayon?']),
     field('slotDurationMinutes', 'Slot duration', ['How many minutes per slot? For example, 30 minutes.', 'Ilang minuto bawat slot? Halimbawa, 30 minutes.', 'Pila ka minuto matag slot? Pananglitan, 30 minutes.'], 'number'),
+    field('deliveryMode', 'Assistance delivery', ['Will this release physical goods or use the simulated wallet?', 'Pisikal na ayuda ba ito o simulated wallet?', 'Pisikal nga ayuda ba kini o simulated wallet?'], 'select', ['PHYSICAL_GOODS', 'SIMULATED_WALLET']),
     field('verificationRequirement', 'Verification', ['Which verification method?', 'Anong verification method?', 'Unsang verification method?'], 'select', ['QR', 'BIOMETRIC', 'QR_AND_BIOMETRIC', 'BIOMETRIC_AND_SIGNATURE']),
     field('title', 'Event title', ['What title should the event use?', 'Ano ang pamagat ng event?', 'Unsa ang titulo sa event?']),
   ],
@@ -32,7 +33,7 @@ export const fieldsForTask = (task) => taskFields[task.kind].filter((item) => ta
 export const nextTaskField = (task) => fieldsForTask(task).find((item) => !task.values[item.key])
 export const isTaskCancellation = (text) => /^(?:(?:please|palihog)\s+)?(?:cancel(?: this| the| my)?(?: pending)?(?: task| draft| request)?|stop|never\s?mind|ayaw na|kanselahin|kanselaha)[.!\s]*$/i.test(text)
   || /^(?:do not|don['’]?t|ayaw|huwag|wag|dili|hindi)\s+(?:create|send|queue|make|himo|buhat|ipadala|gumawa)\b/i.test(text.trim())
-export const isTaskQuestion = (text) => !/^(?:change\s+)?(?:venue|program|barangay|title|date|start|end|slots|verification|event|area|message|timing)\s*:/i.test(text.trim())
+export const isTaskQuestion = (text) => !/^(?:change\s+)?(?:venue|program|barangay|title|date|start|end|slots|delivery|verification|event|area|message|timing)\s*:/i.test(text.trim())
   && /\?|^(how|what|why|when|where|explain|show|check|unsa|ngano|asa|paano|ano|bakit|ipaliwanag)\b/i.test(text.trim())
 
 export function manilaDate(now = new Date()) {
@@ -73,7 +74,7 @@ export function setTaskValue(task, key, input, now = new Date()) {
     if (!/^\d+$/.test(value) || Number(value) < 5 || Number(value) > 720) error = 'Use a whole number from 5 to 720 minutes.'
   } else if (definition.options) {
     value = value.toLowerCase().replace(/\s+and\s+|\s*\+\s*/g, '_and_').replace(/\s+/g, '_')
-    if (key === 'deliveryMode') value = ({ later: 'scheduled', ngayon: 'now', karon: 'now', ulahi: 'scheduled' })[value] || value
+    if (key === 'deliveryMode' && task.kind === 'reminder') value = ({ later: 'scheduled', ngayon: 'now', karon: 'now', ulahi: 'scheduled' })[value] || value
     value = definition.options.find((option) => option.toLowerCase() === value) || ''
     if (!value) error = 'Choose one of the listed options.'
   } else if (!value || value.length > (key === 'messageTemplate' ? 320 : 200) || /<\/?[a-z][^>]*>/i.test(value)) {
@@ -82,7 +83,7 @@ export function setTaskValue(task, key, input, now = new Date()) {
   if (error) return { task, error }
   const values = { ...task.values, [key]: value }
   if (['program', 'barangay', 'distribution'].includes(key)) delete values[`${key}Id`]
-  if (key === 'deliveryMode' && value === 'now') { delete values.date; delete values.startTime }
+  if (task.kind === 'reminder' && key === 'deliveryMode' && value === 'now') { delete values.date; delete values.startTime }
   return { task: { ...task, values }, error: '' }
 }
 
@@ -106,9 +107,13 @@ export function collectTaskDetails(task, text, { key, initial = false, now = new
     result = { task: next.task, error: result.error || next.error }
     extracted = true
   }
-  const aliases = { venue: 'location', program: 'program', barangay: 'barangay', title: 'title', date: 'date', start: 'startTime', end: 'endTime', slots: 'slotDurationMinutes', verification: 'verificationRequirement', event: 'distribution', area: 'serviceArea', message: 'messageTemplate', timing: 'deliveryMode' }
-  const labelled = [...text.matchAll(/(?:^|[;\n])\s*(?:change\s+)?(venue|program|barangay|title|date|start|end|slots|verification|event|area|message|timing)\s*:\s*([^;\n]+)/gi)]
-  for (const match of labelled) assign(aliases[match[1].toLowerCase()], match[2])
+  const aliases = { venue: 'location', program: 'program', barangay: 'barangay', title: 'title', date: 'date', start: 'startTime', end: 'endTime', slots: 'slotDurationMinutes', delivery: 'deliveryMode', verification: 'verificationRequirement', event: 'distribution', area: 'serviceArea', message: 'messageTemplate', timing: 'deliveryMode' }
+  const labelled = [...text.matchAll(/(?:^|[;\n])\s*(?:change\s+)?(venue|program|barangay|title|date|start|end|slots|delivery|verification|event|area|message|timing)\s*:\s*([^;\n]+)/gi)]
+  for (const match of labelled) {
+    const alias = match[1].toLowerCase()
+    if ((alias === 'delivery' && task.kind === 'reminder') || (alias === 'timing' && task.kind !== 'reminder')) continue
+    assign(aliases[alias], match[2])
+  }
   if (!labelled.length && (initial || !key || ['date', 'startTime', 'endTime'].includes(key))) {
     const dates = text.match(/\b(?:\d{4}-\d{2}-\d{2}|tomorrow|today|ugma|karon|bukas|ngayon)\b/gi) || []
     if (dates.length === 1) assign('date', dates[0])

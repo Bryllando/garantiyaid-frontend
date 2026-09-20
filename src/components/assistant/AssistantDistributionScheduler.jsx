@@ -21,6 +21,7 @@ const initialForm = () => ({
   endTime: '17:00',
   slotDurationMinutes: '30',
   location: '',
+  deliveryMode: 'PHYSICAL_GOODS',
   verificationRequirement: 'QR',
 })
 
@@ -88,7 +89,7 @@ function AssistantDistributionScheduler({ accessToken, onBack, onDone, onSession
       barangay: selectedBarangay?.barangayName || taskDetails.barangay,
       programId: form.programId, barangayId: form.barangayId,
       title: form.title, date: form.distributionDate, startTime: form.startTime, endTime: form.endTime,
-      slotDurationMinutes: form.slotDurationMinutes, location: form.location, verificationRequirement: form.verificationRequirement,
+      slotDurationMinutes: form.slotDurationMinutes, location: form.location, deliveryMode: form.deliveryMode, verificationRequirement: form.verificationRequirement,
     } : undefined)
   }
 
@@ -168,6 +169,7 @@ function AssistantDistributionScheduler({ accessToken, onBack, onDone, onSession
             ['Ends', `${form.endTime} PHT`],
             ['Venue', form.location],
             ['Slot plan', `${slotCount} × ${form.slotDurationMinutes}-minute slots`],
+            ['Delivery', form.deliveryMode === 'PHYSICAL_GOODS' ? 'Physical assistance' : 'Simulated wallet'],
             ['Verification', form.verificationRequirement.replaceAll('_AND_', ' + ')],
           ].map(([label, value]) => <div key={label} className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3 border-b border-line px-4 py-3 last:border-0 max-[420px]:grid-cols-1 max-[420px]:gap-1"><dt className="text-muted-copy">{label}</dt><dd className="text-right font-bold text-ink [overflow-wrap:anywhere] max-[420px]:text-left">{value}</dd></div>)}
         </dl>
@@ -175,7 +177,7 @@ function AssistantDistributionScheduler({ accessToken, onBack, onDone, onSession
         <div className="rounded-xl border border-emerald-200 bg-success-soft p-4 text-sm leading-6 text-copy"><p className="flex items-start gap-2 font-bold text-brand-green"><Icon name="check" className="mt-0.5 size-4 shrink-0" />No current Barangay time conflict found.</p><p className="mt-1">The server will validate the references and conflict window again during creation.</p></div>
         <p className="text-xs leading-5 text-muted-copy">Checked {formatPreviewTime(preview.checkedAt)}</p>
         <p className="rounded-xl border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy">{uncertain ? 'The previous confirmation may have completed. Recover its result below.' : 'Nothing has been created yet.'} This approval covers only the displayed draft and expires {formatPreviewTime(preview.approvalExpiresAt)}.</p>
-        <label className="flex min-h-12 cursor-pointer items-start gap-3 rounded-xl border border-line bg-white p-4 text-sm leading-6 text-copy"><input type="checkbox" checked={reviewed} disabled={Boolean(busy) || uncertain} onChange={(event) => setReviewed(event.target.checked)} className="mt-1 size-5 shrink-0 accent-brand-blue" /><span>I reviewed the program, Barangay, venue, date, time, and verification method.</span></label>
+        <label className="flex min-h-12 cursor-pointer items-start gap-3 rounded-xl border border-line bg-white p-4 text-sm leading-6 text-copy"><input type="checkbox" checked={reviewed} disabled={Boolean(busy) || uncertain} onChange={(event) => setReviewed(event.target.checked)} className="mt-1 size-5 shrink-0 accent-brand-blue" /><span>I reviewed the program, Barangay, venue, date, time, delivery mode, and verification method.</span></label>
         {error && <div role="alert" className="rounded-xl border border-red-200 bg-danger-soft p-4 text-sm font-semibold text-brand-red">{error}</div>}
         <button type="button" onClick={confirmDraft} disabled={!reviewed || Boolean(busy)} className="ga-btn-primary w-full">{busy === 'create' ? <LoadingLabel>Confirming draft...</LoadingLabel> : uncertain ? 'Retry same confirmation' : 'Confirm and create draft'}</button>
       </div>
@@ -188,7 +190,7 @@ function AssistantDistributionScheduler({ accessToken, onBack, onDone, onSession
       <legend className="sr-only">Distribution draft details</legend>
       <div>
           <button type="button" onClick={backToDetails} disabled={Boolean(busy)} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue"><Icon name="arrowLeft" className="size-4" /> {fromChat ? 'Collected details' : 'Assistant home'}</button>
-        <p className="mt-2 text-xs font-bold uppercase tracking-[0.1em] text-brand-blue">Admin AI Scheduler</p>
+        <p className="mt-2 text-xs font-bold uppercase tracking-[0.1em] text-brand-blue">Admin planning assistant</p>
         <h3 id="ai-draft-step-title" tabIndex={-1} className="mt-1 text-xl font-bold text-ink">Draft a distribution event</h3>
         <p className="mt-2 text-sm leading-6 text-muted-copy">Complete the official fields. The assistant checks current conflicts before asking for confirmation.</p>
       </div>
@@ -201,6 +203,7 @@ function AssistantDistributionScheduler({ accessToken, onBack, onDone, onSession
       <div className="grid gap-4 sm:grid-cols-2"><div><label htmlFor="ai-draft-date" className="ga-label">Distribution date (PHT)</label><input id="ai-draft-date" type="date" required value={form.distributionDate} onChange={(event) => change('distributionDate', event.target.value)} className="ga-input mt-2" /></div><div><label htmlFor="ai-draft-duration" className="ga-label">Slot duration (minutes)</label><input id="ai-draft-duration" type="number" min="5" max="720" step="1" required value={form.slotDurationMinutes} onChange={(event) => change('slotDurationMinutes', event.target.value)} className="ga-input mt-2" /></div></div>
       <div className="grid grid-cols-2 gap-4"><div><label htmlFor="ai-draft-start" className="ga-label">Start time</label><input id="ai-draft-start" type="time" required value={form.startTime} onChange={(event) => change('startTime', event.target.value)} className="ga-input mt-2" /></div><div><label htmlFor="ai-draft-end" className="ga-label">End time</label><input id="ai-draft-end" type="time" required value={form.endTime} onChange={(event) => change('endTime', event.target.value)} className="ga-input mt-2" /></div></div>
       <div><label htmlFor="ai-draft-location" className="ga-label">Venue or location</label><input id="ai-draft-location" required maxLength="200" value={form.location} onChange={(event) => change('location', event.target.value)} className="ga-input mt-2" /></div>
+      <div><label htmlFor="ai-draft-delivery" className="ga-label">Assistance delivery</label><select id="ai-draft-delivery" value={form.deliveryMode} onChange={(event) => change('deliveryMode', event.target.value)} className="ga-input mt-2"><option value="PHYSICAL_GOODS">Physical assistance release</option><option value="SIMULATED_WALLET">Simulated wallet credit</option></select><p className="mt-2 text-xs leading-5 text-muted-copy">Physical assistance is released by the assigned facilitator. Simulated wallet credit is recorded by DSWD or an administrator.</p></div>
       <div><label htmlFor="ai-draft-verification" className="ga-label">Claim verification</label><select id="ai-draft-verification" value={form.verificationRequirement} onChange={(event) => change('verificationRequirement', event.target.value)} className="ga-input mt-2"><option value="QR">QR credential</option><option value="BIOMETRIC">Biometric</option><option value="QR_AND_BIOMETRIC">QR + Biometric</option><option value="BIOMETRIC_AND_SIGNATURE">Biometric + Signature</option></select></div>
       {error && <div role="alert" className="rounded-xl border border-red-200 bg-danger-soft p-4 text-sm font-semibold text-brand-red">{error}</div>}
       {!error && (!programs.length || !barangays.length) && <p role="status" className="rounded-xl border border-line bg-page p-4 text-sm text-muted-copy">An active program and barangay are required. No available records were found for one of these lists.</p>}

@@ -1,14 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
+import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Icon } from '../components/ui/icon.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
 import {
+  cancelDistributionSchedule,
+  generateDistributionSchedules,
   getAuthErrorMessage,
   isSessionExpiredError,
   previewDistributionQrClaim,
   requestDistributionQueue,
+  requestDistributionList,
+  requestDistributionSlots,
   requestOpenDistributions,
+  reactivateDistributionSchedule,
+  rescheduleDistributionSchedule,
   verifyDistributionQrClaim,
 } from '../auth/staffAuth.js'
 
@@ -45,7 +52,7 @@ function DistributionSelector({ distributions, selectedId, onChange }) {
       >
         {distributions.map((distribution) => (
           <option key={distribution.distributionId} value={distribution.distributionId}>
-            {distribution.title} · {dateFormatter.format(new Date(distribution.distributionDate))}
+            {distribution.title} · {humanize(distribution.status)} · {dateFormatter.format(new Date(distribution.distributionDate))}
           </option>
         ))}
       </select>
@@ -92,6 +99,10 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
   const [queueError, setQueueError] = useState('')
   const [isLoadingQueue, setIsLoadingQueue] = useState(view === 'queue')
   const [queueReload, setQueueReload] = useState(0)
+  const [scheduleNotice, setScheduleNotice] = useState('')
+  const [scheduleAction, setScheduleAction] = useState(null)
+  const [reschedule, setReschedule] = useState(null)
+  const [isScheduleBusy, setIsScheduleBusy] = useState(false)
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
@@ -111,7 +122,13 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
 
   useEffect(() => {
     let active = true
-    requestOpenDistributions(session.accessToken)
+    const request = view === 'qr'
+      ? requestOpenDistributions(session.accessToken)
+      : Promise.all([
+        requestDistributionList(session.accessToken, { page: 1, pageSize: 100, status: 'DRAFT' }),
+        requestDistributionList(session.accessToken, { page: 1, pageSize: 100, status: 'OPEN' }),
+      ]).then(([drafts, open]) => [...drafts.distributions, ...open.distributions])
+    request
       .then((items) => {
         if (!active) return
         const relevantItems = view === 'qr'
@@ -148,6 +165,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     setSelectedId(distributionId)
     setQueue(null)
     setQueueError('')
+    setScheduleNotice('')
     setPage(1)
     setIsLoadingQueue(view === 'queue')
     setQrToken('')
@@ -171,6 +189,73 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     setPage(1)
     setQueueError('')
     setIsLoadingQueue(true)
+  }
+
+  async function generateSchedules() {
+    setIsScheduleBusy(true)
+    setQueueError('')
+    setScheduleNotice('')
+    try {
+      await generateDistributionSchedules(session.accessToken, selectedId)
+      setScheduleNotice('Remaining beneficiaries were assigned using the event capacity and service-area rules.')
+      setIsLoadingQueue(true)
+      setQueueReload((count) => count + 1)
+    } catch (error) {
+      if (isSessionExpiredError(error)) return onSessionExpired()
+      setQueueError(getAuthErrorMessage(error))
+    } finally {
+      setIsScheduleBusy(false)
+    }
+  }
+
+  async function confirmScheduleAction() {
+    const action = scheduleAction
+    if (!action) return
+    try {
+      if (action.kind === 'cancel') await cancelDistributionSchedule(session.accessToken, selectedId, action.schedule.scheduleId)
+      else await reactivateDistributionSchedule(session.accessToken, selectedId, action.schedule.scheduleId)
+      setScheduleNotice(action.kind === 'cancel' ? 'Schedule cancelled.' : 'Schedule reactivated.')
+      setScheduleAction(null)
+      setIsLoadingQueue(true)
+      setQueueReload((count) => count + 1)
+    } catch (error) {
+      if (isSessionExpiredError(error)) return onSessionExpired()
+      setQueueError(getAuthErrorMessage(error))
+      throw error
+    }
+  }
+
+  async function beginReschedule(schedule) {
+    setIsScheduleBusy(true)
+    setQueueError('')
+    try {
+      const data = await requestDistributionSlots(session.accessToken, selectedId)
+      const slots = data.slots.filter((slot) => slot.slotId !== schedule.slotId && slot.slotStatus === 'AVAILABLE')
+      if (slots.length === 0) {
+        setQueueError('No other available session can receive this beneficiary. Ask the administrator to review slot capacity.')
+        return
+      }
+      setReschedule({ schedule, slots })
+    } catch (error) {
+      if (isSessionExpiredError(error)) return onSessionExpired()
+      setQueueError(getAuthErrorMessage(error))
+    } finally {
+      setIsScheduleBusy(false)
+    }
+  }
+
+  async function confirmReschedule(slotId) {
+    try {
+      await rescheduleDistributionSchedule(session.accessToken, selectedId, reschedule.schedule.scheduleId, slotId)
+      setReschedule(null)
+      setScheduleNotice('Beneficiary moved to the selected session.')
+      setIsLoadingQueue(true)
+      setQueueReload((count) => count + 1)
+    } catch (error) {
+      if (isSessionExpiredError(error)) return onSessionExpired()
+      setQueueError(getAuthErrorMessage(error))
+      throw error
+    }
   }
 
   async function verifyToken(token) {
@@ -245,7 +330,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
           <p className="ga-eyebrow">Assigned barangay operations</p>
           <h1 className="ga-page-title mt-2">{pageTitle}</h1>
           <p className="ga-page-copy">
-            {view === 'queue' ? 'Track scheduled beneficiaries and current check-in status for an open distribution event.' : 'Review a beneficiary QR credential before recording check-in for the selected open event.'}
+            {view === 'queue' ? 'Prepare draft schedules for your assigned barangay, then track the queue after the event opens.' : 'Review a beneficiary QR credential before recording check-in for the selected open event.'}
           </p>
         </div>
         <button type="button" onClick={() => onNavigate(view === 'queue' ? '/facilitator/qr-verification' : '/facilitator/queue')} className="ga-btn-primary shrink-0">
@@ -264,8 +349,8 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
       ) : distributions.length === 0 ? (
         <section className="mt-7 rounded-xl border border-dashed border-line bg-white p-8 text-center" aria-labelledby="no-distributions-title">
           <span aria-hidden="true" className="mx-auto grid size-12 place-items-center rounded-full bg-info-soft font-black text-brand-blue">0</span>
-          <h2 id="no-distributions-title" className="mt-4 text-xl font-extrabold text-ink">No open distribution event</h2>
-          <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-muted-copy">Queue viewing and QR claim verification become available when an authorized distribution event for your assigned barangay is open.</p>
+          <h2 id="no-distributions-title" className="mt-4 text-xl font-extrabold text-ink">{view === 'queue' ? 'No distribution work assigned' : 'No open distribution event'}</h2>
+          <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-muted-copy">{view === 'queue' ? 'Draft planning and open queues appear here when an event is created for your assigned barangay.' : 'QR claim verification becomes available when an authorized distribution event for your assigned barangay is open.'}</p>
         </section>
       ) : (
         <>
@@ -280,16 +365,22 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
           {view === 'queue' ? (
             <QueueView
               queue={queue}
+              distribution={selectedDistribution}
               queueError={queueError}
               isLoading={isLoadingQueue}
+              isScheduleBusy={isScheduleBusy}
               page={page}
               searchInput={searchInput}
               setSearchInput={setSearchInput}
               status={status}
               onFilter={filterQueue}
               onStatusChange={changeQueueStatus}
+              onGenerate={generateSchedules}
+              onReschedule={beginReschedule}
+              onScheduleAction={setScheduleAction}
               onPageChange={(nextPage) => { setPage(nextPage); setIsLoadingQueue(true) }}
               onRetry={() => { setQueueError(''); setIsLoadingQueue(true); setQueueReload((count) => count + 1) }}
+              scheduleNotice={scheduleNotice}
             />
           ) : (
             <QrVerificationView
@@ -308,16 +399,75 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
               onNavigate={onNavigate}
             />
           )}
+          <ConfirmationDialog
+            open={Boolean(scheduleAction)}
+            title={scheduleAction?.kind === 'cancel' ? 'Cancel this beneficiary schedule?' : 'Reactivate this beneficiary schedule?'}
+            description={scheduleAction?.kind === 'cancel' ? 'The beneficiary will leave the active queue and the slot capacity will be released.' : 'The beneficiary will return to this session if capacity and service-area rules still allow it.'}
+            actionLabel={scheduleAction?.kind === 'cancel' ? 'Cancel schedule' : 'Reactivate schedule'}
+            destructive={scheduleAction?.kind === 'cancel'}
+            onCancel={() => setScheduleAction(null)}
+            onConfirm={confirmScheduleAction}
+          />
+          {reschedule && <RescheduleDialog schedule={reschedule.schedule} slots={reschedule.slots} onClose={() => setReschedule(null)} onSave={confirmReschedule} />}
         </>
       )}
     </DashboardShell>
   )
 }
 
-function QueueView({ queue, queueError, isLoading, page, searchInput, setSearchInput, status, onFilter, onStatusChange, onPageChange, onRetry }) {
+function RescheduleDialog({ schedule, slots, onClose, onSave }) {
+  const dialogRef = useRef(null)
+  const [slotId, setSlotId] = useState(slots[0]?.slotId ?? '')
+  const [isSaving, setIsSaving] = useState(false)
+
+  useEffect(() => { dialogRef.current?.showModal() }, [])
+
+  async function submit(event) {
+    event.preventDefault()
+    setIsSaving(true)
+    try { await onSave(slotId) } catch { /* The page keeps the dialog open and shows the API error. */ } finally { setIsSaving(false) }
+  }
+
+  return (
+    <dialog ref={dialogRef} onCancel={(event) => { event.preventDefault(); if (!isSaving) dialogRef.current?.close() }} onClose={onClose} aria-labelledby="reschedule-title" className="m-auto w-[min(38rem,calc(100%-2rem))] rounded-2xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/60 backdrop:backdrop-blur-[3px]">
+      <form onSubmit={submit} className="p-6 sm:p-7">
+        <div className="flex items-start justify-between gap-5"><div><p className="ga-eyebrow">Change session</p><h2 id="reschedule-title" className="mt-2 text-2xl font-extrabold">Move {beneficiaryName(schedule.beneficiary)}</h2><p className="mt-2 text-sm leading-6 text-muted-copy">Choose another available session in this distribution event. Capacity and service-area coverage are checked again before saving.</p></div><button type="button" disabled={isSaving} onClick={() => dialogRef.current?.close()} aria-label="Close reschedule dialog" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-copy hover:bg-slate-50"><Icon name="close" /></button></div>
+        <label htmlFor="reschedule-slot" className="ga-label mt-6 block">Available session</label>
+        <select id="reschedule-slot" required value={slotId} onChange={(event) => setSlotId(event.target.value)} className="ga-input mt-2 cursor-pointer">{slots.map((slot) => <option key={slot.slotId} value={slot.slotId}>{slot.sessionLabel} · {dateFormatter.format(new Date(slot.slotStart))} · {timeFormatter.format(new Date(slot.slotStart))}</option>)}</select>
+        <div className="mt-6 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end"><button type="button" disabled={isSaving} onClick={() => dialogRef.current?.close()} className="ga-btn-secondary">Keep current session</button><button type="submit" disabled={isSaving || !slotId} className="ga-btn-primary">{isSaving ? <LoadingLabel>Moving...</LoadingLabel> : 'Move beneficiary'}</button></div>
+      </form>
+    </dialog>
+  )
+}
+
+function ScheduleActions({ schedule, busy, mobile = false, onReschedule, onScheduleAction }) {
+  if (!['SCHEDULED', 'CANCELLED'].includes(schedule.status)) return null
+  return (
+    <div className={`flex gap-2 ${mobile ? 'mt-3' : 'justify-end'}`}>
+      {schedule.status === 'SCHEDULED' && <button type="button" disabled={busy} onClick={() => onReschedule(schedule)} className={`min-h-11 rounded-lg border border-line px-3 text-sm font-bold text-brand-blue hover:bg-info-soft ${mobile ? 'flex-1' : ''}`}>Move</button>}
+      <button type="button" disabled={busy} onClick={() => onScheduleAction({ kind: schedule.status === 'CANCELLED' ? 'reactivate' : 'cancel', schedule })} className={`min-h-11 rounded-lg border px-3 text-sm font-bold ${mobile ? 'flex-1' : ''} ${schedule.status === 'CANCELLED' ? 'border-blue-200 text-brand-blue hover:bg-info-soft' : 'border-red-200 text-brand-red hover:bg-danger-soft'}`}>{schedule.status === 'CANCELLED' ? 'Reactivate' : 'Cancel'}</button>
+    </div>
+  )
+}
+
+function QueueView({ distribution, queue, queueError, isLoading, isScheduleBusy, page, searchInput, setSearchInput, status, onFilter, onGenerate, onReschedule, onScheduleAction, onStatusChange, onPageChange, onRetry, scheduleNotice }) {
   const counts = queue?.summary.countsByStatus ?? {}
+  const isDraft = distribution?.status === 'DRAFT'
+
   return (
     <section className="mt-6" aria-labelledby="queue-heading">
+      {isDraft && (
+        <div className="ga-card mb-5 flex flex-col gap-5 border-l-4 border-l-brand-blue p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div className="flex items-start gap-4">
+            <span aria-hidden="true" className="grid size-11 shrink-0 place-items-center rounded-xl bg-info-soft text-brand-blue"><Icon name="queue" /></span>
+            <div><p className="ga-eyebrow">Schedule planning</p><h2 className="mt-1 text-lg font-extrabold text-ink">Assign beneficiaries within approved capacity</h2><p className="mt-1 max-w-3xl text-sm leading-6 text-muted-copy">Automated assignment uses the earliest available session that covers the beneficiary’s service area. You can cancel or reactivate an individual schedule below.</p></div>
+          </div>
+          <button type="button" disabled={isScheduleBusy} onClick={onGenerate} className="ga-btn-primary shrink-0">{isScheduleBusy ? <LoadingLabel>Assigning...</LoadingLabel> : 'Assign remaining'}</button>
+        </div>
+      )}
+
+      {scheduleNotice && <div role="status" className="mb-5 rounded-xl border border-emerald-200 bg-success-soft p-4 text-sm font-semibold text-brand-green">{scheduleNotice}</div>}
+
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
           ['Scheduled', counts.SCHEDULED ?? 0, 'pending'],
@@ -334,7 +484,7 @@ function QueueView({ queue, queueError, isLoading, page, searchInput, setSearchI
 
       <div className="ga-card mt-6 overflow-hidden">
         <div className="border-b border-line p-5 sm:p-6">
-          <h2 id="queue-heading" className="text-xl font-extrabold text-ink">Beneficiary queue</h2>
+          <h2 id="queue-heading" className="text-xl font-extrabold text-ink">{isDraft ? 'Beneficiary schedules' : 'Beneficiary queue'}</h2>
           <form onSubmit={onFilter} className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_13rem_auto]">
             <div><label htmlFor="queue-search" className="sr-only">Search beneficiary or queue number</label><input id="queue-search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} maxLength="100" placeholder="Search name or queue number" className="ga-input" /></div>
             <div><label htmlFor="queue-status" className="sr-only">Filter by queue status</label><select id="queue-status" value={status} onChange={(event) => onStatusChange(event.target.value)} className="ga-input cursor-pointer font-semibold">{queueStatuses.map((value) => <option key={value || 'ALL'} value={value}>{value ? value.replace('_', ' ') : 'All statuses'}</option>)}</select></div>
@@ -344,19 +494,19 @@ function QueueView({ queue, queueError, isLoading, page, searchInput, setSearchI
 
         <div className="p-4 sm:p-6">
           {isLoading ? <QueueSkeleton /> : queueError ? (
-            <div className="rounded-lg border border-amber-200 bg-warning-soft p-5" role="alert"><p className="font-bold text-ink">Unable to load the queue</p><p className="mt-2 text-sm text-muted-copy">{queueError}</p><button type="button" onClick={onRetry} className="ga-btn-primary mt-4">Try again</button></div>
+            <div className="rounded-lg border border-amber-200 bg-warning-soft p-5" role="alert"><p className="font-bold text-ink">Unable to load schedules</p><p className="mt-2 text-sm text-muted-copy">{queueError}</p><button type="button" onClick={onRetry} className="ga-btn-primary mt-4">Try again</button></div>
           ) : queue?.schedules.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-line bg-slate-50 p-8 text-center"><p className="font-extrabold text-ink">No queue entries found</p><p className="mt-2 text-sm text-muted-copy">Try a different name, queue number, or status filter.</p></div>
+            <div className="rounded-lg border border-dashed border-line bg-slate-50 p-8 text-center"><p className="font-extrabold text-ink">No schedules found</p><p className="mt-2 text-sm text-muted-copy">{isDraft ? 'Assign the remaining beneficiaries, or change the search and status filters.' : 'Try a different name, queue number, or status filter.'}</p></div>
           ) : (
             <>
               <div className="hidden overflow-x-auto md:block">
                 <table className="w-full border-collapse text-left text-sm">
-                  <caption className="sr-only">Beneficiary distribution queue</caption>
-                  <thead><tr className="border-b border-line text-xs uppercase tracking-[0.08em] text-muted-copy"><th scope="col" className="px-3 py-3">Queue</th><th scope="col" className="px-3 py-3">Beneficiary</th><th scope="col" className="px-3 py-3">Time slot</th><th scope="col" className="px-3 py-3">Status</th></tr></thead>
-                  <tbody className="divide-y divide-line">{queue.schedules.map((schedule) => <tr key={schedule.scheduleId}><td className="px-3 py-4 text-lg font-black text-brand-navy">#{schedule.queueNumber}</td><td className="px-3 py-4"><p className="font-bold text-ink">{beneficiaryName(schedule.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p></td><td className="px-3 py-4"><p className="font-semibold text-ink">{schedule.slot.sessionLabel}</p><p className="mt-1 text-xs text-muted-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p><p className="mt-1 text-xs text-muted-copy">{schedule.slot.location}</p></td><td className="px-3 py-4"><StatusBadge status={schedule.status} /></td></tr>)}</tbody>
+                  <caption className="sr-only">Beneficiary distribution schedules</caption>
+                  <thead><tr className="border-b border-line text-xs uppercase tracking-[0.08em] text-muted-copy"><th scope="col" className="px-3 py-3">Queue</th><th scope="col" className="px-3 py-3">Beneficiary</th><th scope="col" className="px-3 py-3">Time slot</th><th scope="col" className="px-3 py-3">Status</th>{isDraft && <th scope="col" className="px-3 py-3 text-right">Action</th>}</tr></thead>
+                  <tbody className="divide-y divide-line">{queue.schedules.map((schedule) => <tr key={schedule.scheduleId}><td className="px-3 py-4"><p className="text-lg font-black text-brand-navy">#{schedule.queueNumber}</p><p className="mt-1 text-xs text-muted-copy">{schedule.assignmentMethod === 'AUTOMATED_RULES' || schedule.assignedByAi ? 'Automated rules' : 'Staff assigned'}</p></td><td className="px-3 py-4"><p className="font-bold text-ink">{beneficiaryName(schedule.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p></td><td className="px-3 py-4"><p className="font-semibold text-ink">{schedule.slot.sessionLabel}</p><p className="mt-1 text-xs text-muted-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p><p className="mt-1 text-xs text-muted-copy">{schedule.slot.location}</p></td><td className="px-3 py-4"><StatusBadge status={schedule.status} /></td>{isDraft && <td className="px-3 py-4"><ScheduleActions schedule={schedule} busy={isScheduleBusy} onReschedule={onReschedule} onScheduleAction={onScheduleAction} /></td>}</tr>)}</tbody>
                 </table>
               </div>
-              <ul className="space-y-3 md:hidden">{queue.schedules.map((schedule) => <li key={schedule.scheduleId} className="rounded-lg border border-line p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-lg font-black text-brand-navy">Queue #{schedule.queueNumber}</p><p className="mt-1 font-bold text-ink">{beneficiaryName(schedule.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p></div><StatusBadge status={schedule.status} /></div><div className="mt-3 rounded-lg bg-slate-50 p-3"><p className="text-sm font-bold text-ink">{schedule.slot.sessionLabel}</p><p className="mt-1 text-xs text-muted-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p><p className="mt-1 text-xs text-muted-copy">{schedule.slot.location}</p></div></li>)}</ul>
+              <ul className="space-y-3 md:hidden">{queue.schedules.map((schedule) => <li key={schedule.scheduleId} className="rounded-lg border border-line p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-lg font-black text-brand-navy">Queue #{schedule.queueNumber}</p><p className="mt-1 font-bold text-ink">{beneficiaryName(schedule.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p></div><StatusBadge status={schedule.status} /></div><div className="mt-3 rounded-lg bg-slate-50 p-3"><p className="text-sm font-bold text-ink">{schedule.slot.sessionLabel}</p><p className="mt-1 text-xs text-muted-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p><p className="mt-1 text-xs text-muted-copy">{schedule.slot.location}</p></div>{isDraft && <ScheduleActions schedule={schedule} busy={isScheduleBusy} mobile onReschedule={onReschedule} onScheduleAction={onScheduleAction} />}</li>)}</ul>
               <div className="mt-5 flex items-center justify-between border-t border-line pt-4"><p className="text-xs font-semibold text-muted-copy">Page {queue.pagination.page} of {Math.max(queue.pagination.totalPages, 1)}</p><div className="flex gap-2"><button type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)} className="min-h-11 cursor-pointer rounded-lg border border-line px-4 text-sm font-bold text-copy disabled:cursor-not-allowed disabled:opacity-50">Previous</button><button type="button" disabled={page >= queue.pagination.totalPages} onClick={() => onPageChange(page + 1)} className="min-h-11 cursor-pointer rounded-lg border border-line px-4 text-sm font-bold text-copy disabled:cursor-not-allowed disabled:opacity-50">Next</button></div></div>
             </>
           )}
