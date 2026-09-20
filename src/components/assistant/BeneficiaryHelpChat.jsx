@@ -10,18 +10,21 @@ const COPY = {
     welcome: 'Hello. I can give general guidance about documents, programs, distribution, enrollment, and the claim process.',
     prompts: ['What documents may be required?', 'How does the claim process work?', 'I need staff assistance'],
     placeholder: 'Ask a general assistance question...',
+    unavailable: 'GarantiyAid Help cannot connect to the service. Check your connection, then try again.',
   },
   fil: {
     label: 'Filipino',
     welcome: 'Kumusta. Makapagbibigay ako ng pangkalahatang gabay tungkol sa dokumento, programa, distribusyon, enrollment, at pag-claim.',
     prompts: ['Anong dokumento ang maaaring kailanganin?', 'Paano ang proseso ng pag-claim?', 'Kailangan ko ng tulong ng staff'],
     placeholder: 'Magtanong tungkol sa pangkalahatang serbisyo...',
+    unavailable: 'Hindi makakonekta ang GarantiyAid Help sa serbisyo. Suriin ang koneksyon at subukan muli.',
   },
   ceb: {
     label: 'Cebuano',
     welcome: 'Kumusta. Makahatag ko og kinatibuk-ang giya bahin sa dokumento, programa, distribution, enrollment, ug claim process.',
     prompts: ['Unsang dokumento ang posibleng kinahanglan?', 'Unsaon ang claim process?', 'Kinahanglan ko og tabang sa staff'],
     placeholder: 'Pangutana bahin sa kinatibuk-ang serbisyo...',
+    unavailable: 'Dili makakonekta ang GarantiyAid Help sa serbisyo. Susiha ang koneksyon ug sulayi pag-usab.',
   },
 }
 
@@ -100,7 +103,7 @@ function BeneficiaryHelpChat() {
       if (data.inputRedacted) setNotice('Sensitive-looking information was removed before your message was saved.')
       else if (data.escalatedNow) setNotice('This question was referred for safe staff follow-up. Do not add personal identifiers here.')
     } catch (requestError) {
-      setError(requestError.message || 'The help assistant could not be reached. Please try again.')
+      setError(requestError.code === 'API_UNREACHABLE' ? copy.unavailable : requestError.message || copy.unavailable)
     } finally {
       setBusy(false)
     }
@@ -155,7 +158,7 @@ function BeneficiaryHelpChat() {
               <textarea id="beneficiary-help-message" rows="1" maxLength="1000" value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit() } }} placeholder={copy.placeholder} className="max-h-28 min-h-11 min-w-0 flex-1 resize-none bg-transparent px-3 py-2.5 text-base text-ink outline-none placeholder:text-slate-400" />
               <button type="submit" disabled={busy || !input.trim()} aria-label={busy ? 'Sending question' : 'Send question'} className="grid size-11 shrink-0 place-items-center rounded-lg bg-brand-blue text-white hover:bg-brand-blue-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue disabled:opacity-40">{busy ? <Spinner aria-hidden="true" /> : <Icon name="arrowRight" />}</button>
             </div>
-            <div className="mt-2 flex items-center justify-between gap-3 text-[0.6875rem] text-muted-copy"><span>{externalAiUsed ? 'AI-assisted wording · No personal records shared' : 'Controlled knowledge · Safe fallback active'}</span>{messages.length > 0 && <button type="button" onClick={newChat} className="min-h-11 rounded-lg px-2 font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">New chat</button>}</div>
+            <div className="mt-2 flex items-center justify-between gap-3 text-[0.6875rem] text-muted-copy"><span>{externalAiUsed ? 'AI-assisted wording · No personal records shared' : 'Controlled public guidance · Personal records unavailable'}</span>{messages.length > 0 && <button type="button" onClick={newChat} className="min-h-11 rounded-lg px-2 font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">New chat</button>}</div>
           </form>
         </section>
       )}

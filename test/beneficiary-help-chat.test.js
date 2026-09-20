@@ -23,4 +23,5 @@ test('public help uses a session credential and clearly blocks personal-record u
   assert.match(source, /cannot check personal applications, schedules, claims, or eligibility/)
   assert.match(source, /Sensitive-looking information was removed/)
   assert.match(source, /AI-assisted wording · No personal records shared/)
+  assert.match(source, /API_UNREACHABLE/)
 })

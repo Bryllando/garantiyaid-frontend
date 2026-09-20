@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   confirmTotpSetup,
+  createPublicChatbotSession,
   approveEnrollment,
   activateProgram,
   buildStaffAccountPayload,
@@ -112,6 +113,18 @@ test('login outcomes preserve the backend authentication handoff', () => {
   assert.equal(getLoginOutcome({ requiresTotpEnrollment: true, totpSetupToken: 'token' }), 'totp-enrollment')
   assert.equal(getLoginOutcome({ accessToken: 'token', user: { userId: 'user' } }), 'authenticated')
   assert.equal(getLoginOutcome({}), 'invalid-response')
+})
+
+test('public help converts browser network failures into a controlled service error', async (context) => {
+  const originalFetch = globalThis.fetch
+  context.after(() => { globalThis.fetch = originalFetch })
+  globalThis.fetch = async () => { throw new TypeError('Failed to fetch') }
+
+  await assert.rejects(createPublicChatbotSession('ceb'), (error) => {
+    assert.equal(error.code, 'API_UNREACHABLE')
+    assert.match(error.message, /Failed to fetch/i)
+    return true
+  })
 })
 
 test('TOTP setup and confirmation preserve the backend contract', async (context) => {

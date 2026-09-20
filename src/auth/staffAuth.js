@@ -11,15 +11,23 @@ function queryString(values) {
 
 async function requestJson(path, { body, headers, token, method = 'POST' } = {}) {
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers: {
-      ...(body && !isFormData ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...headers,
-    },
-    ...(body ? { body: isFormData ? body : JSON.stringify(body) } : {}),
-  })
+  let response
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers: {
+        ...(body && !isFormData ? { 'Content-Type': 'application/json' } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...headers,
+      },
+      ...(body ? { body: isFormData ? body : JSON.stringify(body) } : {}),
+    })
+  } catch (cause) {
+    const error = new Error(cause?.message || 'The GarantiyAid service could not be reached. Check the connection and try again.')
+    error.code = 'API_UNREACHABLE'
+    error.cause = cause
+    throw error
+  }
   const payload = await response.json().catch(() => null)
 
   if (!response.ok) {
