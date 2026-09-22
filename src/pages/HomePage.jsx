@@ -27,7 +27,7 @@ function BrandMark({ light = false }) {
       <img src="/GarantiyAid-logo.svg" alt="" width="64" height="64" className="size-11 shrink-0 object-contain sm:size-12" />
       <span>
         <span className="block text-lg leading-none">GarantiyAid</span>
-        <span className={`mt-1 block text-[0.68rem] font-semibold uppercase tracking-[0.12em] ${light ? 'text-blue-200' : 'text-muted-copy'}`}>Assistance operations</span>
+        <span className={`mt-1 hidden text-[0.68rem] font-semibold uppercase tracking-[0.12em] sm:block ${light ? 'text-blue-200' : 'text-muted-copy'}`}>Assistance operations</span>
       </span>
     </span>
   )
@@ -35,9 +35,8 @@ function BrandMark({ light = false }) {
 
 function HeroVisual() {
   return (
-    <figure data-motion-reveal className="relative mx-auto w-full max-w-2xl">
-      <div aria-hidden="true" className="absolute -inset-3 rounded-[1.5rem] border border-blue-100 bg-info-soft" />
-      <div className="relative overflow-hidden rounded-2xl border border-line bg-white p-2 shadow-lg">
+    <figure data-motion-reveal className="w-full max-w-[52rem] lg:justify-self-end">
+      <div className="overflow-hidden rounded-xl border border-line bg-white shadow-sm">
         <img
           src="/LandingPage.png"
           alt="Illustration of an inclusive barangay assistance desk serving older adults, families, and a wheelchair user."
@@ -46,12 +45,12 @@ function HeroVisual() {
           loading="eager"
           fetchPriority="high"
           decoding="async"
-          className="aspect-[793/496] w-full rounded-xl bg-slate-100 object-cover"
+          className="h-[clamp(18rem,46vh,31rem)] w-full bg-slate-100 object-cover"
         />
-        <figcaption className="flex flex-col gap-3 px-3 py-4 sm:flex-row sm:items-center sm:px-4">
-          <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-xl bg-success-soft text-brand-green"><Icon name="people" /></span>
+        <figcaption className="grid gap-3 border-t border-line px-5 py-4 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
+          <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center text-brand-green"><Icon name="people" /></span>
           <div className="min-w-0 flex-1"><p className="font-bold text-ink">Inclusive assistance, delivered with dignity</p><p className="mt-1 text-sm leading-5 text-muted-copy">From approved enrollment and scheduling to secure verification and auditable claims, GarantiyAid supports organized community service.</p></div>
-          <span className="inline-flex w-fit shrink-0 items-center gap-2 rounded-full border border-blue-200 bg-info-soft px-3 py-1.5 text-xs font-bold text-brand-blue"><Icon name="security" className="size-4" /> Secure workflow</span>
+          <span className="inline-flex w-fit shrink-0 items-center gap-2 text-xs font-bold text-brand-blue"><Icon name="security" className="size-4" /> Secure workflow</span>
         </figcaption>
       </div>
     </figure>
@@ -64,14 +63,14 @@ function HomePage() {
       <a href="#main-content" className="fixed left-4 top-4 z-50 -translate-y-24 rounded-lg bg-brand-navy px-4 py-3 font-bold text-white transition-transform focus:translate-y-0">Skip to content</a>
 
       <div className="border-b border-blue-900 bg-brand-navy text-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-1 px-5 py-2.5 text-sm leading-5 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <p className="flex items-center gap-2 font-bold"><Icon name="info" className="size-4 shrink-0 text-blue-200" /> Government-service capstone prototype</p>
-          <p className="text-blue-100">Not an official application, eligibility, or claim-status channel.</p>
+        <div className="ga-public-shell flex flex-col gap-1 py-2.5 text-xs leading-5 sm:flex-row sm:items-center sm:justify-between sm:text-sm">
+          <p className="flex min-w-0 items-center gap-2 font-bold"><Icon name="info" className="size-4 shrink-0 text-blue-200" /> Government-service capstone prototype</p>
+          <p className="min-w-0 text-blue-100">Not an official application, eligibility, or claim-status channel.</p>
         </div>
       </div>
 
       <header className="sticky top-0 z-40 border-b border-line bg-white/95 backdrop-blur-sm">
-        <nav aria-label="Primary navigation" className="mx-auto flex min-h-[4.75rem] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+        <nav aria-label="Primary navigation" className="ga-public-shell flex min-h-[4.75rem] items-center justify-between gap-4">
           <a href="#top" aria-label="GarantiyAid home" className="rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-blue"><BrandMark /></a>
           <div className="hidden items-center gap-6 text-sm font-semibold text-copy lg:flex">
             <a className="rounded hover:text-brand-blue focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-blue" href="#workflow">Service process</a>
@@ -79,14 +78,14 @@ function HomePage() {
             <a className="rounded hover:text-brand-blue focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-blue" href="#safeguards">Safeguards</a>
             <a className="rounded hover:text-brand-blue focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-blue" href="/privacy">Privacy</a>
           </div>
-          <a href="/login" className="ga-btn-primary min-h-11 px-4 text-sm">Staff sign in</a>
+          <a href="/login" className="ga-btn-primary min-h-11 shrink-0 px-3 text-sm sm:px-4"><span className="sm:hidden">Sign in</span><span className="hidden sm:inline">Staff sign in</span></a>
         </nav>
       </header>
 
       <main id="main-content" data-route-focus tabIndex={-1} className="outline-none">
-        <section id="top" className="ga-hero relative overflow-hidden bg-white" aria-labelledby="hero-title">
-          <div className="relative mx-auto grid max-w-7xl items-center gap-12 px-5 py-14 sm:px-6 sm:py-20 lg:grid-cols-[0.95fr_1.05fr] lg:px-8 lg:py-24">
-            <div data-motion-stagger>
+        <section id="top" className="bg-white" aria-labelledby="hero-title">
+          <div className="ga-public-shell grid items-center gap-10 py-12 sm:py-14 lg:min-h-[calc(100svh-8.25rem)] lg:grid-cols-[minmax(0,0.9fr)_minmax(32rem,1.1fr)] lg:gap-12 lg:py-10 xl:gap-16">
+            <div data-motion-stagger className="min-w-0">
               <p className="ga-eyebrow">Accountable social assistance operations</p>
               <h1 id="hero-title" className="mt-4 max-w-3xl text-4xl font-bold leading-[1.08] tracking-[-0.035em] text-ink sm:text-5xl lg:text-[3.5rem]">Deliver assistance with dignity—and a clear record at every step.</h1>
               <p className="mt-6 max-w-2xl text-lg leading-8 text-copy">GarantiyAid helps authorized staff coordinate approved enrollments, barangay schedules, secure identity checks, verified claims, and public-service oversight.</p>
@@ -103,7 +102,7 @@ function HomePage() {
         </section>
 
         <section className="border-y border-line bg-page py-8" aria-labelledby="service-guidance-title">
-          <div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-8">
+          <div className="ga-public-shell">
             <h2 id="service-guidance-title" className="sr-only">Before using GarantiyAid</h2>
             <div data-motion-stagger className="grid gap-4 lg:grid-cols-3">
               <article className="ga-card-flat flex items-start gap-4 p-5"><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-info-soft text-brand-blue"><Icon name="people" /></span><div><h3 className="font-bold text-ink">For beneficiaries</h3><p className="mt-1 text-sm leading-6 text-muted-copy">No public application or beneficiary lookup is offered here. Use your LGU or DSWD’s official assistance channels.</p></div></article>
@@ -114,7 +113,7 @@ function HomePage() {
         </section>
 
         <section id="workflow" className="scroll-mt-24 bg-white py-16 lg:py-20" aria-labelledby="workflow-title">
-          <div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-8">
+          <div className="ga-public-shell">
             <div className="max-w-3xl" data-motion-stagger>
               <p className="ga-eyebrow">Service process</p>
               <h2 id="workflow-title" className="mt-3 text-3xl font-bold tracking-tight text-ink sm:text-4xl">How an approved claim moves through the system.</h2>
@@ -136,7 +135,7 @@ function HomePage() {
         </section>
 
         <section id="roles" className="scroll-mt-24 border-y border-line bg-page py-16 lg:py-20" aria-labelledby="roles-title">
-          <div className="mx-auto grid max-w-7xl gap-10 px-5 sm:px-6 lg:grid-cols-[0.72fr_1.28fr] lg:px-8">
+          <div className="ga-public-shell grid gap-10 lg:grid-cols-[0.72fr_1.28fr]">
             <div data-motion-stagger>
               <p className="ga-eyebrow">Separation of duties</p>
               <h2 id="roles-title" className="mt-3 text-3xl font-bold tracking-tight text-ink sm:text-4xl">Clear responsibility for every staff role.</h2>
@@ -154,7 +153,7 @@ function HomePage() {
         </section>
 
         <section id="safeguards" className="scroll-mt-24 bg-brand-navy py-16 text-white lg:py-20" aria-labelledby="safeguards-title">
-          <div className="mx-auto max-w-7xl px-5 sm:px-6 lg:px-8">
+          <div className="ga-public-shell">
             <div className="max-w-3xl" data-motion-stagger>
               <p className="text-sm font-semibold text-blue-200">Accountability by design</p>
               <h2 id="safeguards-title" className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Protection is part of the service process.</h2>
@@ -173,7 +172,7 @@ function HomePage() {
         </section>
 
         <section className="bg-white py-14 lg:py-16" aria-labelledby="portal-title">
-          <div className="mx-auto max-w-5xl px-5 sm:px-6 lg:px-8">
+          <div className="ga-public-shell">
             <div className="grid gap-6 rounded-2xl border border-blue-200 bg-info-soft px-6 py-8 sm:px-8 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
               <div><p className="ga-eyebrow">Authorized staff access</p><h2 id="portal-title" className="mt-2 text-2xl font-bold text-ink sm:text-3xl">Continue to your assigned workspace.</h2><p className="mt-2 max-w-2xl text-base leading-7 text-copy">Use your issued Staff ID or username, password, and authenticator. Never share beneficiary records or access credentials through public channels.</p></div>
               <a href="/login" className="ga-btn-primary shrink-0 px-7">Staff sign in <Icon name="arrowRight" /></a>
@@ -185,11 +184,11 @@ function HomePage() {
       <BeneficiaryHelpChat />
 
       <footer className="border-t border-white/10 bg-brand-navy text-slate-300">
-        <div className="mx-auto flex max-w-7xl flex-col gap-8 px-5 py-10 sm:px-6 md:flex-row md:items-start md:justify-between lg:px-8">
+        <div className="ga-public-shell flex flex-col gap-8 py-10 md:flex-row md:items-start md:justify-between">
           <div><BrandMark light /><p className="mt-4 max-w-lg text-sm leading-6">A government-service capstone prototype for clearer, safer, and more accountable social assistance operations. Not an official DSWD website or public assistance channel.</p></div>
           <nav aria-label="Footer navigation" className="flex flex-wrap gap-x-7 gap-y-3 text-sm"><a className="rounded hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white" href="#workflow">Service process</a><a className="rounded hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white" href="#safeguards">Safeguards</a><a className="rounded hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white" href="/privacy">Privacy notice</a></nav>
         </div>
-        <div className="border-t border-white/10 px-5 py-5 text-center text-xs text-slate-400">&copy; {new Date().getFullYear()} GarantiyAid · Government-service capstone prototype</div>
+        <div className="ga-public-shell border-t border-white/10 py-5 text-left text-xs text-slate-400">&copy; {new Date().getFullYear()} GarantiyAid · Government-service capstone prototype</div>
       </footer>
     </>
   )

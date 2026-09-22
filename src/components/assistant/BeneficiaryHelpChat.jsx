@@ -11,6 +11,8 @@ const COPY = {
     prompts: ['What is GarantiyAid and how do I apply?', 'What documents may be required?', 'How does the claim process work?', 'I need staff assistance'],
     placeholder: 'Ask a general assistance question...',
     unavailable: 'GarantiyAid Help cannot connect to the service. Check your connection, then try again.',
+    redacted: 'Sensitive-looking information was removed before your message was saved.',
+    referred: 'This question was referred for staff follow-up. Do not add personal identifiers here.',
   },
   fil: {
     label: 'Filipino',
@@ -18,6 +20,8 @@ const COPY = {
     prompts: ['Ano ang GarantiyAid at paano ako mag-a-apply?', 'Anong dokumento ang maaaring kailanganin?', 'Paano ang proseso ng pag-claim?', 'Kailangan ko ng tulong ng staff'],
     placeholder: 'Magtanong tungkol sa pangkalahatang serbisyo...',
     unavailable: 'Hindi makakonekta ang GarantiyAid Help sa serbisyo. Suriin ang koneksyon at subukan muli.',
+    redacted: 'Inalis ang mukhang sensitibong impormasyon bago na-save ang mensahe.',
+    referred: 'Ipinasa ang tanong na ito para sa follow-up ng staff. Huwag maglagay ng personal na identifier dito.',
   },
   ceb: {
     label: 'Cebuano',
@@ -25,6 +29,8 @@ const COPY = {
     prompts: ['Unsa ang GarantiyAid ug unsaon pag-apply?', 'Unsang dokumento ang posibleng kinahanglan?', 'Unsaon ang claim process?', 'Kinahanglan ko og tabang sa staff'],
     placeholder: 'Pangutana bahin sa kinatibuk-ang serbisyo...',
     unavailable: 'Dili makakonekta ang GarantiyAid Help sa serbisyo. Susiha ang koneksyon ug sulayi pag-usab.',
+    redacted: 'Gitangtang ang posibleng sensitibong impormasyon sa wala pa gitipigan ang mensahe.',
+    referred: 'Gipasa kini nga pangutana alang sa follow-up sa staff. Ayaw pagbutang og personal nga identifier dinhi.',
   },
 }
 
@@ -100,8 +106,8 @@ function BeneficiaryHelpChat() {
       setMessages((current) => [...current, data.userMessage, data.botMessage])
       setExternalAiUsed((current) => current || data.externalAiUsed === true)
       setInput('')
-      if (data.inputRedacted) setNotice('Sensitive-looking information was removed before your message was saved.')
-      else if (data.escalatedNow) setNotice('This question was referred for safe staff follow-up. Do not add personal identifiers here.')
+      if (data.inputRedacted) setNotice(copy.redacted)
+      else if (data.escalatedNow) setNotice(copy.referred)
     } catch (requestError) {
       setError(requestError.code === 'API_UNREACHABLE' ? copy.unavailable : requestError.message || copy.unavailable)
     } finally {

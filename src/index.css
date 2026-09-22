@@ -84,6 +84,13 @@ p {
 }
 
 @layer components {
+  .ga-public-shell {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    padding-inline: clamp(1.25rem, 4vw, 5rem);
+  }
+
   .ga-staff-shell {
     --sidebar-duration: 280ms;
     --sidebar-ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -292,34 +299,6 @@ p {
     content: " *";
     color: var(--color-brand-red);
   }
-}
-
-.ga-hero::before {
-  position: absolute;
-  inset: 0;
-  content: "";
-  pointer-events: none;
-  background-image:
-    linear-gradient(rgb(10 92 168 / 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(10 92 168 / 0.045) 1px, transparent 1px);
-  background-size: 40px 40px;
-  mask-image: linear-gradient(to bottom right, black, transparent 66%);
-}
-
-.ga-hero::after {
-  position: absolute;
-  top: -12rem;
-  right: -9rem;
-  width: 34rem;
-  height: 34rem;
-  border-radius: 9999px;
-  content: "";
-  pointer-events: none;
-  background: radial-gradient(circle, rgb(10 92 168 / 0.1), transparent 68%);
-}
-
-.ga-hero-visual {
-  filter: drop-shadow(0 28px 46px rgb(15 35 60 / 0.12));
 }
 
 .ga-dashboard-ready {

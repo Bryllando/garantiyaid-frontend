@@ -1,13 +1,88 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title description">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
   <title id="title">GarantiyAid</title>
-  <desc id="description">A shield containing a beneficiary identity card and verification check.</desc>
-  <path d="M32 3 56 12v18c0 14.6-9.2 25.4-24 31C17.2 55.4 8 44.6 8 30V12L32 3Z" fill="#06264d"/>
-  <path d="M32 7 52 14.5V30c0 12-7.1 21.3-20 26.7C19.1 51.3 12 42 12 30V14.5L32 7Z" fill="none" stroke="#60a5fa" stroke-width="2"/>
-  <rect x="17" y="19" width="30" height="22" rx="4" fill="#fff"/>
-  <path d="M17 23a4 4 0 0 1 4-4h22a4 4 0 0 1 4 4v2H17v-2Z" fill="#0a5ca8"/>
-  <circle cx="25" cy="31" r="3.5" fill="#0a5ca8"/>
-  <path d="M20.5 38c.4-3.2 2-5 4.5-5s4.1 1.8 4.5 5h-9Z" fill="#0a5ca8"/>
-  <path d="M33 30h8M33 34h6" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"/>
-  <circle cx="44" cy="43" r="9" fill="#087a5b" stroke="#fff" stroke-width="2"/>
-  <path d="m39.8 43 2.8 2.8 5.5-6" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <desc id="description">Gold-edged civic shield with a beneficiary identity card, fingerprint, and verified check seal.</desc>
+  <defs>
+    <linearGradient id="gold" x1="64" y1="68" x2="448" y2="448" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff0a8"/>
+      <stop offset="0.48" stop-color="#f6c646"/>
+      <stop offset="1" stop-color="#c88608"/>
+    </linearGradient>
+    <linearGradient id="shieldBlue" x1="256" y1="45" x2="454" y2="410" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2d5ca8"/>
+      <stop offset="1" stop-color="#0d3578"/>
+    </linearGradient>
+    <linearGradient id="cardBlue" x1="100" y1="137" x2="428" y2="184" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1f66ee"/>
+      <stop offset="1" stop-color="#1858d5"/>
+    </linearGradient>
+    <radialGradient id="sealBlue" cx="42%" cy="32%" r="70%">
+      <stop stop-color="#2b61b2"/>
+      <stop offset="1" stop-color="#08285d"/>
+    </radialGradient>
+    <clipPath id="innerShield">
+      <path d="M256 42 449 115v137c0 105-70 184-193 227C133 436 63 357 63 252V115L256 42Z"/>
+    </clipPath>
+    <clipPath id="cardClip">
+      <rect x="87" y="137" width="344" height="220" rx="27"/>
+    </clipPath>
+    <filter id="softShadow" x="-25%" y="-25%" width="150%" height="165%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="9" stdDeviation="9" flood-color="#031a3d" flood-opacity=".25"/>
+    </filter>
+  </defs>
+
+  <path d="M256 18 459 95c10 4 16 13 16 24v133c0 121-83 211-219 255C120 463 37 373 37 252V119c0-11 6-20 16-24L256 18Z" fill="url(#gold)"/>
+  <path d="M256 39 451 113v139c0 108-73 190-195 233C134 442 61 360 61 252V113L256 39Z" fill="#0a2b62"/>
+  <g clip-path="url(#innerShield)">
+    <rect x="256" y="29" width="220" height="470" fill="url(#shieldBlue)"/>
+    <path d="M256 39v446" stroke="#4b7bc0" stroke-width="3" opacity=".55"/>
+  </g>
+  <path d="M256 53 440 122v130c0 98-65 171-184 214C137 423 72 350 72 252V122L256 53Z" fill="none" stroke="#e7cf82" stroke-width="4" opacity=".88"/>
+
+  <g transform="rotate(-5 259 247)" filter="url(#softShadow)">
+    <rect x="87" y="137" width="344" height="220" rx="27" fill="#f4f8ff" stroke="#b9cef0" stroke-width="5"/>
+    <g clip-path="url(#cardClip)">
+      <rect x="87" y="137" width="344" height="58" fill="url(#cardBlue)"/>
+      <rect x="87" y="195" width="344" height="162" fill="#f4f8ff"/>
+      <path d="M87 326c76 37 181 36 344-17v48H87v-31Z" fill="#d8e7fb" opacity=".8"/>
+    </g>
+    <circle cx="117" cy="165" r="8" fill="#f8b400"/>
+
+    <circle cx="153" cy="236" r="30" fill="#2165eb"/>
+    <path d="M105 318c0-43 21-70 48-70s48 27 48 70c0 12-8 19-20 19h-56c-12 0-20-7-20-19Z" fill="#2165eb"/>
+
+    <path d="M236 274h91" fill="none" stroke="#89a8d2" stroke-width="12" stroke-linecap="round"/>
+    <path d="M236 305h72" fill="none" stroke="#a9bedc" stroke-width="10" stroke-linecap="round"/>
+    <path d="M236 334h54" fill="none" stroke="#c3d3e9" stroke-width="10" stroke-linecap="round"/>
+
+    <g fill="none" stroke="#5596df" stroke-linecap="round">
+      <path d="M318 215c0-34 25-59 58-59 20 0 37 8 49 23" stroke-width="8"/>
+      <path d="M335 220c0-24 17-42 41-42 23 0 40 18 40 42" stroke-width="7"/>
+      <path d="M350 223v29" stroke-width="8"/>
+      <path d="M375 208v63" stroke-width="8"/>
+      <path d="M399 221v25" stroke-width="8"/>
+      <path d="M328 229v39" stroke-width="7"/>
+      <path d="M352 270v11" stroke-width="7"/>
+      <path d="M396 261v14" stroke-width="7"/>
+      <path d="M424 207v38" stroke-width="7"/>
+    </g>
+    <path d="M89 335c55-38 111 0 165-9 56-9 73-49 123-41" fill="none" stroke="#f4b400" stroke-width="7" stroke-linecap="round"/>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <circle cx="360" cy="345" r="85" fill="#d09113"/>
+    <circle cx="360" cy="345" r="69" fill="#fff0a4"/>
+    <circle cx="360" cy="345" r="60" fill="url(#sealBlue)"/>
+    <circle cx="360" cy="345" r="48" fill="none" stroke="#d8aa2f" stroke-width="4"/>
+    <g fill="#ffe790">
+      <circle cx="360" cy="269" r="5"/>
+      <circle cx="414" cy="291" r="5"/>
+      <circle cx="436" cy="345" r="5"/>
+      <circle cx="414" cy="399" r="5"/>
+      <circle cx="360" cy="421" r="5"/>
+      <circle cx="306" cy="399" r="5"/>
+      <circle cx="284" cy="345" r="5"/>
+      <circle cx="306" cy="291" r="5"/>
+    </g>
+    <path d="m326 347 22 22 47-52" fill="none" stroke="#ffd050" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
 </svg>
