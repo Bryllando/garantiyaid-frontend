@@ -1,4 +1,5 @@
-import { Component } from 'react'
+import { Component, useEffect, useRef } from 'react'
+import { Icon } from '../components/ui/icon.jsx'
 
 function Brand() {
   return (
@@ -9,33 +10,41 @@ function Brand() {
   )
 }
 
-function PublicPageShell({ children, wide = false }) {
+function PublicPageShell({ children, wide = false, showLoginLink = true, notice = false }) {
   return (
     <div className="flex min-h-[100dvh] flex-col bg-page text-ink">
       <a href="#main-content" className="fixed left-4 top-4 z-50 -translate-y-20 rounded-lg bg-brand-navy px-4 py-2 font-semibold text-white transition-transform focus:translate-y-0">Skip to content</a>
       <header className="border-b border-line bg-white">
         <nav aria-label="Public navigation" className="mx-auto flex h-18 w-full max-w-7xl items-center justify-between gap-4 px-5 sm:px-6 lg:px-8">
           <a href="/" aria-label="GarantiyAid home" className="rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-blue"><Brand /></a>
-          <a href="/login" className="inline-flex min-h-11 items-center rounded-lg bg-brand-blue px-4 text-sm font-bold text-white hover:bg-brand-blue-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">Staff Login</a>
+          {showLoginLink ? <a href="/login" className="inline-flex min-h-11 items-center rounded-lg bg-brand-blue px-4 text-sm font-bold text-white hover:bg-brand-blue-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">Staff Login</a> : <span className="text-sm text-copy">Staff portal</span>}
         </nav>
       </header>
-      <main id="main-content" data-route-focus tabIndex={-1} className={`mx-auto w-full flex-1 px-5 py-10 outline-none sm:px-6 sm:py-14 lg:px-8 ${wide ? 'max-w-5xl' : 'grid max-w-2xl place-items-center'}`}>{children}</main>
-      <footer className="border-t border-line bg-white"><div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-5 py-6 text-xs text-muted-copy sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8"><p>&copy; {new Date().getFullYear()} GarantiyAid. Government-service capstone prototype.</p><div className="flex gap-5"><a href="/privacy" className="font-semibold text-brand-blue hover:text-brand-blue-hover">Privacy Notice</a><a href="/" className="font-semibold text-brand-blue hover:text-brand-blue-hover">Public Home</a></div></div></footer>
+      <main id="main-content" data-route-focus tabIndex={-1} className={`mx-auto w-full flex-1 px-5 py-10 outline-none sm:px-6 sm:py-14 lg:px-8 ${wide ? 'max-w-5xl' : notice ? 'max-w-4xl' : 'grid max-w-2xl place-items-center'}`}>{children}</main>
+      <footer className="border-t border-line bg-white"><div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-5 py-5 text-xs text-copy sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8"><p>&copy; {new Date().getFullYear()} GarantiyAid. Government-service capstone prototype.</p><div className="flex flex-wrap gap-x-5"><a href="/privacy" className="inline-flex min-h-11 items-center font-semibold text-brand-blue underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">Privacy Notice</a><a href="/" className="inline-flex min-h-11 items-center font-semibold text-brand-blue underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">Home page</a></div></div></footer>
     </div>
   )
 }
 
-function StatusCard({ alert = false, code, eyebrow, title, description, primary, secondary, children }) {
+function ServiceNotice({ title, description, primary, secondary, help, helpTitle = 'Need assistance?', icon = 'info', error = false, children }) {
+  const headingRef = useRef(null)
+  useEffect(() => { headingRef.current?.focus() }, [])
+
   return (
-    <section role={alert ? 'alert' : undefined} className="ga-card w-full p-6 text-center sm:p-9" aria-labelledby="status-page-title">
-      <span aria-hidden="true" className="mx-auto grid min-h-14 min-w-14 place-items-center rounded-xl border border-amber-200 bg-warning-soft px-3 text-lg font-black tracking-tight text-brand-amber">{code}</span>
-      <p className="mt-5 text-xs font-bold uppercase tracking-[0.14em] text-brand-amber">{eyebrow}</p>
-      <h1 id="status-page-title" className="mt-2 text-3xl font-bold tracking-tight text-ink sm:text-4xl">{title}</h1>
-      <p className="mx-auto mt-3 max-w-lg text-base leading-7 text-muted-copy">{description}</p>
-      {children}
-      <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:justify-center">
-        {primary}
-        {secondary}
+    <section className="w-full rounded-sm border border-line border-t-4 border-t-brand-navy bg-white text-left" aria-labelledby="status-page-title">
+      <div className="p-5 sm:p-8">
+        <div className="flex items-center gap-2.5 text-sm font-semibold text-copy"><Icon name={icon} className={`size-5 shrink-0 ${error ? 'text-brand-red' : 'text-brand-navy'}`} />Service notice</div>
+        <h1 id="status-page-title" ref={headingRef} tabIndex={-1} aria-describedby="status-page-description" className="mt-4 text-2xl font-semibold leading-tight text-ink outline-none sm:text-[1.75rem]">{title}</h1>
+        <p id="status-page-description" className="mt-3 max-w-2xl text-base leading-7 text-copy">{description}</p>
+        {children}
+        <div className="mt-7 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-6">
+          {primary}
+          {secondary}
+        </div>
+      </div>
+      <div className="border-t border-line bg-slate-50 px-5 py-5 sm:px-8">
+        <h2 className="text-sm font-semibold text-ink">{helpTitle}</h2>
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-copy">{help}</p>
       </div>
     </section>
   )
@@ -43,34 +52,34 @@ function StatusCard({ alert = false, code, eyebrow, title, description, primary,
 
 const primaryLink = 'ga-btn-primary px-6'
 const secondaryLink = 'ga-btn-secondary px-6'
+const noticeAction = 'inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-sm bg-brand-blue px-6 py-3 text-base font-semibold text-white hover:bg-brand-blue-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue sm:w-auto'
+const noticeLink = 'inline-flex min-h-11 items-center text-sm font-semibold text-brand-blue underline underline-offset-4 hover:text-brand-blue-hover focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-blue'
 
 export function SessionExpiredPage({ onLogin }) {
   return (
-    <PublicPageShell>
-      <StatusCard
-        code="SEC"
-        eyebrow="Secure session ended"
-        title="Sign in again to continue"
-        description="Your staff session is no longer available. This can happen after expiration, logout, session revocation, or an administrator security reset."
-        primary={<button type="button" onClick={onLogin} className={`${primaryLink} cursor-pointer`}>Return to Staff Login</button>}
-        secondary={<a href="/" className={secondaryLink}>Public Home</a>}
-      >
-        <div className="mt-6 rounded-lg border border-blue-200 bg-info-soft p-4 text-left text-sm leading-6 text-copy"><strong className="text-ink">Your protected access is closed.</strong> Re-enter your password and authenticator code to start a new verified session.</div>
-      </StatusCard>
+    <PublicPageShell notice showLoginLink={false}>
+      <ServiceNotice
+        icon="lock"
+        title="Your session has ended"
+        description="Sign in again to access staff records and services."
+        primary={<button type="button" onClick={onLogin} className={noticeAction}>Sign in again</button>}
+        secondary={<a href="/" className={noticeLink}>Return to home page</a>}
+        help="If you cannot sign in, contact your office’s System Administrator for account assistance."
+      />
     </PublicPageShell>
   )
 }
 
 export function NotFoundPage() {
   return (
-    <PublicPageShell>
-      <StatusCard
-        code="404"
-        eyebrow="Page not found"
-        title="This page is not available"
-        description="The address may be incorrect, the page may have moved, or your saved link may be outdated."
-        primary={<a href="/" className={primaryLink}>Return to Public Home</a>}
-        secondary={<a href="/login" className={secondaryLink}>Open Staff Login</a>}
+    <PublicPageShell notice showLoginLink={false}>
+      <ServiceNotice
+        title="Page not found"
+        description="Check the address for typing errors, or return to the home page to find the service you need."
+        primary={<a href="/" className={noticeAction}>Return to home page</a>}
+        secondary={<a href="/login" className={noticeLink}>Staff sign in</a>}
+        help="If you followed a link from GarantiyAid, give your office’s System Administrator the address of the page containing that link."
+        helpTitle="Report a broken link"
       />
     </PublicPageShell>
   )
@@ -78,16 +87,21 @@ export function NotFoundPage() {
 
 export function UnexpectedErrorPage({ onRetry = () => window.location.reload() }) {
   return (
-    <PublicPageShell>
-      <StatusCard
-        alert
-        code="ERR"
-        eyebrow="Unexpected application error"
-        title="GarantiyAid could not display this page"
-        description="Your data was not intentionally changed by this screen. Reload the application, or return to the public home page if the problem continues."
-        primary={<button type="button" onClick={onRetry} className={`${primaryLink} cursor-pointer`}>Reload application</button>}
-        secondary={<a href="/" className={secondaryLink}>Public Home</a>}
-      />
+    <PublicPageShell notice showLoginLink={false}>
+      <ServiceNotice
+        error
+        title="Unable to display this page"
+        description="Reload the page to try again. Unsaved changes may be lost."
+        primary={<button type="button" onClick={onRetry} className={noticeAction}><Icon name="reset" />Reload page</button>}
+        secondary={<a href="/" className={noticeLink}>Return to home page</a>}
+        helpTitle="If the problem continues"
+        help="Contact your office’s System Administrator. Include the page you were using and what you were trying to do."
+      >
+        <div className="mt-6 border-l-2 border-line pl-4">
+          <h2 className="text-sm font-semibold text-ink">Check your last action</h2>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-copy">If you were saving a record or starting an import, check its status after reloading before submitting it again.</p>
+        </div>
+      </ServiceNotice>
     </PublicPageShell>
   )
 }

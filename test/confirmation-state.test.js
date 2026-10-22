@@ -44,7 +44,12 @@ test('confirmation HTTP retries reuse the server approval in header and body', a
   })
   const approvalId = '11111111-1111-4111-8111-111111111111'
   const payload = { title: 'Reviewed' }
-  await assert.rejects(confirmAssistantDistribution('test-token', payload, approvalId), /Response lost/)
+  await assert.rejects(confirmAssistantDistribution('test-token', payload, approvalId), (error) => {
+    assert.equal(error.code, 'API_UNREACHABLE')
+    assert.equal(error.cause.message, 'Response lost')
+    assert.equal(uncertainConfirmation(error), true)
+    return true
+  })
   await confirmAssistantDistribution('test-token', payload, approvalId)
   assert.deepEqual(calls[0], calls[1])
   assert.equal(calls[1].headers['Idempotency-Key'], approvalId)

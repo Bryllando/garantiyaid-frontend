@@ -26,6 +26,7 @@ import {
   generateDistributionSchedules,
   generateDistributionSlots,
   getDashboardNavigation,
+  getAuthErrorMessage,
   getLoginOutcome,
   issueClaimReceipt,
   isSessionExpiredError,
@@ -34,6 +35,7 @@ import {
   markStaffNotificationRead,
   openDistribution,
   previewDistributionQrClaim,
+  previewScheduleNotification,
   programCriterionExpectedValue,
   requestAuditLogs,
   requestBarangayList,
@@ -60,6 +62,9 @@ import {
   requestNotificationList,
   requestNotificationQueueHealth,
   requestNotificationSummary,
+  requestChatbotHistory,
+  requestChatbotEscalations,
+  requestChatbotConversation,
   requestServerTimestamp,
   requestStaffNotifications,
   requestOpenDistributions,
@@ -68,6 +73,7 @@ import {
   reactivateDistributionSchedule,
   rescheduleDistributionSchedule,
   requestStaffLogout,
+  requestStaffLogin,
   requestStaffUserList,
   requestStaffUsers,
   requestTotpSetup,
@@ -86,6 +92,10 @@ import {
   reverseBenefitCredit,
   revokeBiometricConsent,
   retryNotification,
+  replyToChatbotEscalation,
+  resolveChatbotEscalation,
+  referChatbotEscalation,
+  enqueueScheduleNotification,
   saveBiometricEnrollment,
   startEnrollmentReview,
   startOwnTotpReplacement,
@@ -98,11 +108,17 @@ import {
   verifyBiometricClaim,
 } from '../src/auth/staffAuth.js'
 import {
+  connectFacilitatorQueueRealtime,
+  connectChatbotRealtime,
   connectNotificationRealtime,
+  connectOverviewRealtime,
   connectStaffNotificationRealtime,
   connectStaffRealtime,
   DSWD_LIVE_EVENTS,
+  CHATBOT_LIVE_EVENTS,
+  FACILITATOR_QUEUE_LIVE_EVENTS,
   NOTIFICATION_LIVE_EVENTS,
+  OVERVIEW_LIVE_EVENTS,
   realtimeServerUrl,
   STAFF_NOTIFICATION_LIVE_EVENTS,
 } from '../src/realtime/staffRealtime.js'
@@ -122,7 +138,45 @@ test('public help converts browser network failures into a controlled service er
 
   await assert.rejects(createPublicChatbotSession('ceb'), (error) => {
     assert.equal(error.code, 'API_UNREACHABLE')
-    assert.match(error.message, /Failed to fetch/i)
+    assert.match(error.message, /Unable to connect to GarantiyAid/)
+    assert.equal(error.cause.message, 'Failed to fetch')
+    return true
+  })
+})
+
+test('login network failures show connection guidance without blaming credentials or retrying the login', async (context) => {
+  const originalFetch = globalThis.fetch
+  context.after(() => { globalThis.fetch = originalFetch })
+  let calls = 0
+  globalThis.fetch = async () => {
+    calls += 1
+    throw new TypeError('Failed to fetch')
+  }
+
+  await assert.rejects(requestStaffLogin({ identifier: 'test.staff', password: 'test-only-password' }), (error) => {
+    assert.equal(error.code, 'API_UNREACHABLE')
+    assert.match(getAuthErrorMessage(error), /Unable to connect to GarantiyAid/)
+    assert.doesNotMatch(getAuthErrorMessage(error), /Failed to fetch|password|backend is running/i)
+    assert.equal(error.cause.message, 'Failed to fetch')
+    return true
+  })
+  assert.equal(calls, 1)
+  assert.match(getAuthErrorMessage(new TypeError('NetworkError')), /Unable to connect to GarantiyAid/)
+})
+
+test('login API responses preserve authentication errors instead of treating them as a connection failure', async (context) => {
+  const originalFetch = globalThis.fetch
+  context.after(() => { globalThis.fetch = originalFetch })
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 401,
+    json: async () => ({ error: { code: 'INVALID_CREDENTIALS', message: 'Invalid staff credentials.' } }),
+  })
+
+  await assert.rejects(requestStaffLogin({ identifier: 'test.staff', password: 'test-only-password' }), (error) => {
+    assert.equal(error.status, 401)
+    assert.equal(error.code, 'INVALID_CREDENTIALS')
+    assert.equal(getAuthErrorMessage(error), 'Invalid staff credentials.')
     return true
   })
 })
@@ -195,31 +249,26 @@ test('dashboard navigation is limited to the signed-in staff role', () => {
   const adminLabels = getDashboardNavigation('SYSTEM_ADMIN').map(({ label }) => label)
   const dswdLabels = getDashboardNavigation('DSWD_STAFF').map(({ label }) => label)
   const facilitatorLabels = getDashboardNavigation('BARANGAY_FACILITATOR').map(({ label }) => label)
+  const linksFor = (role) => getDashboardNavigation(role).flatMap((item) => item.children ?? [item]).filter((item) => item.href)
+  const dswdLinks = linksFor('DSWD_STAFF')
+  const facilitatorLinks = linksFor('BARANGAY_FACILITATOR')
 
-  assert.ok(adminLabels.includes('Staff & barangays'))
-  assert.ok(adminLabels.includes('Authenticator recovery'))
-  assert.ok(adminLabels.includes('Distribution setup'))
-  assert.ok(adminLabels.includes('Beneficiaries'))
-  assert.ok(dswdLabels.includes('Ledger'))
-  assert.ok(dswdLabels.includes('Enrollment review'))
-  assert.ok(dswdLabels.includes('Assistance programs'))
-  assert.ok(adminLabels.includes('Assistance programs'))
-  assert.ok(facilitatorLabels.includes('Assistance programs'))
-  assert.ok(adminLabels.includes('SMS delivery'))
-  assert.ok(adminLabels.includes('Claim settlement'))
-  assert.ok(dswdLabels.includes('SMS delivery'))
-  assert.ok(facilitatorLabels.includes('SMS delivery'))
-  assert.equal(getDashboardNavigation('DSWD_STAFF').find(({ label }) => label === 'Live monitoring').href, '/dswd/live-dashboard')
-  assert.equal(getDashboardNavigation('DSWD_STAFF').find(({ label }) => label === 'Ledger').href, '/dswd/ledger')
-  assert.equal(getDashboardNavigation('DSWD_STAFF').find(({ label }) => label === 'Reports').href, '/reports')
-  assert.equal(getDashboardNavigation('SYSTEM_ADMIN').find(({ label }) => label === 'Audit logs').href, '/audit-logs')
+  assert.deepEqual(adminLabels, ['Overview', 'Beneficiaries', 'Assistance programs', 'Distributions', 'Transactions', 'Reports and audit', 'Notifications and help', 'Administration', 'Staff Assistant'])
+  assert.deepEqual(getDashboardNavigation('SYSTEM_ADMIN').find(({ label }) => label === 'Administration').children.map(({ label }) => label), ['Staff and barangays', 'Authenticator recovery'])
+  assert.deepEqual(getDashboardNavigation('SYSTEM_ADMIN').find(({ label }) => label === 'Beneficiaries').children.map(({ label }) => label), ['Beneficiary records', 'Enrollment review', 'Biometric records'])
+  assert.deepEqual(getDashboardNavigation('SYSTEM_ADMIN').find(({ label }) => label === 'Reports and audit').children.map(({ label }) => label), ['Reports', 'Audit logs'])
+  assert.deepEqual(getDashboardNavigation('SYSTEM_ADMIN').find(({ label }) => label === 'Distributions').children.map(({ label }) => label), ['Distribution events', 'Live monitoring', 'Claims and receipts'])
+  assert.ok(!linksFor('SYSTEM_ADMIN').some(({ href }) => href === '/service-review'))
+  assert.deepEqual(dswdLabels, ['Overview', 'Programs & enrollment', 'Identity & claims', 'Distribution & funds', 'Reports & review', 'Notifications & support', 'Staff Assistant'])
+  assert.deepEqual(facilitatorLabels, ['Overview', 'Beneficiary services', 'Distribution day', 'Notifications & support', 'Staff Assistant'])
+  for (const label of ['Ledger', 'Enrollment review', 'Assistance programs', 'SMS delivery', 'Claim accountability', 'Help cases']) assert.ok(dswdLinks.some((item) => item.label === label))
+  for (const label of ['Assistance programs', 'SMS delivery', 'QR verification', 'Enrollments', 'Claim accountability', 'Help cases']) assert.ok(facilitatorLinks.some((item) => item.label === label))
+  assert.equal(dswdLinks.find(({ label }) => label === 'Live monitoring').href, '/dswd/live-dashboard')
+  assert.equal(dswdLinks.find(({ label }) => label === 'Ledger').href, '/dswd/ledger')
+  assert.equal(dswdLinks.find(({ label }) => label === 'Reports').href, '/reports')
+  assert.equal(getDashboardNavigation('SYSTEM_ADMIN').find(({ label }) => label === 'Transactions').href, '/dswd/ledger')
   assert.ok(!dswdLabels.includes('Staff & barangays'))
-  assert.ok(facilitatorLabels.includes('QR verification'))
-  assert.ok(facilitatorLabels.includes('Enrollments'))
-  assert.ok(adminLabels.includes('Claim accountability'))
-  assert.ok(dswdLabels.includes('Claim accountability'))
-  assert.ok(facilitatorLabels.includes('Claim accountability'))
-  assert.ok(!facilitatorLabels.includes('Audit logs'))
+  assert.ok(!facilitatorLinks.some((item) => item.label === 'Audit logs'))
   assert.deepEqual(getDashboardNavigation('UNKNOWN_ROLE'), [])
 })
 
@@ -693,11 +742,46 @@ test('DSWD realtime client authenticates once and forwards subscribed events', (
   assert.equal(realtimeServerUrl('https://api.example.gov/api/v1'), 'https://api.example.gov')
   assert.equal(socketUrl, 'http://localhost:4000')
   assert.deepEqual(socketOptions.auth, { accessToken: 'dswd-token' })
+  assert.equal(socketOptions.reconnection, true)
+  assert.equal(DSWD_LIVE_EVENTS.includes('claim.released'), true)
   assert.deepEqual(Object.keys(listeners).filter((event) => DSWD_LIVE_EVENTS.includes(event)), [...DSWD_LIVE_EVENTS])
   listeners['dashboard.metrics.updated']({ distributionId: 'distribution-1' })
   assert.deepEqual(updates, [['dashboard.metrics.updated', { distributionId: 'distribution-1' }]])
   stop()
   assert.equal(disconnected, true)
+})
+
+test('overview and facilitator queue listen only to their relevant live events and clean up', () => {
+  const listeners = []
+  let disconnectCount = 0
+  const createSocket = () => {
+    const handlers = {}
+    listeners.push(handlers)
+    return {
+      on(eventName, handler) { handlers[eventName] = handler; return this },
+      disconnect() { disconnectCount += 1 },
+    }
+  }
+  const received = []
+  const stopOverview = connectOverviewRealtime('admin-token', {
+    onReady: () => received.push('ready'),
+    onUpdate: (event) => received.push(event),
+  }, createSocket)
+  const stopQueue = connectFacilitatorQueueRealtime('facilitator-token', {
+    onUpdate: (event, payload) => received.push(`${event}:${payload.distributionId}`),
+  }, createSocket)
+
+  assert.deepEqual(Object.keys(listeners[0]).filter((event) => OVERVIEW_LIVE_EVENTS.includes(event)), [...OVERVIEW_LIVE_EVENTS])
+  assert.deepEqual(Object.keys(listeners[1]).filter((event) => FACILITATOR_QUEUE_LIVE_EVENTS.includes(event)), [...FACILITATOR_QUEUE_LIVE_EVENTS])
+  assert.equal(Object.hasOwn(listeners[1], 'wallet.transaction.completed'), false)
+  listeners[0]['realtime.ready']({ connected: true })
+  listeners[0]['realtime.ready']({ connected: true })
+  listeners[0]['dashboard.metrics.updated']({ distributionId: 'event-1' })
+  listeners[1]['claim.released']({ distributionId: 'event-1' })
+  assert.deepEqual(received, ['ready', 'ready', 'dashboard.metrics.updated', 'claim.released:event-1'])
+  stopOverview()
+  stopQueue()
+  assert.equal(disconnectCount, 2)
 })
 
 test('notification realtime client subscribes only to delivery lifecycle events', () => {
@@ -716,6 +800,19 @@ test('notification realtime client subscribes only to delivery lifecycle events'
   listeners['notification.sent']({ notificationId: 'notification-1', status: 'SENT' })
   assert.deepEqual(updates, [['notification.sent', { notificationId: 'notification-1', status: 'SENT' }]])
   stop()
+})
+
+test('help cases subscribe to conversation lifecycle updates and disconnect on cleanup', () => {
+  const listeners = {}
+  let disconnected = false
+  const stop = connectChatbotRealtime('staff-token', {}, () => ({
+    on(eventName, handler) { listeners[eventName] = handler; return this },
+    disconnect() { disconnected = true },
+  }))
+  assert.deepEqual(Object.keys(listeners).filter((event) => CHATBOT_LIVE_EVENTS.includes(event)), [...CHATBOT_LIVE_EVENTS])
+  assert.equal(Object.hasOwn(listeners, 'notification.sent'), false)
+  stop()
+  assert.equal(disconnected, true)
 })
 
 test('personal staff inbox uses its own API and user-targeted realtime event', async (context) => {
@@ -910,4 +1007,41 @@ test('physical release preserves evidence and idempotency contracts', async (con
   assert.equal(requests[0].options.headers.Authorization, 'Bearer facilitator-token')
   assert.equal(requests[0].options.headers['Idempotency-Key'], '11111111-1111-4111-8111-111111111111')
   assert.deepEqual(JSON.parse(requests[0].options.body), evidence)
+})
+
+test('help cases and schedule messages use the scoped staff endpoints', async (context) => {
+  const originalFetch = globalThis.fetch
+  const requests = []
+  context.after(() => { globalThis.fetch = originalFetch })
+  const responses = [
+    { escalations: [], pagination: {} },
+    { conversations: [], pagination: {} },
+    { session: {}, messages: [] },
+    { session: {}, message: {} },
+    { session: {} },
+    { session: { beneficiary: {} } },
+    { scheduleId: 'schedule-1', message: 'Approved message', recipientAvailable: true, previewHash: 'a'.repeat(64) },
+    { notifications: [], queuedCount: 1 },
+  ]
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options })
+    return { ok: true, json: async () => ({ data: responses[requests.length - 1] }) }
+  }
+  await requestChatbotEscalations('staff-token', { status: 'ESCALATED' })
+  await requestChatbotHistory('staff-token', { page: 2 })
+  await requestChatbotConversation('staff-token', 'session-1', true)
+  await replyToChatbotEscalation('staff-token', 'session-1', 'Please visit the assigned office.')
+  await resolveChatbotEscalation('staff-token', 'session-1', 'ANSWERED')
+  await referChatbotEscalation('staff-token', 'session-1', { beneficiaryId: 'beneficiary-1', verificationMethod: 'IN_PERSON_AT_OFFICE', identityVerified: true })
+  await previewScheduleNotification('staff-token', 'schedule-1', 'SCHEDULE_CREATED')
+  await enqueueScheduleNotification('staff-token', 'schedule-1', 'SCHEDULE_CREATED', 'a'.repeat(64), 'request-1')
+  assert.match(requests[0].url, /\/chatbot\/escalations\?status=ESCALATED$/)
+  assert.match(requests[1].url, /\/chatbot\/history\?page=2$/)
+  assert.match(requests[2].url, /\/chatbot\/history\/session-1$/)
+  assert.match(requests[5].url, /\/chatbot\/escalations\/session-1\/refer$/)
+  assert.equal(JSON.parse(requests[5].options.body).identityVerified, true)
+  assert.match(requests[6].url, /\/schedules\/schedule-1\/notifications\/preview$/)
+  assert.equal(JSON.parse(requests[7].options.body).previewHash, 'a'.repeat(64))
+  assert.equal(requests[7].options.headers['Idempotency-Key'], 'request-1')
+  requests.forEach(({ options }) => assert.equal(options.headers.Authorization, 'Bearer staff-token'))
 })

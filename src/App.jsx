@@ -1,5 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import AppLayout from './components/layout/AppLayout.jsx'
+import DashboardShell from './components/layout/DashboardShell.jsx'
+import { StaffShellContext } from './components/layout/staff-shell-context.js'
 import HomePage from './pages/HomePage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
 import ReportsAuditPage from './pages/ReportsAuditPage.jsx'
@@ -9,10 +11,10 @@ import FacilitatorOperationsPage from './pages/FacilitatorOperationsPage.jsx'
 import BeneficiaryManagementPage from './pages/BeneficiaryManagementPage.jsx'
 import EnrollmentReviewPage from './pages/EnrollmentReviewPage.jsx'
 import { NotFoundPage, PrivacyPage, SessionExpiredPage } from './pages/SystemPages.jsx'
-import { clearStaffSession, getStoredStaffSession, requestStaffLogout } from './auth/staffAuth.js'
+import { clearStaffSession, getDashboardNavigation, getStoredStaffSession, requestStaffLogout } from './auth/staffAuth.js'
 import { accountReturnPath } from './auth/account-return-path.js'
 import { Toaster } from './components/ui/sonner.jsx'
-import { PageLoader } from './components/ui/spinner.jsx'
+import { ContentLoader, PageLoader } from './components/ui/spinner.jsx'
 
 const ProgramManagementPage = lazy(() => import('./pages/ProgramManagementPage.jsx'))
 const InitialPasswordPage = lazy(() => import('./pages/InitialPasswordPage.jsx'))
@@ -22,10 +24,13 @@ const TotpVerificationPage = lazy(() => import('./pages/TotpVerificationPage.jsx
 const DistributionManagementPage = lazy(() => import('./pages/DistributionManagementPage.jsx'))
 const StaffBarangayAdministrationPage = lazy(() => import('./pages/StaffBarangayAdministrationPage.jsx'))
 const NotificationManagementPage = lazy(() => import('./pages/NotificationManagementPage.jsx'))
+const ChatbotOperationsPage = lazy(() => import('./pages/ChatbotOperationsPage.jsx'))
+const ServiceReviewPage = lazy(() => import('./pages/ServiceReviewPage.jsx'))
 const BiometricIdentityPage = lazy(() => import('./pages/BiometricIdentityPage.jsx'))
 const DswdOperationsPage = lazy(() => import('./pages/DswdOperationsPage.jsx'))
 const ClaimAccountabilityPage = lazy(() => import('./pages/ClaimAccountabilityPage.jsx'))
 const AccountSettingsPage = lazy(() => import('./pages/AccountSettingsPage.jsx'))
+const staffPaths = new Set(['/dashboard', '/account', '/admin/staff-security', '/admin/administration', '/notifications', '/help-cases', '/service-review', '/biometrics', '/facilitator/queue', '/facilitator/qr-verification', '/dswd/live-dashboard', '/dswd/ledger', '/claim-accountability', '/reports', '/audit-logs', '/beneficiaries', '/enrollments', '/programs', '/distributions/manage'])
 
 function currentPath() {
   return window.location.pathname.replace(/\/$/, '') || '/'
@@ -33,6 +38,7 @@ function currentPath() {
 
 function App() {
   const [path, setPath] = useState(currentPath)
+  const [pageDetails, setPageDetails] = useState(null)
   const [pendingLogin, setPendingLogin] = useState(null)
   const [returnTo, setReturnTo] = useState(() => accountReturnPath(window.location.pathname + window.location.search)
     ?? accountReturnPath(sessionStorage.getItem('garantiyaid.accountReturnTo')))
@@ -156,9 +162,11 @@ function App() {
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
     )
+  } else if (path === '/assistant') {
+    page = session.accessToken && session.user ? null : <SessionExpiredPage onLogin={backToLogin} />
   } else if (path === '/account') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<PageLoader label="Loading account settings..." />}>
+      <Suspense fallback={<ContentLoader label="Loading account settings..." />}>
         <AccountSettingsPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
       </Suspense>
     ) : (
@@ -172,7 +180,7 @@ function App() {
     )
   } else if (path === '/admin/administration') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<PageLoader />}>
+      <Suspense fallback={<ContentLoader />}>
         <StaffBarangayAdministrationPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
       </Suspense>
     ) : (
@@ -180,15 +188,31 @@ function App() {
     )
   } else if (path === '/notifications') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<PageLoader />}>
+      <Suspense fallback={<ContentLoader />}>
         <NotificationManagementPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
+      </Suspense>
+    ) : (
+      <SessionExpiredPage onLogin={backToLogin} />
+    )
+  } else if (path === '/help-cases') {
+    page = session.accessToken && session.user ? (
+      <Suspense fallback={<ContentLoader label="Loading help cases..." />}>
+        <ChatbotOperationsPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
+      </Suspense>
+    ) : (
+      <SessionExpiredPage onLogin={backToLogin} />
+    )
+  } else if (path === '/service-review') {
+    page = session.accessToken && session.user ? (
+      <Suspense fallback={<ContentLoader label="Loading service review..." />}>
+        <ServiceReviewPage session={session} onLogout={logout} onNavigate={navigate} />
       </Suspense>
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
     )
   } else if (path === '/biometrics') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<PageLoader />}>
+      <Suspense fallback={<ContentLoader />}>
         <BiometricIdentityPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
       </Suspense>
     ) : (
@@ -209,7 +233,7 @@ function App() {
     )
   } else if (path === '/dswd/live-dashboard' || path === '/dswd/ledger') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<PageLoader />}>
+      <Suspense fallback={<ContentLoader />}>
         <DswdOperationsPage
           key={path}
           view={path === '/dswd/live-dashboard' ? 'live' : 'ledger'}
@@ -224,7 +248,7 @@ function App() {
     )
   } else if (path === '/claim-accountability') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<PageLoader />}>
+      <Suspense fallback={<ContentLoader />}>
         <ClaimAccountabilityPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
       </Suspense>
     ) : (
@@ -255,7 +279,7 @@ function App() {
     )
   } else if (path === '/programs' || path === '/distributions/manage') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<PageLoader />}>
+      <Suspense fallback={<ContentLoader />}>
         {path === '/programs' ? (
           <ProgramManagementPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
         ) : (
@@ -269,9 +293,19 @@ function App() {
     page = <SessionExpiredPage onLogin={backToLogin} />
   }
 
+  const isStaffPage = Boolean(session.accessToken && session.user && (staffPaths.has(path) || path === '/assistant'))
+  const navigation = isStaffPage ? getDashboardNavigation(session.user.role) : []
+  const navigationItem = navigation.flatMap((item) => item.children ?? [item]).find((item) => item.href === path)
+  const shellDetails = pageDetails?.currentPath === path ? pageDetails : null
+  const pageTitle = shellDetails?.pageTitle ?? navigationItem?.label ?? 'Staff workspace'
+
   return (
     <AppLayout>
-      {page}
+      {isStaffPage ? (
+        <DashboardShell breadcrumbs={shellDetails?.breadcrumbs ?? ['Operations', pageTitle]} currentPath={path} onLogout={logout} onNavigate={navigate} pageTitle={pageTitle} showAssistant={shellDetails?.showAssistant ?? path !== '/service-review'} user={session.user}>
+          <StaffShellContext.Provider value={setPageDetails}>{page}</StaffShellContext.Provider>
+        </DashboardShell>
+      ) : page}
       <Toaster />
     </AppLayout>
   )

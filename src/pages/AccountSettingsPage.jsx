@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { toast } from 'sonner'
 import PasswordStrengthField from '../components/auth/PasswordStrengthField.jsx'
+import AuthenticatorSetupOptions from '../components/auth/AuthenticatorSetupOptions.jsx'
+import RecoveryCodeActions from '../components/auth/RecoveryCodeActions.jsx'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Icon } from '../components/ui/icon.jsx'
@@ -59,17 +61,6 @@ function accountSectionFromLocation() {
 
 function initials(name = 'Staff') {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase()
-}
-
-function recoveryCodeDocument(codes) {
-  return [
-    'GARANTIYAID STAFF RECOVERY CODES',
-    'Keep these codes private and offline. Each code can be used once.',
-    '',
-    ...codes,
-    '',
-    `Generated ${new Date().toLocaleString('en-PH')}`,
-  ].join('\n')
 }
 
 function formatDate(value) {
@@ -143,28 +134,6 @@ function SettingsNavigation({ activeSection, onSelect, security, label }) {
 }
 
 function RecoveryCodes({ codes, saved, onSavedChange }) {
-  const [feedback, setFeedback] = useState('')
-
-  async function copyCodes() {
-    try {
-      await navigator.clipboard.writeText(recoveryCodeDocument(codes))
-      setFeedback('All recovery codes copied.')
-    } catch {
-      setFeedback('Copy is unavailable. Select and copy the codes manually.')
-    }
-  }
-
-  function downloadCodes() {
-    const blob = new Blob([recoveryCodeDocument(codes)], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'garantiyaid-recovery-codes.txt'
-    link.click()
-    URL.revokeObjectURL(url)
-    setFeedback('Recovery codes downloaded.')
-  }
-
   return (
     <div aria-live="polite">
       <div className="rounded-xl border border-emerald-200 bg-success-soft p-4">
@@ -189,12 +158,7 @@ function RecoveryCodes({ codes, saved, onSavedChange }) {
             </code>
           ))}
         </div>
-        <div data-recovery-actions className="mt-4 grid gap-2 sm:grid-cols-3">
-          <button type="button" onClick={copyCodes} className="ga-btn-secondary min-h-11 px-3 text-sm"><Icon name="copy" /> Copy all</button>
-          <button type="button" onClick={downloadCodes} className="ga-btn-secondary min-h-11 px-3 text-sm"><Icon name="download" /> Download</button>
-          <button type="button" onClick={() => window.print()} className="ga-btn-secondary min-h-11 px-3 text-sm"><Icon name="printer" /> Print / PDF</button>
-        </div>
-        <p aria-live="polite" className="mt-2 min-h-5 text-center text-xs font-bold text-brand-green">{feedback}</p>
+        <RecoveryCodeActions codes={codes} />
       </div>
 
       <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-line p-4 text-sm leading-6 text-copy hover:border-blue-200 hover:bg-info-soft">
@@ -490,7 +454,7 @@ function AccountSettingsPage({ session, onLogout, onNavigate, onSessionExpired }
   return (
     <DashboardShell breadcrumbs={['Operations', 'My account', 'Account settings']} currentPath="/account" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Account settings" user={user}>
       <section className="ga-dashboard-ready mx-auto w-full max-w-7xl" aria-labelledby="account-title">
-        <header className="max-w-3xl">
+        <header className="ga-page-header max-w-3xl">
           <p className="ga-eyebrow">My account</p>
           <h1 id="account-title" className="ga-page-title">Account settings</h1>
           <p className="ga-page-copy">Manage your official profile, sign-in security, recovery options, and active staff sessions.</p>
@@ -689,7 +653,6 @@ function AccountSettingsPage({ session, onLogout, onNavigate, onSessionExpired }
                     <div className="mx-auto w-fit rounded-lg bg-white p-2 shadow-sm">
                       <QRCodeSVG value={replacement.otpauthUri} size={176} level="M" marginSize={2} title="New GarantiyAid authenticator QR code" className="h-auto w-full" />
                     </div>
-                    <a href={replacement.otpauthUri} className="mt-3 block min-h-11 rounded-lg px-2 py-3 text-sm font-bold text-brand-blue hover:bg-white">Open authenticator app</a>
                   </div>
                   <div>
                     <h3 className="font-extrabold text-ink">Connect the new authenticator</h3>
@@ -698,10 +661,7 @@ function AccountSettingsPage({ session, onLogout, onNavigate, onSessionExpired }
                       <li><strong>2.</strong> Enter its current six-digit code below.</li>
                       <li><strong>3.</strong> Save the new recovery codes.</li>
                     </ol>
-                    <details className="mt-3 rounded-lg border border-line bg-slate-50 p-3">
-                      <summary className="min-h-10 py-2 text-sm font-bold text-brand-blue">Cannot scan the QR?</summary>
-                      <code className="mt-2 block break-all rounded-lg bg-white p-3 text-xs font-bold tracking-[0.08em]">{replacement.secret}</code>
-                    </details>
+                    <div className="mt-4"><AuthenticatorSetupOptions uri={replacement.otpauthUri} secret={replacement.secret} /></div>
                   </div>
                 </div>
                 <div className="mt-5">

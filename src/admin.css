@@ -1,0 +1,84 @@
+/* Shared staff presentation, based on the administration record screens. */
+.ga-staff-shell {
+  --color-page: #f4f6f8;
+  --color-line: #d4dce5;
+  --color-muted-copy: #526176;
+  --sidebar-duration: 120ms;
+}
+.ga-staff-shell .ga-staff-sidebar { box-shadow: none; }
+.ga-staff-shell .ga-sidebar-child { border-radius: 4px; }
+.ga-staff-shell .ga-sidebar-link,
+.ga-staff-shell .ga-sidebar-group-trigger { border-radius: 4px; }
+.ga-staff-shell .ga-sidebar-section-label { font-size: 11px; letter-spacing: .045em; text-transform: uppercase; }
+.ga-staff-shell .ga-staff-header > div { min-height: 80px; }
+.ga-staff-shell .ga-staff-greeting svg { width: 24px; height: 24px; }
+.ga-staff-shell #dashboard-content { padding-top: 20px; padding-bottom: 32px; }
+.ga-staff-shell #dashboard-content > nav[aria-label="Breadcrumb"] { margin-bottom: 16px; }
+.ga-staff-shell .ga-page-header { padding-bottom: 16px; gap: 16px; }
+.ga-staff-shell .ga-page-header .ga-eyebrow { display: none; }
+.ga-staff-shell .ga-page-title { margin-top: 0; font-size: 1.5rem; line-height: 1.35; font-weight: 650; letter-spacing: -.015em; }
+.ga-staff-shell .ga-page-copy { margin-top: 6px; max-width: 76ch; font-size: .9375rem; line-height: 1.6; }
+.ga-staff-shell :is(.ga-card, .ga-card-flat, .ga-input) { border-radius: 5px; box-shadow: none; }
+.ga-staff-shell #dashboard-content :is(.rounded-xl, .rounded-2xl) { border-radius: 5px; }
+.ga-staff-shell #dashboard-content :is(.shadow-sm, .shadow-lg) { box-shadow: none; }
+.ga-staff-shell #dashboard-content :is(.font-extrabold, .font-black) { font-weight: 650; }
+.ga-staff-shell #dashboard-content .ga-eyebrow { font-weight: 600; letter-spacing: .02em; }
+.ga-staff-shell #dashboard-content :is(.ga-btn-primary, .ga-btn-secondary, .ga-btn-danger) { min-height: 44px; border-radius: 4px; box-shadow: none; font-size: .875rem; font-weight: 600; padding-block: 9px; }
+.ga-staff-shell .ga-section-heading { font-size: 1.125rem; }
+.ga-staff-shell #dashboard-content .text-center:has(> h2),
+.ga-staff-shell #dashboard-content .text-center:has(> h3) { text-align: left; padding: 20px; }
+.ga-staff-shell #dashboard-content .text-center:has(> h2) > span[aria-hidden],
+.ga-staff-shell #dashboard-content .text-center:has(> h3) > span[aria-hidden] { display: none; }
+.ga-staff-shell #dashboard-content .text-center > :is(h2, h3) { margin-top: 0; }
+.ga-staff-shell th { text-transform: none; letter-spacing: normal; font-weight: 600; }
+.ga-staff-shell td { padding-top: 12px; padding-bottom: 12px; }
+.ga-staff-shell .ga-profile-panel { width: min(15rem, calc(100vw - 2.5rem)); border-radius: 5px; }
+.ga-staff-shell .ga-profile-panel > div:first-child { display: none; }
+.ga-staff-shell .ga-profile-panel a { min-height: 44px; padding: 8px; }
+.ga-staff-shell .ga-profile-panel a > span:first-child { width: 24px; height: 24px; background: transparent; }
+.ga-staff-shell .ga-profile-panel a span span { display: none; }
+.ga-staff-shell .ga-sidebar-account { background: transparent; border-color: rgb(255 255 255 / .18); }
+.ga-staff-shell .ga-sidebar-account-copy .uppercase { text-transform: none; }
+.ga-staff-shell .ga-sidebar-account-action span span { margin-top: 8px; padding-top: 8px; }
+.ga-admin-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--color-brand-blue); font-size: .875rem; font-weight: 600; text-underline-offset: 3px; }
+.ga-admin-link:hover { text-decoration: underline; }
+.ga-admin-link:focus-visible,
+.ga-admin-metric-link:focus-visible { outline: 2px solid var(--color-brand-blue); outline-offset: 3px; }
+.ga-admin-summary { border: 1px solid var(--color-line); border-radius: 5px; background: white; }
+.ga-admin-summary > div { padding: 14px 18px; border-left: 1px solid var(--color-line); }
+.ga-admin-summary > div:first-child { border-left: 0; }
+.ga-admin-summary dt { color: var(--color-copy); font-size: .875rem; }
+.ga-admin-summary dd { margin-top: 2px; }
+.ga-admin-metric-link { display: inline-flex; min-height: 44px; align-items: center; color: var(--color-brand-blue); font-size: 1.75rem; font-weight: 650; font-variant-numeric: tabular-nums; text-underline-offset: 4px; }
+.ga-admin-metric-link:hover { text-decoration: underline; }
+.ga-admin-register { min-width: 0; overflow: hidden; background: white; border: 1px solid var(--color-line); border-radius: 5px; }
+.ga-admin-register > header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; min-height: 52px; padding: 4px 16px; border-bottom: 1px solid var(--color-line); background: #f8fafc; }
+.ga-admin-register h2 { font-size: 1rem; font-weight: 650; }
+.ga-admin-register-note { padding: 10px 16px; border-bottom: 1px solid var(--color-line); color: var(--color-copy); font-size: .8125rem; line-height: 1.5; }
+.ga-admin-register li > .ga-admin-link { flex-shrink: 0; }
+.ga-admin-guide { background: white; border: 1px solid var(--color-line); border-radius: 5px; }
+.ga-admin-guide > summary { min-height: 44px; padding: 12px 16px; font-size: .875rem; font-weight: 600; }
+.ga-admin-guide[open] > summary { border-bottom: 1px solid var(--color-line); }
+.ga-admin-guide > summary:focus-visible { outline: 2px solid var(--color-brand-blue); outline-offset: 2px; }
+@media (min-width: 1024px) {
+  .ga-staff-shell .ga-staff-sidebar:not([data-collapsed="true"]) { width: 16rem; }
+  .ga-staff-shell .ga-staff-sidebar:not([data-collapsed="true"]) ~ .ga-shell-content { padding-left: 16rem; }
+  .ga-staff-shell .ga-staff-sidebar > div:first-child { height: 80px; }
+  .ga-staff-shell .ga-sidebar-scroll { padding-inline: 12px; }
+  .ga-staff-shell .ga-sidebar-subnav { width: calc(16rem - 1.5rem - 1px); }
+  .ga-staff-shell .ga-sidebar-account-row,
+  .ga-staff-shell .ga-sidebar-account-action { width: calc(16rem - 3.1875rem); }
+  .ga-staff-shell .ga-staff-greeting { font-size: 1.125rem; line-height: 1.5; }
+}
+@media (max-width: 1023px) {
+  .ga-admin-summary > div:nth-child(3) { border-left: 0; }
+  .ga-admin-summary > div:nth-child(n+3) { border-top: 1px solid var(--color-line); }
+}
+@media (max-width: 639px) {
+  .ga-staff-shell .ga-page-title { font-size: 1.375rem; }
+  .ga-staff-shell .ga-page-copy { font-size: 1rem; }
+  .ga-admin-summary > div { padding: 12px; }
+  .ga-admin-summary dt { font-size: .8125rem; }
+  .ga-staff-shell .ga-beneficiary-nav { gap: 12px; }
+  .ga-staff-shell .ga-beneficiary-nav a { font-size: .8125rem; }
+}

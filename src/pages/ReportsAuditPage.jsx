@@ -7,6 +7,7 @@ import {
   getAuthErrorMessage,
   isSessionExpiredError,
   requestAuditLogs,
+  requestDistribution,
   requestDistributionCsv,
   requestDistributionList,
   requestDistributionReport,
@@ -29,6 +30,14 @@ const reportStatuses = {
 const numberFormatter = new Intl.NumberFormat('en-PH')
 const moneyFormatter = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' })
 const dateFormatter = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Manila' })
+
+function OversightNavigation({ onNavigate, role }) {
+  if (role !== 'SYSTEM_ADMIN') return null
+  return <nav className="mt-5 flex flex-wrap gap-2" aria-label="Related oversight tools">{[
+    window.location.pathname === '/reports' ? ['Audit logs', '/audit-logs'] : ['Reports', '/reports'],
+    ['Live monitoring', '/dswd/live-dashboard'],
+  ].map(([label, href]) => <a key={href} href={href} onClick={(event) => { event.preventDefault(); onNavigate(href) }} className="inline-flex min-h-11 items-center rounded-lg border border-line bg-white px-4 text-sm font-bold text-brand-blue hover:border-blue-200 hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">{label}</a>)}</nav>
+}
 
 function humanize(value = '') {
   return value.toLowerCase().replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase())
@@ -76,7 +85,7 @@ function AccessDenied({ session, onLogout, onNavigate }) {
 function ReportsPage({ session, onLogout, onNavigate, onSessionExpired }) {
   const [distributions, setDistributions] = useState([])
   const [reportType, setReportType] = useState('SUMMARY')
-  const [distributionId, setDistributionId] = useState('')
+  const [distributionId, setDistributionId] = useState(() => new URLSearchParams(window.location.search).get('distribution') || '')
   const [status, setStatus] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -86,16 +95,27 @@ function ReportsPage({ session, onLogout, onNavigate, onSessionExpired }) {
   const [isGenerating, setIsGenerating] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [exportMessage, setExportMessage] = useState('')
+  const linkedDistributionId = useRef(new URLSearchParams(window.location.search).get('distribution') || '')
 
   useEffect(() => {
     let active = true
     // ponytail: the latest 100 events fit the current capstone dataset; add server search when this ceiling is reached.
     requestDistributionList(session.accessToken, { page: 1, pageSize: 100 })
-      .then((data) => {
+      .then(async (data) => {
         if (!active) return
-        setDistributions(data.distributions)
-        setDistributionId(data.distributions[0]?.distributionId ?? '')
-        setError('')
+        let available = data.distributions
+        const linkedId = linkedDistributionId.current
+        if (linkedId && !available.some((item) => item.distributionId === linkedId)) {
+          try { available = [await requestDistribution(session.accessToken, linkedId), ...available] }
+          catch (requestError) {
+            if (!active) return
+            if (isSessionExpiredError(requestError)) return onSessionExpired()
+            setError('The linked distribution could not be loaded. Choose another event.')
+          }
+        }
+        if (!active) return
+        setDistributions(available)
+        setDistributionId((current) => available.some((item) => item.distributionId === current) ? current : available[0]?.distributionId ?? '')
       })
       .catch((requestError) => {
         if (!active) return
@@ -118,6 +138,7 @@ function ReportsPage({ session, onLogout, onNavigate, onSessionExpired }) {
 
     setError('')
     setExportMessage('')
+    setReport(null)
     setIsGenerating(true)
     try {
       const filters = { page, pageSize: 20, status, dateFrom, dateTo }
@@ -159,23 +180,25 @@ function ReportsPage({ session, onLogout, onNavigate, onSessionExpired }) {
 
   return (
     <DashboardShell breadcrumbs={['Operations', 'Oversight', 'Reports']} currentPath="/reports" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Reports" user={session.user}>
-      <header className="flex flex-col gap-5 border-b border-line pb-6 xl:flex-row xl:items-end xl:justify-between">
-        <div><p className="ga-eyebrow">Authorized reporting</p><h1 className="ga-page-title mt-2">Operational reports</h1><p className="ga-page-copy">Generate privacy-conscious operational reports from current GarantiyAid records. Every generated report and export is audited.</p></div>
-        <button type="button" onClick={exportCsv} disabled={!distributionId || isExporting} className="ga-btn-secondary">{isExporting ? <LoadingLabel>Preparing CSV...</LoadingLabel> : 'Export compliance CSV'}</button>
+      <header className="ga-page-header border-b border-line pb-6">
+        <div><p className="ga-eyebrow">Authorized reporting</p><h1 className="ga-page-title mt-2">Operational reports</h1><p className="ga-page-copy">Choose a report and its coverage, then generate or export the current records.</p></div>
       </header>
+
+      <OversightNavigation onNavigate={onNavigate} role={session.user.role} />
+      {session.user.role === 'SYSTEM_ADMIN' && distributionId && new URLSearchParams(window.location.search).has('distribution') && <a href={`/distributions/manage?event=${encodeURIComponent(distributionId)}`} onClick={(event) => { event.preventDefault(); onNavigate(`/distributions/manage?event=${encodeURIComponent(distributionId)}`) }} className="mt-4 inline-flex min-h-11 items-center gap-2 text-sm font-bold text-brand-blue hover:underline"><Icon name="arrowLeft" className="size-4" />Return to distribution event</a>}
 
       <section className="mt-6 rounded-xl border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy" aria-label="Report limitation"><strong className="text-ink">Prototype compliance review:</strong> Reports are not COA-certified. Simulated fund reports do not represent actual government disbursements.</section>
 
       <form onSubmit={(event) => { event.preventDefault(); loadReport(1) }} className="ga-card mt-6 p-5 sm:p-6" aria-label="Report generator">
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div><label htmlFor="report-type" className="ga-label">Report type</label><select id="report-type" value={reportType} onChange={(event) => { setReportType(event.target.value); setStatus(''); setReport(null) }} className="ga-input mt-2 cursor-pointer font-semibold">{reportTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
-          <div><label htmlFor="report-distribution" className="ga-label">Distribution event</label><select id="report-distribution" value={distributionId} required={reportType !== 'FUNDS'} onChange={(event) => { setDistributionId(event.target.value); setReport(null) }} disabled={isLoadingDistributions} className="ga-input mt-2 cursor-pointer font-semibold">{reportType === 'FUNDS' && <option value="">All distributions</option>}{distributions.map((distribution) => <option key={distribution.distributionId} value={distribution.distributionId}>{distribution.title} · {distribution.distributionDate}</option>)}</select></div>
-          {filtersSupported && <><div><label htmlFor="report-status" className="ga-label">Status</label><select id="report-status" value={status} onChange={(event) => setStatus(event.target.value)} disabled={statusOptions.length === 0} className="ga-input mt-2 cursor-pointer font-semibold"><option value="">All statuses</option>{statusOptions.map((value) => <option key={value} value={value}>{humanize(value)}</option>)}</select></div><div className="grid grid-cols-2 gap-3"><div><label htmlFor="report-date-from" className="ga-label">Date from</label><input id="report-date-from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="ga-input mt-2 px-2" /></div><div><label htmlFor="report-date-to" className="ga-label">Date to</label><input id="report-date-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="ga-input mt-2 px-2" /></div></div></>}
+          <div><label htmlFor="report-type" className="ga-label">Report type</label><select id="report-type" value={reportType} disabled={isGenerating} onChange={(event) => { setReportType(event.target.value); setStatus(''); setReport(null) }} className="ga-input mt-2 cursor-pointer font-semibold">{reportTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+          <div><label htmlFor="report-distribution" className="ga-label">Distribution event</label><select id="report-distribution" value={distributionId} required={reportType !== 'FUNDS'} onChange={(event) => { setDistributionId(event.target.value); setReport(null); setExportMessage('') }} disabled={isLoadingDistributions || isGenerating} className="ga-input mt-2 cursor-pointer font-semibold">{reportType === 'FUNDS' && <option value="">All distributions</option>}{distributions.map((distribution) => <option key={distribution.distributionId} value={distribution.distributionId}>{distribution.title} · {distribution.distributionDate}</option>)}</select></div>
+          {filtersSupported && <><div><label htmlFor="report-status" className="ga-label">Status</label><select id="report-status" value={status} onChange={(event) => { setStatus(event.target.value); setReport(null) }} disabled={statusOptions.length === 0 || isGenerating} className="ga-input mt-2 cursor-pointer font-semibold"><option value="">All statuses</option>{statusOptions.map((value) => <option key={value} value={value}>{humanize(value)}</option>)}</select></div><div className="grid grid-cols-2 gap-3"><div><label htmlFor="report-date-from" className="ga-label">Date from</label><input id="report-date-from" type="date" value={dateFrom} disabled={isGenerating} onChange={(event) => { setDateFrom(event.target.value); setReport(null) }} className="ga-input mt-2 px-2" /></div><div><label htmlFor="report-date-to" className="ga-label">Date to</label><input id="report-date-to" type="date" value={dateTo} min={dateFrom || undefined} disabled={isGenerating} onChange={(event) => { setDateTo(event.target.value); setReport(null) }} className="ga-input mt-2 px-2" /></div></div></>}
         </div>
-        <div className="mt-5 flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm leading-5 text-muted-copy">Only authorized operational fields are returned; government IDs, contact details, tokens, and biometric templates are excluded.</p><button type="submit" disabled={isGenerating || isLoadingDistributions || (reportType !== 'FUNDS' && !distributionId)} className="ga-btn-primary shrink-0">{isGenerating ? <LoadingLabel>Generating report...</LoadingLabel> : 'Generate report'}</button></div>
+        <div className="mt-5 flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:items-end sm:justify-between"><p className="text-sm leading-5 text-muted-copy">Only authorized operational fields are returned; government IDs, contact details, tokens, and biometric templates are excluded.</p><div className="flex shrink-0 flex-col gap-2 sm:flex-row"><button type="button" onClick={exportCsv} disabled={!distributionId || isExporting} className="ga-btn-secondary">{isExporting ? <LoadingLabel>Preparing CSV...</LoadingLabel> : 'Export selected event CSV'}</button><button type="submit" disabled={isGenerating || isLoadingDistributions || (reportType !== 'FUNDS' && !distributionId)} className="ga-btn-primary">{isGenerating ? <LoadingLabel>Generating report...</LoadingLabel> : 'Generate report'}</button></div></div>
       </form>
 
-      <div aria-live="polite" aria-atomic="true">{exportMessage && <p className="mt-4 rounded-lg border border-emerald-200 bg-success-soft px-4 py-3 text-sm font-semibold text-brand-green">{exportMessage}</p>}</div>
+      <div aria-live="polite" aria-atomic="true">{exportMessage && <p className="mt-4 rounded-lg border border-emerald-200 bg-success-soft px-4 py-3 text-sm font-semibold text-brand-green">{exportMessage} <a href="/audit-logs?entity=REPORT" onClick={(event) => { event.preventDefault(); onNavigate('/audit-logs?entity=REPORT') }} className="inline-flex min-h-11 items-center underline underline-offset-2">Review export in audit logs</a></p>}</div>
       {error && <section className="mt-5 rounded-xl border border-amber-200 bg-white p-5" role="alert"><h2 className="font-extrabold text-ink">Report request could not be completed</h2><p className="mt-2 text-sm leading-6 text-muted-copy">{error}</p></section>}
       {isGenerating ? <ReportSkeleton /> : report ? <ReportResult report={report} type={reportType} onPage={loadReport} /> : !error && <section className="mt-6 rounded-xl border border-dashed border-line bg-white p-8 text-center"><span aria-hidden="true" className="mx-auto grid size-12 place-items-center rounded-full bg-info-soft font-black text-brand-blue">RP</span><h2 className="mt-4 text-xl font-extrabold text-ink">Choose a report to begin</h2><p className="mt-2 text-sm leading-6 text-muted-copy">Select the report scope, then generate a current read-only snapshot.</p></section>}
     </DashboardShell>
@@ -262,8 +285,8 @@ function Pagination({ pagination, onPage }) {
 
 function AuditLogsPage({ session, onLogout, onNavigate, onSessionExpired }) {
   const emptyFilters = { action: '', entityAffected: '', dateFrom: '', dateTo: '' }
-  const [draft, setDraft] = useState(emptyFilters)
-  const [filters, setFilters] = useState(emptyFilters)
+  const [draft, setDraft] = useState(() => ({ ...emptyFilters, entityAffected: new URLSearchParams(window.location.search).get('entity') || '' }))
+  const [filters, setFilters] = useState(draft)
   const [page, setPage] = useState(1)
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
@@ -316,7 +339,8 @@ function AuditLogsPage({ session, onLogout, onNavigate, onSessionExpired }) {
 
   return (
     <DashboardShell breadcrumbs={['Operations', 'Oversight', 'Audit logs']} currentPath="/audit-logs" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Audit logs" user={session.user}>
-      <header className="border-b border-line pb-6"><p className="ga-eyebrow">Read-only oversight</p><h1 className="ga-page-title mt-2">Audit logs</h1><p className="ga-page-copy">Trace sanitized staff and system actions in newest-first order. Use filters and pages to keep the review focused while official records remain protected.</p></header>
+      <header className="ga-page-header border-b border-line pb-6"><p className="ga-eyebrow">Read-only oversight</p><h1 className="ga-page-title mt-2">Audit logs</h1><p className="ga-page-copy">Find who changed a record, what changed, and when. Use the filters to narrow the log.</p></header>
+      <OversightNavigation onNavigate={onNavigate} role={session.user.role} />
 
       <form onSubmit={applyFilters} className="ga-card mt-6 p-5 sm:p-6" aria-label="Audit log filters">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><div><label htmlFor="audit-action" className="ga-label">Action</label><input id="audit-action" value={draft.action} onChange={(event) => setDraft((current) => ({ ...current, action: event.target.value }))} placeholder="e.g. STAFF_LOGIN" className="ga-input mt-2 uppercase placeholder:normal-case" /></div><div><label htmlFor="audit-entity" className="ga-label">Entity</label><input id="audit-entity" value={draft.entityAffected} onChange={(event) => setDraft((current) => ({ ...current, entityAffected: event.target.value }))} placeholder="e.g. REPORT" className="ga-input mt-2 uppercase placeholder:normal-case" /></div><div><label htmlFor="audit-date-from" className="ga-label">Date from</label><input id="audit-date-from" type="date" value={draft.dateFrom} onChange={(event) => setDraft((current) => ({ ...current, dateFrom: event.target.value }))} className="ga-input mt-2" /></div><div><label htmlFor="audit-date-to" className="ga-label">Date to</label><input id="audit-date-to" type="date" value={draft.dateTo} onChange={(event) => setDraft((current) => ({ ...current, dateTo: event.target.value }))} className="ga-input mt-2" /></div><div className="flex gap-2 self-end"><button type="submit" className="ga-btn-primary flex-1">Apply</button><button type="button" onClick={clearFilters} className="ga-btn-secondary flex-1">Reset</button></div></div>

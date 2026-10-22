@@ -25,6 +25,17 @@ const philippineTime = new Intl.DateTimeFormat('en-PH', {
   second: '2-digit',
   hour12: true,
 })
+const compactPhilippineDate = new Intl.DateTimeFormat('en-PH', {
+  timeZone: 'Asia/Manila',
+  month: 'short',
+  day: 'numeric',
+})
+const compactPhilippineTime = new Intl.DateTimeFormat('en-PH', {
+  timeZone: 'Asia/Manila',
+  hour: 'numeric',
+  minute: '2-digit',
+  hour12: true,
+})
 const notificationTime = new Intl.DateTimeFormat('en-PH', {
   timeZone: 'Asia/Manila',
   month: 'short',
@@ -40,7 +51,7 @@ export function PhilippineClock({ onDayPeriodChange }) {
   const dayPeriod = getPhilippineDayPeriod(now)
 
   useEffect(() => {
-    onDayPeriodChange(dayPeriod)
+    onDayPeriodChange?.(dayPeriod)
   }, [dayPeriod, onDayPeriodChange])
 
   const syncWithServer = useCallback(async () => {
@@ -73,11 +84,12 @@ export function PhilippineClock({ onDayPeriodChange }) {
   }, [syncWithServer])
 
   return (
-    <div className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-lg border border-slate-300/80 bg-slate-200/75 px-3 py-2.5 text-copy shadow-sm sm:px-4" title={serverSynced ? 'Philippine Standard Time · Synced with the GarantiyAid server' : 'Philippine Standard Time · Using this device clock until the server reconnects'}>
-      <Icon name="calendar" className="size-[1.125rem] shrink-0 text-brand-navy" />
-      <time dateTime={now.toISOString()} className="flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0.5 text-xs leading-5 sm:text-[0.8125rem]">
-        <span>{philippineDate.format(now)}</span>
-        <span className="whitespace-nowrap tabular-nums">at {philippineTime.format(now)} <span className="text-[0.625rem] font-medium text-muted-copy">PHT</span></span>
+    <div className="flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-slate-300/70 bg-slate-200/80 px-3 py-2 text-copy shadow-sm sm:min-h-11 sm:gap-2.5 sm:px-4 sm:py-2.5" title={serverSynced ? 'Philippine Standard Time · Synced with the GarantiyAid server' : 'Philippine Standard Time · Using this device clock until the server reconnects'}>
+      <Icon name="calendar" className="hidden size-[1.125rem] shrink-0 text-brand-navy sm:block" />
+      <time dateTime={now.toISOString()} className="min-w-0 text-xs leading-5 sm:flex sm:flex-wrap sm:items-baseline sm:gap-x-1 sm:gap-y-0.5 sm:text-[0.8125rem]">
+        <span className="whitespace-nowrap sm:hidden">{compactPhilippineDate.format(now)} · {compactPhilippineTime.format(now)} PHT</span>
+        <span className="hidden sm:inline">{philippineDate.format(now)}</span>
+        <span className="hidden whitespace-nowrap tabular-nums sm:inline">at {philippineTime.format(now)} <span className="text-[0.625rem] font-medium text-muted-copy">PHT</span></span>
       </time>
     </div>
   )

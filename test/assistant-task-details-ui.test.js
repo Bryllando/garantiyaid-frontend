@@ -30,13 +30,13 @@ test('task summary renders labelled fields, editable values, progress, and an ho
   } finally { await vite.close() }
 })
 
-test('collection stays local, preserves manual workflows, and clears on staff identity changes', () => {
+test('collection stays local, keeps task review forms, and clears on staff identity changes', () => {
   const source = readFileSync(new URL('../src/components/assistant/StaffAiAssistant.jsx', import.meta.url), 'utf8')
   const shell = readFileSync(new URL('../src/components/layout/DashboardShell.jsx', import.meta.url), 'utf8')
   assert.match(source, /history: messages\.filter\(\(message\) => !message\.local\)\.slice\(-6\)/)
   assert.match(source, /if \(isTaskCancellation\(content\)\) return cancelTask\(\)/)
   assert.match(source, /if \(!guidanceDuringTask\) return keepTaskDetails/)
-  assert.match(source, /Use an existing form/)
+  assert.match(source, /<AssistantDistributionScheduler/)
   assert.match(shell, /<StaffAiAssistant key=\{`\$\{user\?\.userId\}:\$\{user\?\.role\}:\$\{user\?\.barangayId\}`\}/)
   const collection = source.slice(source.indexOf('function keepTaskDetails'), source.indexOf('async function sendChat'))
   assert.doesNotMatch(collection, /localStorage|sessionStorage|previewAssistantDistribution|enqueueAssistantDistribution|createDistribution/)

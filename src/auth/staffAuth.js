@@ -1,4 +1,7 @@
-const API_BASE_URL = (import.meta.env?.VITE_API_URL ?? 'http://localhost:4000/api/v1').replace(/\/$/, '')
+import { API_BASE_URL } from '../config/api.js'
+import { ASSISTANT_HISTORY_KEY } from '../components/assistant/conversation-history.js'
+
+const API_CONNECTION_ERROR = 'Unable to connect to GarantiyAid. Check your connection and try again. If the problem continues, contact your system administrator.'
 
 function queryString(values) {
   const query = new URLSearchParams()
@@ -9,12 +12,13 @@ function queryString(values) {
   return serialized ? `?${serialized}` : ''
 }
 
-async function requestJson(path, { body, headers, token, method = 'POST' } = {}) {
+async function requestJson(path, { body, headers, token, signal, method = 'POST' } = {}) {
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
   let response
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       method,
+      ...(signal ? { signal } : {}),
       headers: {
         ...(body && !isFormData ? { 'Content-Type': 'application/json' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -23,7 +27,7 @@ async function requestJson(path, { body, headers, token, method = 'POST' } = {})
       ...(body ? { body: isFormData ? body : JSON.stringify(body) } : {}),
     })
   } catch (cause) {
-    const error = new Error(cause?.message || 'The GarantiyAid service could not be reached. Check the connection and try again.')
+    const error = new Error(API_CONNECTION_ERROR)
     error.code = 'API_UNREACHABLE'
     error.cause = cause
     throw error
@@ -42,8 +46,8 @@ async function requestJson(path, { body, headers, token, method = 'POST' } = {})
   return payload?.data
 }
 
-export async function requestServerTimestamp() {
-  const data = await requestJson('/health', { method: 'GET' })
+export async function requestServerTimestamp({ signal } = {}) {
+  const data = await requestJson('/health', { method: 'GET', signal })
   if (!data?.timestamp || Number.isNaN(Date.parse(data.timestamp))) {
     throw new Error('The server returned an unexpected time response.')
   }
@@ -132,10 +136,108 @@ export async function createStaffUser(token, user) {
   return data
 }
 
+export async function previewStaffImport(token, rows) {
+  const data = await requestJson('/users/import/preview', { token, body: { rows } })
+  if (!Array.isArray(data?.rows) || typeof data.invalidCount !== 'number') throw new Error('The server returned an unexpected import review.')
+  return data
+}
+
+export async function confirmStaffImport(token, rows, approvalId) {
+  const data = await requestJson('/users/import/confirm', {
+    token, headers: { 'Idempotency-Key': approvalId }, body: { rows, approvalId, confirmed: true },
+  })
+  if (!Array.isArray(data?.accounts) || data.accounts.some(account => !account.user?.employeeId || !account.temporaryPassword)) throw new Error('The import response was incomplete. Retry this confirmation to retrieve the result.')
+  return data
+}
+
 export async function updateStaffUser(token, userId, user) {
   const data = await requestJson(`/users/${userId}`, { token, method: 'PATCH', body: user })
   if (!data?.user) throw new Error('The server returned an unexpected staff-account response.')
   return data
+}
+
+export async function startStaffImport(token, rows, approvalId) {
+  const data = await requestJson('/users/import/jobs', { token, headers: { 'Idempotency-Key': approvalId }, body: { rows, approvalId, confirmed: true } })
+  if (!data?.importId || !data.status) throw new Error('The import response was incomplete. Retry the same confirmation.')
+  return data
+}
+export async function requestStaffImports(token) {
+  const data = await requestJson('/users/import/jobs', { token, method: 'GET' })
+  if (!Array.isArray(data?.imports)) throw new Error('Import history could not be loaded.')
+  return data.imports
+}
+export async function requestStaffImport(token, importId) {
+  const data = await requestJson(`/users/import/jobs/${encodeURIComponent(importId)}`, { token, method: 'GET' })
+  if (!data?.importId || !data.status) throw new Error('Import progress could not be loaded.')
+  return data
+}
+export async function requestStaffImportResults(token, importId) {
+  const data = await requestJson(`/users/import/jobs/${encodeURIComponent(importId)}/results`, { token, method: 'GET' })
+  if (!Array.isArray(data?.accounts) || !Array.isArray(data?.failures)) throw new Error('Import results could not be loaded. Try again.')
+  return data
+}
+export async function resumeStaffImport(token, importId) {
+  return requestJson(`/users/import/jobs/${encodeURIComponent(importId)}/resume`, { token })
+}
+
+export async function previewProgramImport(token, rows) {
+  const data = await requestJson('/programs/import/preview', { token, body: { rows } })
+  if (!Array.isArray(data?.rows) || typeof data.invalidCount !== 'number') throw new Error('The server returned an unexpected import review.')
+  return data
+}
+
+export async function startProgramImport(token, rows, approvalId) {
+  const data = await requestJson('/programs/import/jobs', { token, headers: { 'Idempotency-Key': approvalId }, body: { rows, approvalId, confirmed: true } })
+  if (!data?.importId || !data.status) throw new Error('The import response was incomplete. Retry the same confirmation.')
+  return data
+}
+export async function requestProgramImports(token) {
+  const data = await requestJson('/programs/import/jobs', { token, method: 'GET' })
+  if (!Array.isArray(data?.imports)) throw new Error('Import history could not be loaded.')
+  return data.imports
+}
+export async function requestProgramImport(token, importId) {
+  const data = await requestJson(`/programs/import/jobs/${encodeURIComponent(importId)}`, { token, method: 'GET' })
+  if (!data?.importId || !data.status) throw new Error('Import progress could not be loaded.')
+  return data
+}
+export async function requestProgramImportResults(token, importId) {
+  const data = await requestJson(`/programs/import/jobs/${encodeURIComponent(importId)}/results`, { token, method: 'GET' })
+  if (!Array.isArray(data?.programs) || !Array.isArray(data?.failures)) throw new Error('Import results could not be loaded. Try again.')
+  return data
+}
+export async function resumeProgramImport(token, importId) {
+  return requestJson(`/programs/import/jobs/${encodeURIComponent(importId)}/resume`, { token })
+}
+
+export async function previewBeneficiaryImport(token, rows) {
+  const data = await requestJson('/beneficiaries/import/preview', { token, body: { rows } })
+  if (!Array.isArray(data?.rows) || typeof data.invalidCount !== 'number') throw new Error('The server returned an unexpected import review.')
+  return data
+}
+
+export async function startBeneficiaryImport(token, rows, approvalId) {
+  const data = await requestJson('/beneficiaries/import/jobs', { token, headers: { 'Idempotency-Key': approvalId }, body: { rows, approvalId, confirmed: true } })
+  if (!data?.importId || !data.status) throw new Error('The import response was incomplete. Retry the same confirmation.')
+  return data
+}
+export async function requestBeneficiaryImports(token) {
+  const data = await requestJson('/beneficiaries/import/jobs', { token, method: 'GET' })
+  if (!Array.isArray(data?.imports)) throw new Error('Import history could not be loaded.')
+  return data.imports
+}
+export async function requestBeneficiaryImport(token, importId) {
+  const data = await requestJson(`/beneficiaries/import/jobs/${encodeURIComponent(importId)}`, { token, method: 'GET' })
+  if (!data?.importId || !data.status) throw new Error('Import progress could not be loaded.')
+  return data
+}
+export async function requestBeneficiaryImportResults(token, importId) {
+  const data = await requestJson(`/beneficiaries/import/jobs/${encodeURIComponent(importId)}/results`, { token, method: 'GET' })
+  if (!Array.isArray(data?.beneficiaries) || !Array.isArray(data?.failures)) throw new Error('Import results could not be loaded. Try again.')
+  return data
+}
+export async function resumeBeneficiaryImport(token, importId) {
+  return requestJson(`/beneficiaries/import/jobs/${encodeURIComponent(importId)}/resume`, { token })
 }
 
 export async function removeStaffUser(token, userId, confirmation) {
@@ -896,6 +998,25 @@ export async function enqueueDistributionReminder(token, distributionId, sendAt,
   return data
 }
 
+export async function previewScheduleNotification(token, scheduleId, notificationType) {
+  const data = await requestJson(`/schedules/${scheduleId}/notifications/preview`, {
+    token,
+    body: { notificationType },
+  })
+  if (!data?.message || data.scheduleId !== scheduleId || typeof data.recipientAvailable !== 'boolean' || !/^[a-f0-9]{64}$/.test(data.previewHash)) throw new Error('The server returned an unexpected schedule-message preview.')
+  return data
+}
+
+export async function enqueueScheduleNotification(token, scheduleId, notificationType, previewHash, idempotencyKey = crypto.randomUUID()) {
+  const data = await requestJson(`/schedules/${scheduleId}/notifications/enqueue`, {
+    token,
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: { notificationType, previewHash },
+  })
+  if (!Array.isArray(data?.notifications) || typeof data?.queuedCount !== 'number') throw new Error('The server returned an unexpected schedule-message response.')
+  return data
+}
+
 export async function previewAssistantDistributionReminder(token, distributionId, reminder) {
   const data = await requestJson(`/distributions/${distributionId}/notifications/assistant-preview`, {
     token,
@@ -985,6 +1106,47 @@ export async function submitPublicChatbotMessage(sessionId, sessionToken, messag
     body: { messageText },
   })
   if (!data?.userMessage || !data?.botMessage || !data?.session) throw new Error('The server returned an unexpected chatbot response.')
+  return data
+}
+
+export async function requestChatbotEscalations(token, filters = {}) {
+  const data = await requestJson(`/chatbot/escalations${queryString(filters)}`, { token, method: 'GET' })
+  if (!Array.isArray(data?.escalations) || !data?.pagination) throw new Error('The server returned an unexpected escalation list.')
+  return data
+}
+
+export async function requestChatbotHistory(token, filters = {}) {
+  const data = await requestJson(`/chatbot/history${queryString(filters)}`, { token, method: 'GET' })
+  if (!Array.isArray(data?.conversations) || !data?.pagination) throw new Error('The server returned an unexpected conversation history.')
+  return data
+}
+
+export const requestAssistantConversations = (token, offset = 0) => requestJson(`/chatbot/staff-assistant/conversations?offset=${offset}`, { token, method: 'GET' })
+export const requestAssistantConversation = (token, id, offset = 0) => requestJson(`/chatbot/staff-assistant/conversations/${id}?offset=${offset}`, { token, method: 'GET' })
+export const saveAssistantConversation = (token, id, body, create) => requestJson(`/chatbot/staff-assistant/conversations/${id}`, { token, method: create ? 'POST' : 'PATCH', body })
+export const updateAssistantConversation = (token, id, action, revision) => requestJson(`/chatbot/staff-assistant/conversations/${id}/actions`, { token, body: { action, revision } })
+
+export async function requestChatbotConversation(token, sessionId, history = false) {
+  const data = await requestJson(`/chatbot/${history ? 'history' : 'escalations'}/${sessionId}`, { token, method: 'GET' })
+  if (!data?.session || !Array.isArray(data?.messages)) throw new Error('The server returned an unexpected conversation.')
+  return data
+}
+
+export async function replyToChatbotEscalation(token, sessionId, messageText) {
+  const data = await requestJson(`/chatbot/escalations/${sessionId}/reply`, { token, body: { messageText } })
+  if (!data?.session || !data?.message) throw new Error('The server returned an unexpected staff reply.')
+  return data
+}
+
+export async function resolveChatbotEscalation(token, sessionId, resolutionCode) {
+  const data = await requestJson(`/chatbot/escalations/${sessionId}/resolve`, { token, body: { resolutionCode } })
+  if (!data?.session) throw new Error('The server returned an unexpected resolution.')
+  return data
+}
+
+export async function referChatbotEscalation(token, sessionId, referral) {
+  const data = await requestJson(`/chatbot/escalations/${sessionId}/refer`, { token, body: referral })
+  if (!data?.session?.beneficiary) throw new Error('The server returned an unexpected referral.')
   return data
 }
 
@@ -1096,6 +1258,7 @@ export function getStoredStaffSession() {
 }
 
 export function clearStaffSession() {
+  sessionStorage.removeItem(ASSISTANT_HISTORY_KEY)
   sessionStorage.removeItem('garantiyaid.accessToken')
   sessionStorage.removeItem('garantiyaid.user')
   sessionStorage.removeItem('garantiyaid.totpSetupToken')
@@ -1116,50 +1279,84 @@ const overviewItem = { label: 'Overview', icon: 'overview', href: '/dashboard' }
 const dashboardNavigation = Object.freeze({
   SYSTEM_ADMIN: [
     overviewItem,
+    { label: 'Beneficiaries', section: 'Service records', icon: 'beneficiaries', children: [
+      { label: 'Beneficiary records', href: '/beneficiaries' },
+      { label: 'Enrollment review', href: '/enrollments' },
+      { label: 'Biometric records', href: '/biometrics' },
+    ] },
     { label: 'Assistance programs', icon: 'programs', href: '/programs' },
-    { label: 'Distribution setup', icon: 'distributions', href: '/distributions/manage' },
-    { label: 'Biometric identity', icon: 'biometrics', href: '/biometrics' },
-    { label: 'Claim settlement', icon: 'ledger', href: '/dswd/ledger' },
-    { label: 'Claim accountability', icon: 'receipt', href: '/claim-accountability' },
-    { label: 'SMS delivery', icon: 'smsDelivery', href: '/notifications' },
-    { label: 'Beneficiaries', icon: 'beneficiaries', href: '/beneficiaries' },
-    { label: 'Staff & barangays', icon: 'administration', href: '/admin/administration' },
-    { label: 'Authenticator recovery', icon: 'security', href: '/admin/staff-security' },
-    { label: 'Reports', icon: 'reports', href: '/reports' },
-    { label: 'Audit logs', icon: 'audit', href: '/audit-logs' },
+    { label: 'Distributions', icon: 'distributions', children: [
+      { label: 'Distribution events', href: '/distributions/manage' },
+      { label: 'Live monitoring', href: '/dswd/live-dashboard' },
+      { label: 'Claims and receipts', href: '/claim-accountability' },
+    ] },
+    { label: 'Transactions', icon: 'ledger', href: '/dswd/ledger' },
+    { label: 'Reports and audit', section: 'Oversight and support', icon: 'reports', children: [
+      { label: 'Reports', href: '/reports' },
+      { label: 'Audit logs', href: '/audit-logs' },
+    ] },
+    { label: 'Notifications and help', icon: 'helpCases', children: [
+      { label: 'SMS delivery', href: '/notifications' },
+      { label: 'Help cases', href: '/help-cases' },
+    ] },
+    { label: 'Administration', section: 'System management', icon: 'administration', children: [
+      { label: 'Staff and barangays', href: '/admin/administration' },
+      { label: 'Authenticator recovery', href: '/admin/staff-security' },
+    ] },
   ],
   DSWD_STAFF: [
     overviewItem,
-    { label: 'Assistance programs', icon: 'programs', href: '/programs' },
-    { label: 'Enrollment review', icon: 'enrollments', href: '/enrollments' },
-    { label: 'Biometric identity', icon: 'biometrics', href: '/biometrics' },
-    { label: 'SMS delivery', icon: 'smsDelivery', href: '/notifications' },
-    { label: 'Beneficiaries', icon: 'beneficiaries', href: '/beneficiaries' },
-    { label: 'Live monitoring', icon: 'monitoring', href: '/dswd/live-dashboard' },
-    { label: 'Ledger', icon: 'ledger', href: '/dswd/ledger' },
-    { label: 'Claim accountability', icon: 'receipt', href: '/claim-accountability' },
-    { label: 'Reports', icon: 'reports', href: '/reports' },
-    { label: 'Audit logs', icon: 'audit', href: '/audit-logs' },
+    { label: 'Programs & enrollment', section: 'Operations', icon: 'programs', children: [
+      { label: 'Assistance programs', href: '/programs' },
+      { label: 'Enrollment review', href: '/enrollments' },
+      { label: 'Beneficiaries', href: '/beneficiaries' },
+    ] },
+    { label: 'Identity & claims', icon: 'biometrics', children: [
+      { label: 'Biometric identity', href: '/biometrics' },
+      { label: 'Claim accountability', href: '/claim-accountability' },
+    ] },
+    { label: 'Distribution & funds', icon: 'monitoring', children: [
+      { label: 'Live monitoring', href: '/dswd/live-dashboard' },
+      { label: 'Ledger', href: '/dswd/ledger' },
+    ] },
+    { label: 'Reports & review', section: 'Insights & support', icon: 'reports', children: [
+      { label: 'Reports', href: '/reports' },
+      { label: 'Audit logs', href: '/audit-logs' },
+      { label: 'Service review', href: '/service-review' },
+    ] },
+    { label: 'Notifications & support', icon: 'helpCases', children: [
+      { label: 'SMS delivery', href: '/notifications' },
+      { label: 'Help cases', href: '/help-cases' },
+    ] },
   ],
   BARANGAY_FACILITATOR: [
     overviewItem,
-    { label: 'Assistance programs', icon: 'programs', href: '/programs' },
-    { label: 'Beneficiaries', icon: 'beneficiaries', href: '/beneficiaries' },
-    { label: 'Enrollments', icon: 'enrollments', href: '/enrollments' },
-    { label: 'Queue & schedules', icon: 'queue', href: '/facilitator/queue' },
-    { label: 'Biometric identity', icon: 'biometrics', href: '/biometrics' },
-    { label: 'SMS delivery', icon: 'smsDelivery', href: '/notifications' },
-    { label: 'QR verification', icon: 'qr', href: '/facilitator/qr-verification' },
-    { label: 'Claim accountability', icon: 'receipt', href: '/claim-accountability' },
+    { label: 'Beneficiary services', section: 'Operations', icon: 'beneficiaries', children: [
+      { label: 'Beneficiaries', href: '/beneficiaries' },
+      { label: 'Enrollments', href: '/enrollments' },
+      { label: 'Biometric identity', href: '/biometrics' },
+      { label: 'Assistance programs', href: '/programs' },
+    ] },
+    { label: 'Distribution day', icon: 'queue', children: [
+      { label: 'Queue & schedules', href: '/facilitator/queue' },
+      { label: 'QR verification', href: '/facilitator/qr-verification' },
+      { label: 'Claim accountability', href: '/claim-accountability' },
+    ] },
+    { label: 'Notifications & support', section: 'Support', icon: 'helpCases', children: [
+      { label: 'SMS delivery', href: '/notifications' },
+      { label: 'Help cases', href: '/help-cases' },
+      { label: 'Service review', href: '/service-review' },
+    ] },
   ],
 })
 
 export function getDashboardNavigation(role) {
-  return dashboardNavigation[role] ?? []
+  const items = dashboardNavigation[role]
+  return items ? [...items, { label: 'Staff Assistant', section: 'Assistant', icon: 'helpCases', href: '/assistant' }] : []
 }
 
 export function getAuthErrorMessage(error) {
-  return error instanceof TypeError
-    ? 'Unable to reach the GarantiyAid server. Check that the backend is running.'
+  return error.code === 'API_UNREACHABLE' || error instanceof TypeError
+    ? API_CONNECTION_ERROR
     : error.message
 }

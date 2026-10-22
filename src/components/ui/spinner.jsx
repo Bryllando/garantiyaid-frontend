@@ -1,3 +1,5 @@
+import { Skeleton } from './skeleton.jsx'
+
 function Spinner({ className = '', label = 'Loading', ...props }) {
   const decorative = props['aria-hidden'] === true || props['aria-hidden'] === 'true'
 
@@ -32,4 +34,35 @@ function PageLoader({ label = 'Loading secure workspace...' }) {
   )
 }
 
-export { LoadingLabel, PageLoader, Spinner }
+function ContentLoader({ label = 'Loading page content...' }) {
+  return (
+    <section className="space-y-5" role="status" aria-live="polite" aria-busy="true">
+      <span className="sr-only">{label}</span>
+      <div aria-hidden="true" className="space-y-5">
+        <div className="border-b border-line pb-6">
+          <Skeleton className="h-3 w-28" />
+          <Skeleton className="mt-3 h-8 w-72 max-w-full" />
+          <Skeleton className="mt-3 h-4 w-full max-w-xl" />
+        </div>
+        <div className="ga-card flex flex-wrap items-center gap-3 p-4 sm:p-5">
+          <Skeleton className="h-11 min-w-40 flex-1" />
+          <Skeleton className="h-11 w-36 max-w-full" />
+          <Skeleton className="h-11 w-28 max-w-full" />
+        </div>
+        <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(22rem,0.9fr)]">
+          <div className="ga-card p-5">
+            <Skeleton className="h-6 w-44 max-w-full" />
+            <div className="mt-5 space-y-4">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-16 w-full" />)}</div>
+          </div>
+          <div className="ga-card p-5">
+            <Skeleton className="h-6 w-40 max-w-full" />
+            <Skeleton className="mt-5 h-28 w-full" />
+            <Skeleton className="mt-4 h-20 w-full" />
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+export { ContentLoader, LoadingLabel, PageLoader, Spinner }

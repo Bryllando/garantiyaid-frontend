@@ -46,9 +46,9 @@ function AssistantDistributionScheduler({ accessToken, onBack, onDone, onSession
 
   useEffect(() => {
     const heading = document.getElementById('ai-draft-step-title')
-    if (!heading) return
+    if (!heading || heading.closest('#garantiyaid-ai-panel')?.hidden) return
     const content = heading.closest('[data-assistant-content]')
-    if (content) content.scrollTop = 0
+    if (content) content.scrollTop += heading.parentElement.getBoundingClientRect().top - content.getBoundingClientRect().top - 16
     heading.focus({ preventScroll: true })
   }, [preview])
 

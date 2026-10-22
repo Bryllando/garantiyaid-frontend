@@ -18,6 +18,7 @@ import {
   rescheduleDistributionSchedule,
   verifyDistributionQrClaim,
 } from '../auth/staffAuth.js'
+import { connectFacilitatorQueueRealtime } from '../realtime/staffRealtime.js'
 
 const dateFormatter = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeZone: 'Asia/Manila' })
 const timeFormatter = new Intl.DateTimeFormat('en-PH', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila' })
@@ -38,6 +39,12 @@ const humanize = (value = '') => value.replaceAll('_', ' ').toLowerCase().replac
 
 function StatusBadge({ status }) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${statusStyles[status] ?? statusStyles.CANCELLED}`}>{status.replace('_', ' ')}</span>
+}
+
+function ClaimProgress({ claim }) {
+  if (!['VERIFIED', 'CLAIMED'].includes(claim?.claimStatus)) return null
+  const label = claim.claimStatus === 'VERIFIED' ? 'Claim verified' : claim.releaseMethod === 'PHYSICAL_GOODS' ? 'Physical assistance released' : 'Claim settled'
+  return <p className={`mt-1 text-xs font-semibold ${claim.claimStatus === 'CLAIMED' ? 'text-brand-green' : 'text-brand-blue'}`}>{label}</p>
 }
 
 function DistributionSelector({ distributions, selectedId, onChange }) {
@@ -107,6 +114,8 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [page, setPage] = useState(1)
+  const [liveStatus, setLiveStatus] = useState('connecting')
+  const [liveNotice, setLiveNotice] = useState('')
 
   const [qrToken, setQrToken] = useState('')
   const [qrPreview, setQrPreview] = useState(null)
@@ -116,9 +125,55 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
   const [isPreviewing, setIsPreviewing] = useState(false)
   const [isVerifying, setIsVerifying] = useState(false)
   const isFacilitator = session.user.role === 'BARANGAY_FACILITATOR'
+  const selectedIdRef = useRef(selectedId)
   const selectedDistribution = distributions.find((distribution) => distribution.distributionId === selectedId)
   const currentPath = view === 'queue' ? '/facilitator/queue' : '/facilitator/qr-verification'
   const pageTitle = view === 'queue' ? 'Queue & schedules' : 'QR claim verification'
+
+  useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
+
+  useEffect(() => {
+    if (!isFacilitator || view !== 'queue') return undefined
+    let active = true
+    let connectedOnce = false
+    let queueTimer
+    let distributionTimer
+    const refreshQueue = () => {
+      clearTimeout(queueTimer)
+      queueTimer = setTimeout(() => setQueueReload((count) => count + 1), 250)
+    }
+    const refreshDistributions = () => {
+      clearTimeout(distributionTimer)
+      distributionTimer = setTimeout(() => setDistributionReload((count) => count + 1), 250)
+    }
+    const disconnect = connectFacilitatorQueueRealtime(session.accessToken, {
+      onReady: () => {
+        if (!active) return
+        setLiveStatus('connected')
+        if (connectedOnce) { refreshDistributions(); refreshQueue() }
+        connectedOnce = true
+      },
+      onUpdate: (eventName, payload) => {
+        if (!active) return
+        if (eventName === 'distribution.updated') refreshDistributions()
+        if (payload?.distributionId !== selectedIdRef.current) return
+        refreshQueue()
+        setLiveNotice(eventName === 'claim.released' ? 'Physical assistance released' : eventName.startsWith('claim.') ? 'Claim updated' : eventName === 'distribution.updated' ? 'Distribution updated' : 'Schedule updated')
+      },
+      onError: (socketError) => {
+        if (!active) return
+        if (['AUTHENTICATION_REQUIRED', 'INVALID_TOKEN', 'INVALID_SESSION'].includes(socketError?.data?.code)) return onSessionExpired()
+        setLiveStatus('reconnecting')
+      },
+      onDisconnect: () => { if (active) setLiveStatus('reconnecting') },
+    })
+    return () => {
+      active = false
+      clearTimeout(queueTimer)
+      clearTimeout(distributionTimer)
+      disconnect()
+    }
+  }, [isFacilitator, onSessionExpired, session.accessToken, view])
 
   useEffect(() => {
     let active = true
@@ -134,6 +189,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
         const relevantItems = view === 'qr'
           ? items.filter((item) => ['QR', 'QR_AND_BIOMETRIC'].includes(item.verificationRequirement))
           : items
+        setDistributionError('')
         setDistributions(relevantItems)
         setSelectedId((current) => relevantItems.some((item) => item.distributionId === current) ? current : relevantItems[0]?.distributionId || '')
         if (relevantItems.length === 0) setIsLoadingQueue(false)
@@ -151,7 +207,13 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     if (view !== 'queue' || !selectedId) return undefined
     let active = true
     requestDistributionQueue(session.accessToken, selectedId, { page, search, status })
-      .then((data) => { if (active) setQueue(data) })
+      .then((data) => {
+        if (!active) return
+        const lastPage = Math.max(1, data.pagination.totalPages)
+        if (page > lastPage) { setPage(lastPage); return }
+        setQueueError('')
+        setQueue(data)
+      })
       .catch((error) => {
         if (!active) return
         if (isSessionExpiredError(error)) return onSessionExpired()
@@ -325,7 +387,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
 
   return (
     <DashboardShell breadcrumbs={['Operations', 'Barangay Facilitator', pageTitle]} currentPath={currentPath} onLogout={onLogout} onNavigate={onNavigate} pageTitle={pageTitle} user={session.user}>
-      <header className="flex flex-col gap-4 border-b border-line pb-6 sm:flex-row sm:items-end sm:justify-between">
+      <header className="ga-page-header flex flex-col gap-4 border-b border-line pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="ga-eyebrow">Assigned barangay operations</p>
           <h1 className="ga-page-title mt-2">{pageTitle}</h1>
@@ -333,10 +395,15 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
             {view === 'queue' ? 'Prepare draft schedules for your assigned barangay, then track the queue after the event opens.' : 'Review a beneficiary QR credential before recording check-in for the selected open event.'}
           </p>
         </div>
-        <button type="button" onClick={() => onNavigate(view === 'queue' ? '/facilitator/qr-verification' : '/facilitator/queue')} className="ga-btn-primary shrink-0">
-          {view === 'queue' ? 'Open QR verification' : 'View beneficiary queue'}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          {view === 'queue' && <span role="status" aria-label={liveStatus === 'connected' ? 'Live queue connected' : 'Live queue reconnecting'} className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-3 text-xs font-bold ${liveStatus === 'connected' ? 'border-emerald-200 bg-success-soft text-brand-green' : 'border-amber-200 bg-warning-soft text-brand-amber'}`}><span aria-hidden="true" className={`size-2 rounded-full ${liveStatus === 'connected' ? 'bg-brand-green' : 'bg-brand-amber'}`} />{liveStatus === 'connected' ? 'Queue live' : 'Reconnecting'}</span>}
+          <button type="button" onClick={() => onNavigate(view === 'queue' ? '/facilitator/qr-verification' : '/facilitator/queue')} className="ga-btn-primary shrink-0">
+            {view === 'queue' ? 'Open QR verification' : 'View beneficiary queue'}
+          </button>
+        </div>
       </header>
+
+      {view === 'queue' && liveNotice && <p role="status" aria-live="polite" className="mt-4 text-xs font-semibold text-muted-copy">{liveNotice} · Updating the selected queue</p>}
 
       {isLoadingDistributions ? (
         <div className="ga-card mt-7 p-6"><Skeleton className="h-4 w-40" /><Skeleton className="mt-3 h-12 w-full" /></div>
@@ -468,19 +535,19 @@ function QueueView({ distribution, queue, queueError, isLoading, isScheduleBusy,
 
       {scheduleNotice && <div role="status" className="mb-5 rounded-xl border border-emerald-200 bg-success-soft p-4 text-sm font-semibold text-brand-green">{scheduleNotice}</div>}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <dl className="ga-admin-summary grid grid-cols-2 lg:grid-cols-4" aria-label="Queue summary">
         {[
           ['Scheduled', counts.SCHEDULED ?? 0, 'pending'],
           ['Checked in', counts.CHECKED_IN ?? 0, 'success'],
           ['Missed', counts.MISSED ?? 0, 'neutral'],
           ['Cancelled', counts.CANCELLED ?? 0, 'neutral'],
         ].map(([label, value, tone]) => (
-          <article key={label} className="ga-card p-4">
-            <p className="text-xs font-bold uppercase tracking-[0.1em] text-muted-copy">{label}</p>
-            <p className={`mt-2 text-3xl font-black ${tone === 'success' ? 'text-brand-green' : tone === 'pending' ? 'text-brand-amber' : 'text-ink'}`}>{value}</p>
-          </article>
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd className={`text-2xl font-semibold tabular-nums ${tone === 'success' ? 'text-brand-green' : tone === 'pending' ? 'text-brand-amber' : 'text-ink'}`}>{value}</dd>
+          </div>
         ))}
-      </div>
+      </dl>
 
       <div className="ga-card mt-6 overflow-hidden">
         <div className="border-b border-line p-5 sm:p-6">
@@ -503,10 +570,10 @@ function QueueView({ distribution, queue, queueError, isLoading, isScheduleBusy,
                 <table className="w-full border-collapse text-left text-sm">
                   <caption className="sr-only">Beneficiary distribution schedules</caption>
                   <thead><tr className="border-b border-line text-xs uppercase tracking-[0.08em] text-muted-copy"><th scope="col" className="px-3 py-3">Queue</th><th scope="col" className="px-3 py-3">Beneficiary</th><th scope="col" className="px-3 py-3">Time slot</th><th scope="col" className="px-3 py-3">Status</th>{isDraft && <th scope="col" className="px-3 py-3 text-right">Action</th>}</tr></thead>
-                  <tbody className="divide-y divide-line">{queue.schedules.map((schedule) => <tr key={schedule.scheduleId}><td className="px-3 py-4"><p className="text-lg font-black text-brand-navy">#{schedule.queueNumber}</p><p className="mt-1 text-xs text-muted-copy">{schedule.assignmentMethod === 'AUTOMATED_RULES' || schedule.assignedByAi ? 'Automated rules' : 'Staff assigned'}</p></td><td className="px-3 py-4"><p className="font-bold text-ink">{beneficiaryName(schedule.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p></td><td className="px-3 py-4"><p className="font-semibold text-ink">{schedule.slot.sessionLabel}</p><p className="mt-1 text-xs text-muted-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p><p className="mt-1 text-xs text-muted-copy">{schedule.slot.location}</p></td><td className="px-3 py-4"><StatusBadge status={schedule.status} /></td>{isDraft && <td className="px-3 py-4"><ScheduleActions schedule={schedule} busy={isScheduleBusy} onReschedule={onReschedule} onScheduleAction={onScheduleAction} /></td>}</tr>)}</tbody>
+                  <tbody className="divide-y divide-line">{queue.schedules.map((schedule) => <tr key={schedule.scheduleId}><td className="px-3 py-4"><p className="text-lg font-black text-brand-navy">#{schedule.queueNumber}</p><p className="mt-1 text-xs text-muted-copy">{schedule.assignmentMethod === 'AUTOMATED_RULES' || schedule.assignedByAi ? 'Automated rules' : 'Staff assigned'}</p></td><td className="px-3 py-4"><p className="font-bold text-ink">{beneficiaryName(schedule.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p><ClaimProgress claim={schedule.claim} /></td><td className="px-3 py-4"><p className="font-semibold text-ink">{schedule.slot.sessionLabel}</p><p className="mt-1 text-xs text-muted-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p><p className="mt-1 text-xs text-muted-copy">{schedule.slot.location}</p></td><td className="px-3 py-4"><StatusBadge status={schedule.status} /></td>{isDraft && <td className="px-3 py-4"><ScheduleActions schedule={schedule} busy={isScheduleBusy} onReschedule={onReschedule} onScheduleAction={onScheduleAction} /></td>}</tr>)}</tbody>
                 </table>
               </div>
-              <ul className="space-y-3 md:hidden">{queue.schedules.map((schedule) => <li key={schedule.scheduleId} className="rounded-lg border border-line p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-lg font-black text-brand-navy">Queue #{schedule.queueNumber}</p><p className="mt-1 font-bold text-ink">{beneficiaryName(schedule.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p></div><StatusBadge status={schedule.status} /></div><div className="mt-3 rounded-lg bg-slate-50 p-3"><p className="text-sm font-bold text-ink">{schedule.slot.sessionLabel}</p><p className="mt-1 text-xs text-muted-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p><p className="mt-1 text-xs text-muted-copy">{schedule.slot.location}</p></div>{isDraft && <ScheduleActions schedule={schedule} busy={isScheduleBusy} mobile onReschedule={onReschedule} onScheduleAction={onScheduleAction} />}</li>)}</ul>
+              <ul className="space-y-3 md:hidden">{queue.schedules.map((schedule) => <li key={schedule.scheduleId} className="rounded-lg border border-line p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-lg font-black text-brand-navy">Queue #{schedule.queueNumber}</p><p className="mt-1 font-bold text-ink">{beneficiaryName(schedule.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p><ClaimProgress claim={schedule.claim} /></div><StatusBadge status={schedule.status} /></div><div className="mt-3 rounded-lg bg-slate-50 p-3"><p className="text-sm font-bold text-ink">{schedule.slot.sessionLabel}</p><p className="mt-1 text-xs text-muted-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p><p className="mt-1 text-xs text-muted-copy">{schedule.slot.location}</p></div>{isDraft && <ScheduleActions schedule={schedule} busy={isScheduleBusy} mobile onReschedule={onReschedule} onScheduleAction={onScheduleAction} />}</li>)}</ul>
               <div className="mt-5 flex items-center justify-between border-t border-line pt-4"><p className="text-xs font-semibold text-muted-copy">Page {queue.pagination.page} of {Math.max(queue.pagination.totalPages, 1)}</p><div className="flex gap-2"><button type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)} className="min-h-11 cursor-pointer rounded-lg border border-line px-4 text-sm font-bold text-copy disabled:cursor-not-allowed disabled:opacity-50">Previous</button><button type="button" disabled={page >= queue.pagination.totalPages} onClick={() => onPageChange(page + 1)} className="min-h-11 cursor-pointer rounded-lg border border-line px-4 text-sm font-bold text-copy disabled:cursor-not-allowed disabled:opacity-50">Next</button></div></div>
             </>
           )}
@@ -635,7 +702,7 @@ function QrVerificationView({ distribution, qrToken, setQrToken, error, preview,
   useEffect(() => {
     if (cameraOpen || busy) return
     if (preview) confirmRef.current?.focus()
-    else if (!result) inputRef.current?.focus()
+    else if (!result) inputRef.current?.focus({ preventScroll: true })
   }, [busy, cameraOpen, preview, result])
 
   return (

@@ -7,7 +7,7 @@ import { chromium, expect } from '@playwright/test'
 // Invoked by the backend's local-only fixture runner. Credentials stay in memory.
 export async function verifyAssistantUi({ baseUrl, env, admin, facilitator, program, area, distribution, date, prisma }) {
   const root = fileURLToPath(new URL('../', import.meta.url))
-  const artifacts = new URL('../artifacts/assistant-phase6/', import.meta.url)
+  const artifacts = new URL('../artifacts/assistant-ui/', import.meta.url)
   await mkdir(artifacts, { recursive: true })
   const vite = await createServer({ root, cacheDir: fileURLToPath(new URL('.vite/', artifacts)), configFile: fileURLToPath(new URL('../vite.config.js', import.meta.url)), define: { 'import.meta.env.VITE_API_URL': JSON.stringify(baseUrl) }, server: { host: '127.0.0.1', port: 0, hmr: false }, logLevel: 'error' })
   let browser, page
@@ -17,6 +17,12 @@ export async function verifyAssistantUi({ baseUrl, env, admin, facilitator, prog
     const origin = `http://127.0.0.1:${vite.httpServer.address().port}`
     env.corsOrigins.push(origin)
     browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'msedge', headless: true })
+    const openAssistant = async (current) => {
+      const launcher = current.getByRole('button', { name: 'Open assistant conversation', exact: true })
+      if (await launcher.isVisible()) await launcher.click()
+      const expand = current.getByRole('button', { name: 'Expand conversation', exact: true })
+      if (await expand.isVisible()) await expand.click()
+    }
     const openAccount = async (account, options = {}) => {
       const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, ...options })
       const { userId, fullName, role, employeeId, barangayId } = account.user
@@ -27,12 +33,12 @@ export async function verifyAssistantUi({ baseUrl, env, admin, facilitator, prog
       const current = await context.newPage()
       current.on('pageerror', (error) => errors.push(error.message))
       await current.goto(`${origin}/dashboard`)
-      await current.getByRole('button', { name: 'Open GarantiyAid AI', exact: true }).click()
+      await openAssistant(current)
       await current.getByLabel('Assistant language', { exact: true }).selectOption('en')
       return current
     }
     const screenshot = async (name) => page.screenshot({ path: fileURLToPath(new URL(`${name}.png`, artifacts)), fullPage: false })
-    const panel = () => page.getByRole('dialog', { name: 'GarantiyAid AI', exact: true })
+    const panel = () => page.getByRole('main', { name: 'Staff Assistant', exact: true })
     const checkWidth = async () => {
       assert.equal(await panel().evaluate((element) => element.scrollWidth <= element.clientWidth + 1), true, 'Assistant must not scroll horizontally')
       const bounds = await panel().boundingBox()
@@ -45,20 +51,20 @@ export async function verifyAssistantUi({ baseUrl, env, admin, facilitator, prog
     await page.getByRole('button', { name: 'Expand navigation', exact: true }).click()
     await screenshot('desktop-overview')
     const before = await prisma.distribution.count({ where: { programId: program.programId } })
-    await panel().getByRole('button', { name: 'Draft a distribution event', exact: true }).click()
+    await panel().getByRole('button', { name: /^Prepare a distribution draft/ }).click()
     await panel().getByRole('button', { name: 'Cancel pending task', exact: true }).click()
     assert.equal(await prisma.distribution.count({ where: { programId: program.programId } }), before)
-    await expect(page.getByLabel('Ask GarantiyAid AI', { exact: true })).toBeFocused()
-    await page.getByLabel('Ask GarantiyAid AI', { exact: true }).fill('Hello, create a distribution')
+    await expect(page.getByLabel('Message Staff Assistant', { exact: true })).toBeFocused()
+    await page.getByLabel('Message Staff Assistant', { exact: true }).fill('Hello, create a distribution')
     await page.getByRole('button', { name: 'Send message', exact: true }).click()
     const details = [
       ['Program', program.programCode], ['Barangay', area.barangayName], ['Date (PHT)', date],
       ['Start time (PHT)', '15:00'], ['End time (PHT)', '16:00'], ['Venue', 'Browser verification hall'],
-      ['Slot duration', '30'], ['Verification', 'QR'], ['Event title', 'Browser reviewed draft'],
+      ['Slot duration', '30'], ['Assistance delivery', 'PHYSICAL_GOODS'], ['Verification', 'QR'], ['Event title', 'Browser reviewed draft'],
     ]
     for (const [label, value] of details) {
       const input = panel().getByLabel(label, { exact: true })
-      if (label === 'Verification') await input.selectOption(value)
+      if (['Verification', 'Assistance delivery'].includes(label)) await input.selectOption(value)
       else await input.fill(value)
       await panel().getByRole('button', { name: 'Keep this detail', exact: true }).click()
     }
@@ -80,8 +86,8 @@ export async function verifyAssistantUi({ baseUrl, env, admin, facilitator, prog
       await screenshot(`review-${width}`)
     }
     await page.emulateMedia({ reducedMotion: 'reduce' })
-    await panel().getByRole('button', { name: 'Close GarantiyAid AI', exact: true }).click()
-    await page.getByRole('button', { name: 'Open GarantiyAid AI', exact: true }).click()
+    await page.goBack()
+    await openAssistant(page)
     await expect(panel().getByText('Browser corrected draft', { exact: true })).toBeVisible()
     // Drop a real successful response; the application must recover its original approval.
     let drop = true, submissions = 0
@@ -103,7 +109,7 @@ export async function verifyAssistantUi({ baseUrl, env, admin, facilitator, prog
     await expect(panel().getByRole('button', { name: 'Edit draft', exact: true })).toBeDisabled()
     await screenshot('connection-recovery')
     await page.reload()
-    await page.getByRole('button', { name: 'Open GarantiyAid AI', exact: true }).click()
+    await openAssistant(page)
     await expect(panel().getByRole('heading', { name: 'Recover your confirmation' })).toBeVisible()
     await screenshot('refresh-recovery')
     await panel().getByRole('button', { name: 'Recover previous confirmation', exact: true }).click()
@@ -112,13 +118,14 @@ export async function verifyAssistantUi({ baseUrl, env, admin, facilitator, prog
     assert.equal(submissions, 2)
     assert.equal(await prisma.distribution.count({ where: { programId: program.programId, title: 'Browser corrected draft' } }), 1)
     await screenshot('draft-success')
+    await page.getByRole('button', { name: 'History', exact: true }).click()
     await page.keyboard.press('Escape')
-    await expect(page.getByRole('button', { name: 'Open GarantiyAid AI', exact: true })).toBeFocused()
+    await expect(page.getByRole('button', { name: 'History', exact: true })).toBeFocused()
     await page.context().close()
 
     page = await openAccount(facilitator, { viewport: { width: 390, height: 900 }, reducedMotion: 'reduce', timezoneId: 'America/New_York' })
-    await expect(panel().getByRole('button', { name: 'Draft a distribution event', exact: true })).toHaveCount(0)
-    await panel().getByRole('button', { name: 'Prepare an area reminder', exact: true }).click()
+    await expect(panel().getByRole('button', { name: /^Prepare a distribution draft/ })).toHaveCount(0)
+    await panel().getByRole('button', { name: /^Prepare a reminder/ }).click()
     const queueTime = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 16)
     for (const [label, value] of [
       ['Distribution event', distribution.distributionId], ['Recipient area', 'Purok QA'],

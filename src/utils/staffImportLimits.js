@@ -1,0 +1,2 @@
+export const STAFF_IMPORT_LIMIT = 5000
+export const STAFF_IMPORT_FILE_LIMIT_MB = 10

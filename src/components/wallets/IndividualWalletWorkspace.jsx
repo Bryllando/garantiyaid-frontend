@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
   createSimulatedTransfer,
@@ -71,8 +71,10 @@ function TransferResult({ result, recipient }) {
   )
 }
 
-export default function IndividualWalletWorkspace({ session, loadingReceiptId, onReceipt, onSessionExpired }) {
-  const [beneficiaryId, setBeneficiaryId] = useState('')
+export default function IndividualWalletWorkspace({ session, loadingReceiptId, onNavigate, onReceipt, onSessionExpired }) {
+  const canTransfer = session.user.role === 'DSWD_STAFF'
+  const [beneficiaryId, setBeneficiaryId] = useState(() => new URLSearchParams(window.location.search).get('beneficiary') || '')
+  const linkedLookupRef = useRef(beneficiaryId)
   const [record, setRecord] = useState(null)
   const [history, setHistory] = useState(null)
   const [counterparty, setCounterparty] = useState(null)
@@ -83,12 +85,12 @@ export default function IndividualWalletWorkspace({ session, loadingReceiptId, o
   const [error, setError] = useState('')
   const detailRef = useMotionEntry(record ? `${record.beneficiary.beneficiaryId}:${record.wallet?.balance ?? 'none'}:${history?.pagination.page ?? 0}` : 'wallet-search')
 
-  function reportError(requestError, fallback) {
+  const reportError = useCallback((requestError, fallback) => {
     if (isSessionExpiredError(requestError)) return onSessionExpired()
     const message = getAuthErrorMessage(requestError) || fallback
     setError(message)
     toast.error(fallback, { description: message })
-  }
+  }, [onSessionExpired])
 
   async function fetchHistory(walletId, page = 1) {
     setBusy('history')
@@ -102,9 +104,9 @@ export default function IndividualWalletWorkspace({ session, loadingReceiptId, o
     }
   }
 
-  async function findWallet(event) {
+  const findWallet = useCallback(async (event, selectedBeneficiaryId = beneficiaryId) => {
     event?.preventDefault()
-    const id = beneficiaryId.trim()
+    const id = selectedBeneficiaryId.trim()
     if (!uuidPattern.test(id)) {
       setError('Enter a valid beneficiary ID in UUID format.')
       return
@@ -119,12 +121,22 @@ export default function IndividualWalletWorkspace({ session, loadingReceiptId, o
       const result = await requestWalletByBeneficiary(session.accessToken, id)
       setRecord(result)
       if (result.wallet) setHistory(await requestWalletTransactions(session.accessToken, result.wallet.walletId, { page: 1, pageSize: 10 }))
+      const url = new URL(window.location.href)
+      url.searchParams.set('beneficiary', id)
+      window.history.replaceState(window.history.state, '', url)
+      requestAnimationFrame(() => detailRef.current?.focus())
     } catch (requestError) {
       reportError(requestError, 'Unable to find beneficiary wallet')
     } finally {
       setBusy('')
     }
-  }
+  }, [beneficiaryId, detailRef, reportError, session.accessToken])
+
+  useEffect(() => {
+    const id = linkedLookupRef.current
+    linkedLookupRef.current = ''
+    if (id) void findWallet(null, id)
+  }, [findWallet])
 
   async function addWallet() {
     setBusy('create')
@@ -201,25 +213,23 @@ export default function IndividualWalletWorkspace({ session, loadingReceiptId, o
 
   return (
     <div className="mt-7">
-      <section className="overflow-hidden rounded-xl border border-blue-200 bg-brand-navy text-white shadow-sm">
-        <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center sm:p-6"><div><p className="text-xs font-bold uppercase tracking-[0.14em] text-blue-200">Closed-loop recordkeeping</p><h2 className="mt-2 text-2xl font-extrabold">Individual simulated wallet</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">Locate a beneficiary, review the ledger balance and history, then record an internal demonstration transfer. No cash, bank, e-wallet, or government payment rail is connected.</p></div><span className="w-fit rounded-full border border-white/15 bg-white/10 px-3 py-2 text-xs font-bold text-emerald-300">Real funds moved: No</span></div>
-        <form onSubmit={findWallet} className="border-t border-white/10 bg-white/[0.06] p-5 sm:p-6"><label htmlFor="wallet-beneficiary-id" className="text-sm font-bold text-white">Beneficiary ID</label><div className="mt-2 flex flex-col gap-3 sm:flex-row"><input id="wallet-beneficiary-id" required autoComplete="off" spellCheck="false" value={beneficiaryId} onChange={(event) => setBeneficiaryId(event.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" className="ga-input font-mono" /><button type="submit" disabled={Boolean(busy)} className="ga-btn-primary shrink-0 border border-blue-400 bg-blue-600 hover:bg-blue-500">{busy === 'lookup' ? <LoadingLabel>Finding wallet...</LoadingLabel> : 'Find wallet'}</button></div></form>
+      <section className="ga-card overflow-hidden" aria-labelledby="wallet-lookup-heading">
+        <div className="border-b border-line p-5 sm:p-6"><p className="ga-eyebrow">Individual account review</p><h2 id="wallet-lookup-heading" className="mt-1 text-xl font-extrabold text-ink">Find a beneficiary wallet</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-muted-copy">{canTransfer ? 'Review the balance and history before an authorized simulated transfer.' : 'Review the balance and history, or create an empty wallet for an active beneficiary.'} Open a beneficiary record to come here with its ID filled in.</p></div>
+        <form onSubmit={findWallet} className="p-5 sm:p-6"><label htmlFor="wallet-beneficiary-id" className="ga-label">Beneficiary ID</label><div className="mt-2 flex flex-col gap-3 sm:flex-row"><input id="wallet-beneficiary-id" required autoComplete="off" spellCheck="false" value={beneficiaryId} onChange={(event) => setBeneficiaryId(event.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" aria-describedby={error ? 'wallet-lookup-error' : undefined} className="ga-input min-w-0 font-mono" /><button type="submit" disabled={Boolean(busy)} className="ga-btn-primary shrink-0">{busy === 'lookup' ? <LoadingLabel>Finding wallet...</LoadingLabel> : 'Find wallet'}</button></div>{error && <p id="wallet-lookup-error" role="alert" className="mt-3 text-sm font-semibold text-brand-red">{error}</p>}</form>
       </section>
 
-      {error && <div role="alert" className="mt-4 rounded-xl border border-amber-200 bg-warning-soft p-4 text-sm font-semibold text-copy">{error}</div>}
-
-      {record && <div ref={detailRef}>
+      {record && <div ref={detailRef} tabIndex={-1} aria-label="Selected wallet record" className="scroll-mt-36 outline-none focus-visible:outline-2 focus-visible:outline-brand-blue">
         <section className="ga-card mt-6 overflow-hidden" aria-labelledby="wallet-owner-heading">
           <div className="grid gap-px bg-line lg:grid-cols-[minmax(0,1.3fr)_repeat(2,minmax(12rem,0.55fr))]">
-            <div className="bg-white p-5 sm:p-6"><p className="ga-eyebrow">Beneficiary</p><h2 id="wallet-owner-heading" className="mt-1 text-2xl font-extrabold text-ink">{fullName(record.beneficiary)}</h2><p className="mt-2 text-sm text-muted-copy">{record.beneficiary.barangay?.barangayName}, {record.beneficiary.barangay?.city}</p><p className="mt-3 break-all font-mono text-xs font-semibold text-muted-copy">{record.beneficiary.beneficiaryId}</p></div>
+            <div className="bg-white p-5 sm:p-6"><p className="ga-eyebrow">Beneficiary</p><h2 id="wallet-owner-heading" className="mt-1 text-2xl font-extrabold text-ink">{fullName(record.beneficiary)}</h2><p className="mt-2 text-sm text-muted-copy">{record.beneficiary.barangay?.barangayName}, {record.beneficiary.barangay?.city}</p><p className="mt-3 break-all font-mono text-xs font-semibold text-muted-copy">{record.beneficiary.beneficiaryId}</p><a href={`/beneficiaries?beneficiary=${encodeURIComponent(record.beneficiary.beneficiaryId)}`} onClick={(event) => { event.preventDefault(); onNavigate(`/beneficiaries?beneficiary=${encodeURIComponent(record.beneficiary.beneficiaryId)}`) }} className="mt-4 inline-flex min-h-11 items-center text-sm font-bold text-brand-blue hover:underline">View beneficiary record <Icon name="arrowRight" className="ml-2 size-4" /></a></div>
             <div className="bg-white p-5 sm:p-6"><p className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">Available balance</p><p className="mt-3 text-3xl font-black tabular-nums text-brand-green">{record.wallet ? money.format(Number(record.wallet.balance)) : 'No wallet'}</p><p className="mt-2 text-xs text-muted-copy">Simulated PHP ledger value</p></div>
             <div className="bg-white p-5 sm:p-6"><p className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">Wallet status</p><span className={`mt-3 inline-flex rounded-full border px-3 py-1.5 text-sm font-bold ${record.wallet?.accountStatus === 'ACTIVE' ? 'border-emerald-200 bg-success-soft text-brand-green' : record.wallet ? 'border-amber-200 bg-warning-soft text-brand-amber' : 'border-line bg-slate-100 text-copy'}`}>{record.wallet ? humanize(record.wallet.accountStatus) : 'Not created'}</span><p className="mt-3 text-xs text-muted-copy">Beneficiary: {humanize(record.beneficiary.status)}</p>{record.wallet && <p className="mt-2 break-all font-mono text-[0.7rem] text-muted-copy">{record.wallet.walletId}</p>}</div>
           </div>
           {!record.wallet && <div className="flex flex-col gap-4 border-t border-line bg-slate-50 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6"><div><p className="font-extrabold text-ink">This beneficiary has no simulated wallet</p><p className="mt-1 text-sm text-muted-copy">{record.beneficiary.status === 'ACTIVE' ? 'Create an empty PHP ledger wallet before recording individual activity.' : 'Wallet creation is available only for an active beneficiary.'}</p></div><button type="button" onClick={addWallet} disabled={Boolean(busy) || record.beneficiary.status !== 'ACTIVE'} className="ga-btn-primary shrink-0"><Icon name="plus" className="size-4" />{busy === 'create' ? <LoadingLabel>Creating...</LoadingLabel> : 'Create simulated wallet'}</button></div>}
         </section>
 
-        {record.wallet && <div className="mt-6 grid items-start gap-6 xl:grid-cols-[minmax(22rem,0.72fr)_minmax(0,1.28fr)]">
-          <section className="ga-card p-5 sm:p-6" aria-labelledby="transfer-heading">
+        {record.wallet && <div className={`mt-6 grid items-start gap-6 ${canTransfer ? 'xl:grid-cols-[minmax(22rem,0.72fr)_minmax(0,1.28fr)]' : ''}`}>
+          {canTransfer && <section className="ga-card p-5 sm:p-6" aria-labelledby="transfer-heading">
             <p className="ga-eyebrow">Internal movement</p><h2 id="transfer-heading" className="mt-1 text-xl font-extrabold text-ink">Record simulated transfer</h2><p className="mt-2 text-sm leading-6 text-muted-copy">The recipient is verified before a confirmation screen shows both parties and the exact amount.</p>
             <form onSubmit={reviewTransfer} className="mt-5 space-y-4">
               <div><label htmlFor="recipient-beneficiary-id" className="ga-label">Recipient beneficiary ID</label><input id="recipient-beneficiary-id" required autoComplete="off" spellCheck="false" value={form.recipientBeneficiaryId} onChange={(event) => setForm((current) => ({ ...current, recipientBeneficiaryId: event.target.value }))} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" className="ga-input mt-2 font-mono" /></div>
@@ -227,7 +237,7 @@ export default function IndividualWalletWorkspace({ session, loadingReceiptId, o
               <div><label htmlFor="transfer-description" className="ga-label">Ledger note <span className="font-normal text-muted-copy">(optional)</span></label><textarea id="transfer-description" maxLength="255" rows="3" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder="Purpose of this demonstration transfer" className="ga-input mt-2 min-h-24 resize-y py-3" /></div>
               <button type="submit" disabled={Boolean(busy) || record.wallet.accountStatus !== 'ACTIVE'} className="ga-btn-primary w-full">{busy === 'recipient' ? <LoadingLabel>Verifying recipient...</LoadingLabel> : 'Review simulated transfer'}</button>
             </form>
-          </section>
+          </section>}
 
           <section className="ga-card overflow-hidden" aria-labelledby="wallet-history-heading"><div className="flex flex-wrap items-center justify-between gap-3 p-5 sm:p-6"><div><p className="ga-eyebrow">Account activity</p><h2 id="wallet-history-heading" className="mt-1 text-xl font-extrabold text-ink">Wallet history</h2></div><button type="button" onClick={() => fetchHistory(record.wallet.walletId, history?.pagination.page ?? 1)} disabled={Boolean(busy)} className="ga-btn-secondary min-h-10 px-3 text-sm">{busy === 'history' ? <LoadingLabel>Refreshing...</LoadingLabel> : 'Refresh'}</button></div><WalletHistory history={history} loadingReceiptId={loadingReceiptId} onPage={(page) => fetchHistory(record.wallet.walletId, page)} onReceipt={onReceipt} /></section>
         </div>}

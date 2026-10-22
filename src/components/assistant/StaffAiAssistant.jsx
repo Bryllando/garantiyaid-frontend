@@ -1,5 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { animate } from 'animejs'
+import { lazy, Suspense, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   enqueueAssistantDistributionReminder,
   confirmAssistantDistribution,
@@ -18,6 +17,9 @@ import AssistantTaskDetails from './AssistantTaskDetails.jsx'
 import { collectTaskDetails, detailCopy, isTaskCancellation, isTaskQuestion, nextTaskField, setTaskValue, taskReply, translated } from './task-details.js'
 import { allPages, formatPreviewTime, reminderFormFromTask, reminderRequest, resolveServiceArea, UNRESOLVED_AREA } from './task-preview.js'
 import { confirmationSnapshot, uncertainConfirmation, retryConfirmationMessage, pendingConfirmation } from './confirmation-state.js'
+import { useAssistantHistory } from './use-assistant-history.js'
+import AssistantHistory, { HistorySaveStatus } from './AssistantHistory.jsx'
+import './staff-assistant.css'
 
 const AssistantMessage = lazy(() => import('./AssistantMessage.js'))
 
@@ -28,21 +30,17 @@ const LANGUAGE_LABELS = { en: 'English', fil: 'Filipino', ceb: 'Cebuano' }
 const roleExperience = {
   SYSTEM_ADMIN: {
     greeting: {
-      en: 'I can draft distribution events, prepare controlled reminders, and guide you through system-wide operations.',
-      fil: 'Makakagawa ako ng distribution draft, controlled reminder, at gabay para sa system-wide operations.',
-      ceb: 'Makahimo ko og distribution draft, kontroladong reminder, ug giya para sa system-wide operations.',
+      en: 'Ask how to use GarantiyAid, prepare a distribution draft, or write a reminder. You review each task before confirming it.',
+      fil: 'Magtanong tungkol sa GarantiyAid, maghanda ng distribution draft, o gumawa ng paalala. Susuriin mo muna ang bawat gawain bago kumpirmahin.',
+      ceb: 'Pangutana bahin sa GarantiyAid, pag-andam og distribution draft, o paghimo og reminder. Imong i-review ang matag task sa dili pa kumpirmahon.',
     },
-    schedulePath: '/distributions/manage',
-    scheduleLabel: 'Open distribution setup',
   },
   DSWD_STAFF: {
     greeting: {
-      en: 'I can prepare scoped beneficiary reminders and guide you through authorized DSWD operations.',
-      fil: 'Makapaghanda ako ng scoped beneficiary reminder at gabay sa awtorisadong DSWD operations.',
-      ceb: 'Makahimo ko og scoped beneficiary reminder ug giya sa awtorisadong DSWD operations.',
+      en: 'Ask how to use your DSWD tools or prepare a reminder for scheduled beneficiaries. You review reminders before confirming them.',
+      fil: 'Magtanong tungkol sa mga gawain ng DSWD o maghanda ng paalala para sa mga nakaiskedyul na benepisyaryo. Suriin muna bago kumpirmahin.',
+      ceb: 'Pangutana bahin sa DSWD tools o pag-andam og reminder para sa naka-schedule nga beneficiaries. I-review una sa dili pa kumpirmahon.',
     },
-    schedulePath: '/dswd/live-dashboard',
-    scheduleLabel: 'Open live monitoring',
   },
   BARANGAY_FACILITATOR: {
     greeting: {
@@ -50,8 +48,6 @@ const roleExperience = {
       fil: 'Makapaghanda ako ng reminder para lamang sa scheduled beneficiaries sa iyong Barangay.',
       ceb: 'Makahimo ko og reminder para ra sa scheduled beneficiaries sa imong Barangay.',
     },
-    schedulePath: '/facilitator/queue',
-    scheduleLabel: 'Open queue & schedules',
   },
 }
 
@@ -78,32 +74,30 @@ function formatSchedule(value) {
 
 function AssistantFeedback({ busy, status, onRate }) {
   return (
-    <div className="rounded-xl border border-line bg-white p-3 text-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="font-semibold text-copy">Was this assistance useful?</p>
-        <div className="flex gap-2">
-          <button type="button" disabled={busy || Boolean(status)} onClick={() => onRate('HELPFUL')} className="min-h-11 rounded-lg border border-line px-3 font-bold text-brand-green hover:bg-success-soft focus-visible:outline-2 focus-visible:outline-brand-blue disabled:opacity-50">Helpful</button>
-          <button type="button" disabled={busy || Boolean(status)} onClick={() => onRate('NEEDS_IMPROVEMENT')} className="min-h-11 rounded-lg border border-line px-3 font-bold text-copy hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-blue disabled:opacity-50">Needs improvement</button>
-        </div>
-      </div>
-      {status && <p role="status" className={`mt-2 text-xs font-semibold ${status === 'saved' ? 'text-brand-green' : 'text-brand-red'}`}>{status === 'saved' ? 'Feedback recorded. Thank you.' : status}</p>}
+    <div className="ga-assistant-feedback" role="group" aria-label="Was this helpful?">
+      <button type="button" disabled={busy || status === 'saved'} onClick={() => onRate('HELPFUL')} aria-label="Helpful" title="Helpful" className="ga-assistant-copy"><Icon name="thumbsUp" className="size-4" /></button>
+      <button type="button" disabled={busy || status === 'saved'} onClick={() => onRate('NEEDS_IMPROVEMENT')} aria-label="Needs improvement" title="Needs improvement" className="ga-assistant-copy"><Icon name="thumbsUp" className="size-4 rotate-180" /></button>
+      {status && <p role="status" className={`text-xs ${status === 'saved' ? 'text-brand-green' : 'text-brand-red'}`}>{status === 'saved' ? 'Thanks for your feedback.' : status}</p>}
     </div>
   )
 }
 
-function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
-  const [open, setOpen] = useState(false)
+function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact, onMinimize, accessToken, onNavigate, onSessionExpired, user, historyHandle }) {
+  const { history, store: historyStore, conversation, setMessages, setChatInput, setLanguage } = useAssistantHistory({ user, accessToken, active, onSessionExpired })
+  useImperativeHandle(historyHandle, () => ({ hasUnsaved: historyStore.hasUnsaved, flush: historyStore.flush }), [historyStore])
+  const { activeId } = history
+  const { messages, input: chatInput, language } = conversation
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [restoredTask, setRestoredTask] = useState(Boolean(conversation.unfinished))
+  const [copyStatus, setCopyStatus] = useState(null)
+  const [showLatest, setShowLatest] = useState(false)
   const [recovery, setRecovery] = useState(() => pendingConfirmation(user?.userId))
   const [view, setView] = useState(() => pendingConfirmation(user?.userId) ? 'recovery' : 'home')
-  const [messages, setMessages] = useState([])
-  const [chatInput, setChatInput] = useState('')
   const [streamingText, setStreamingText] = useState('')
   const [chatStatus, setChatStatus] = useState('thinking')
-  const [language, setLanguage] = useState('ceb')
   const [lastIntent, setLastIntent] = useState('GUIDANCE')
   const [feedbackBusy, setFeedbackBusy] = useState(false)
   const [feedbackStatus, setFeedbackStatus] = useState('')
-  const [externalAiUsed, setExternalAiUsed] = useState(null)
   const [distributions, setDistributions] = useState([])
   const [serviceAreas, setServiceAreas] = useState([])
   const [form, setForm] = useState({
@@ -117,6 +111,7 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
   const [reviewed, setReviewed] = useState(false)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  const [chatNotice, setChatNotice] = useState('')
   const [result, setResult] = useState(null)
   const [pendingTask, setPendingTask] = useState(null)
   const [editingDetail, setEditingDetail] = useState('')
@@ -124,53 +119,242 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
   const [guidedReminder, setGuidedReminder] = useState(false)
   const [uncertain, setUncertain] = useState(false)
   const submittingRef = useRef(false)
-  const launcherRef = useRef(null)
-  const panelRef = useRef(null)
   const contentRef = useRef(null)
-  const closeRef = useRef(null)
-  const messageEndRef = useRef(null)
+  const readingRef = useRef(null)
+  const readingPositionRef = useRef({ top: 0, following: true })
+  const panelRef = useRef(null)
+  const backdropRef = useRef(null)
+  const transitionBoundsRef = useRef(null)
+  const exitCleanupRef = useRef(null)
+  const inputRef = useRef(null)
+  const historyButtonRef = useRef(null)
+  const historyRef = useRef(null)
   const chatRequestRef = useRef(null)
   const lookupRunRef = useRef(0)
   const experience = roleExperience[user?.role] ?? roleExperience.BARANGAY_FACILITATOR
   const selectedDistribution = distributions.find((row) => row.distributionId === form.distributionId)
+  const taskInProgress = Boolean(pendingTask || recovery || !['home', 'success'].includes(view))
+  const conversationLocked = Boolean(busy || feedbackBusy || taskInProgress || history.working || !history.ready)
+  const previousTaskRef = useRef(false)
 
   const visibleDistributions = useMemo(() => distributions.filter((row) => ['DRAFT', 'OPEN'].includes(row.status)), [distributions])
 
-  useEffect(() => {
-    if (!open) return undefined
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (!reducedMotion && panelRef.current) {
-      animate(panelRef.current, {
-        opacity: [0, 1],
-        y: [20, 0],
-        scale: [0.96, 1],
-        duration: 420,
-        ease: 'outExpo',
-      })
+  useLayoutEffect(() => {
+    const panel = panelRef.current
+    const from = transitionBoundsRef.current
+    transitionBoundsRef.current = null
+    if (!active || !panel) return
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+    if (reducedMotion.matches) return
+    const to = panel.getBoundingClientRect()
+    const radius = getComputedStyle(panel).borderRadius
+    let animation
+    if (from && to.width && to.height) {
+      panel.dataset.animating = 'true'
+      // Isolate layout to this panel so the real surface and readable content move together.
+      animation = panel.animate([
+        { left: `${from.left}px`, top: `${from.top}px`, width: `${from.width}px`, height: `${from.height}px`, borderRadius: from.radius },
+        { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px`, borderRadius: radius },
+      ], { duration: compact ? 260 : 300, fill: 'both', easing: 'cubic-bezier(.22, 1, .36, 1)' })
+    } else {
+      const travel = Math.max(0, Math.min(8, window.innerHeight - to.bottom - 1))
+      animation = panel.animate([{ transform: `translateY(${travel}px)` }, { transform: 'none' }], { duration: 160, easing: 'ease-out' })
     }
-    requestAnimationFrame(() => closeRef.current?.focus())
-
-    const closeOnEscape = (event) => {
-      if (event.key !== 'Escape') return
-      setOpen(false)
-      requestAnimationFrame(() => launcherRef.current?.focus())
+    const stop = () => {
+      animation.onfinish = null
+      animation.cancel()
+      delete panel.dataset.animating
     }
-    document.addEventListener('keydown', closeOnEscape)
-    return () => document.removeEventListener('keydown', closeOnEscape)
-  }, [open])
+    animation.onfinish = stop
+    reducedMotion.addEventListener('change', stop)
+    window.addEventListener('resize', stop)
+    return () => {
+      stop()
+      reducedMotion.removeEventListener('change', stop)
+      window.removeEventListener('resize', stop)
+    }
+  }, [active, compact])
+
+  useLayoutEffect(() => () => exitCleanupRef.current?.(), [active, compact])
+
+  function rememberWindowBounds() {
+    const bounds = panelRef.current.getBoundingClientRect()
+    transitionBoundsRef.current = { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height, radius: getComputedStyle(panelRef.current).borderRadius }
+  }
+
+  function resizeConversation() {
+    if (exitCleanupRef.current) return
+    rememberWindowBounds()
+    if (compact) onExpand?.()
+    else onCompact?.()
+  }
+
+  function minimizeConversation() {
+    if (exitCleanupRef.current) return
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+    if (reducedMotion.matches) { onMinimize?.(); return }
+    const panel = panelRef.current
+    const travel = compact ? Math.max(0, Math.min(8, window.innerHeight - panel.getBoundingClientRect().bottom - 1)) : 0
+    panel.inert = true
+    const timing = { duration: 160, fill: 'forwards', easing: 'ease-in-out' }
+    // Clear the chat text before revealing the page to avoid overlapping readable layers.
+    const surfaceFade = [{ opacity: 1 }, { opacity: 1, offset: .4 }, { opacity: 0 }]
+    const animations = [
+      panel.animate(surfaceFade, timing),
+      panel.animate([{ transform: 'none' }, { transform: `translateY(${travel}px)` }], timing),
+      backdropRef.current.animate(surfaceFade, timing),
+      ...[...panel.children].map((child) => child.animate([{ opacity: 1 }, { opacity: 0, offset: .4 }, { opacity: 0 }], timing)),
+    ]
+    let finished = false
+    function finish() {
+      if (finished) return
+      finished = true
+      animations.forEach((animation) => animation.finish())
+      // Hold the final frame until React hides the panel; cancelling here flashes it open.
+      onMinimize?.()
+    }
+    animations[0].onfinish = finish
+    reducedMotion.addEventListener('change', finish)
+    window.addEventListener('resize', finish)
+    exitCleanupRef.current = () => {
+      finished = true
+      animations.forEach((animation) => { animation.onfinish = null; animation.cancel() })
+      panel.inert = false
+      exitCleanupRef.current = null
+      reducedMotion.removeEventListener('change', finish)
+      window.removeEventListener('resize', finish)
+    }
+  }
 
   useEffect(() => {
-    messageEndRef.current?.scrollIntoView({ block: 'nearest' })
-  }, [messages, streamingText, chatStatus])
+    if (!active) return
+    const frame = requestAnimationFrame(() => {
+      const panel = panelRef.current
+      if (panel && !panel.contains(document.activeElement)) panel.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [active, compact])
 
   useEffect(() => {
-    if (view === 'home') return
-    const heading = contentRef.current?.querySelector('h3')
+    if (!active) return
+    const media = window.matchMedia('(max-width: 639px)')
+    let restore = () => {}
+    function syncMobileDialog() {
+      restore()
+      const panel = panelRef.current
+      const modal = compact && media.matches
+      if (compact) panel.setAttribute('aria-modal', String(modal))
+      else panel.removeAttribute('aria-modal')
+      if (compact && !modal) { restore = () => {}; return }
+      const background = modal ? [...document.querySelectorAll('#staff-navigation, .ga-staff-header')].map((element) => [element, element.inert]) : []
+      const dashboard = document.getElementById('dashboard-content')
+      const overflow = document.body.style.overflow
+      background.forEach(([element]) => { element.inert = true })
+      if (modal) dashboard.inert = true
+      document.body.style.overflow = 'hidden'
+      function keepFocusInside(event) {
+        if (panel.querySelector('dialog[open]')) return
+        if (event.key !== 'Tab') return
+        const controls = [...panel.querySelectorAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]')].filter((element) => element.getClientRects().length > 0)
+        const first = controls[0], last = controls.at(-1)
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === panel)) { event.preventDefault(); last?.focus() }
+        else if (!event.shiftKey && (document.activeElement === last || document.activeElement === panel)) { event.preventDefault(); first?.focus() }
+      }
+      if (modal) panel.addEventListener('keydown', keepFocusInside)
+      restore = () => {
+        background.forEach(([element, inert]) => { element.inert = inert })
+        if (modal) dashboard.inert = dashboard.getAttribute('aria-hidden') === 'true'
+        document.body.style.overflow = overflow
+        panel.removeEventListener('keydown', keepFocusInside)
+        panel.removeAttribute('aria-modal')
+      }
+    }
+    syncMobileDialog()
+    media.addEventListener('change', syncMobileDialog)
+    return () => { restore(); media.removeEventListener('change', syncMobileDialog) }
+  }, [active, compact])
+
+  useEffect(() => {
+    if (taskInProgress || previousTaskRef.current) historyStore.change({ unfinished: taskInProgress })
+    previousTaskRef.current = taskInProgress
+  }, [historyStore, taskInProgress])
+
+  useLayoutEffect(() => {
+    const input = inputRef.current
+    if (!active || !input) return
+    function fitInput() {
+      if (!input.clientWidth) return
+      input.style.height = '0px'
+      input.style.height = `${Math.min(144, input.scrollHeight)}px`
+    }
+    fitInput()
+    let width = input.clientWidth
+    let frame
+    const observer = new ResizeObserver(() => {
+      if (input.clientWidth !== width) {
+        width = input.clientWidth
+        cancelAnimationFrame(frame)
+        frame = requestAnimationFrame(fitInput)
+      }
+    })
+    observer.observe(input)
+    return () => { observer.disconnect(); cancelAnimationFrame(frame) }
+  }, [active, chatInput, view, historyOpen])
+
+  useEffect(() => {
+    if (active && historyOpen) historyRef.current?.querySelector('input')?.focus()
+  }, [active, historyOpen])
+
+  useLayoutEffect(() => {
+    const content = contentRef.current
+    if (!active || view !== 'home') return
+    function restoreReadingPosition() {
+      if (!content.clientHeight) return
+      const position = readingPositionRef.current
+      content.scrollTop = position.following ? (messages.length ? content.scrollHeight : 0) : position.top
+      setShowLatest(!position.following && content.scrollHeight - content.scrollTop - content.clientHeight >= 48)
+    }
+    restoreReadingPosition()
+    let frame
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(restoreReadingPosition)
+    })
+    observer.observe(content)
+    observer.observe(readingRef.current)
+    return () => { observer.disconnect(); cancelAnimationFrame(frame) }
+  }, [active, historyOpen, messages, streamingText, view])
+
+  function rememberReadingPosition() {
+    const content = contentRef.current
+    if (!content.clientHeight || !active || view !== 'home' || panelRef.current.dataset.animating === 'true') return
+    const following = content.scrollHeight - content.scrollTop - content.clientHeight < 48
+    readingPositionRef.current = { top: content.scrollTop, following }
+    setShowLatest(!following)
+  }
+
+  function jumpToLatest() {
+    readingPositionRef.current.following = true
+    const content = contentRef.current
+    content.scrollTop = content.scrollHeight
+    setShowLatest(false)
+    inputRef.current?.focus({ preventScroll: true })
+  }
+
+  useEffect(() => {
+    if (!copyStatus) return
+    const timer = setTimeout(() => setCopyStatus(null), 3000)
+    return () => clearTimeout(timer)
+  }, [copyStatus])
+
+  useEffect(() => {
+    if (!active || view === 'home') return
+    const heading = contentRef.current?.querySelector('[data-assistant-task] h3')
     if (!heading) return
-    contentRef.current.scrollTop = 0
     heading.tabIndex = -1
+    contentRef.current.scrollTop += heading.parentElement.getBoundingClientRect().top - contentRef.current.getBoundingClientRect().top - 16
     heading.focus({ preventScroll: true })
-  }, [view])
+  }, [active, view])
 
   useEffect(() => () => {
     lookupRunRef.current += 1
@@ -178,24 +362,40 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
     chatRequestRef.current = null
   }, [accessToken])
 
-  function animateLauncher() {
-    if (!launcherRef.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    animate(launcherRef.current, {
-      scale: [1, 0.88, 1.08, 1],
-      rotate: [0, -7, 7, 0],
-      duration: 560,
-      ease: 'outExpo',
-    })
+  function closeHistory() {
+    setHistoryOpen(false)
+    requestAnimationFrame(() => historyButtonRef.current?.focus())
   }
 
-  function toggleAssistant() {
-    animateLauncher()
-    setOpen((current) => !current)
+  async function selectConversation(conversation) {
+    if (conversationLocked) return
+    const selected = await historyStore.select(conversation.id)
+    if (!selected) return
+    finishSwitch(selected)
   }
 
-  function closeAssistant() {
-    setOpen(false)
-    requestAnimationFrame(() => launcherRef.current?.focus())
+  function finishSwitch(selected) {
+    readingPositionRef.current = { top: 0, following: true }
+    setShowLatest(false)
+    setRestoredTask(Boolean(selected.unfinished))
+    setCopyStatus(null)
+    setLastIntent('GUIDANCE')
+    resetWorkflow()
+    setHistoryOpen(false)
+    requestAnimationFrame(() => inputRef.current?.focus())
+  }
+
+  async function startConversation() {
+    if (conversationLocked) return
+    const selected = await historyStore.start()
+    if (selected) finishSwitch(selected)
+  }
+
+  async function copyReply(content, index) {
+    try {
+      await navigator.clipboard.writeText(content)
+      setCopyStatus({ index, copied: true, text: 'Reply copied.' })
+    } catch { setCopyStatus({ index, copied: false, text: 'Unable to copy. Select the reply text and copy it manually.' }) }
   }
 
   async function loadDistributions() {
@@ -214,24 +414,6 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
       return null
     } finally {
       if (run === lookupRunRef.current) setBusy('')
-    }
-  }
-
-  async function startReminder() {
-    setGuidedReminder(false)
-    setView('compose')
-    setLastIntent('PREPARE_AREA_REMINDER')
-    setFeedbackStatus('')
-    setPreview(null)
-    setReviewed(false)
-    setResult(null)
-    setError('')
-    const rows = await loadDistributions()
-    if (!rows) return
-    const usable = rows.filter((row) => ['DRAFT', 'OPEN'].includes(row.status))
-    if (!form.distributionId && usable[0]) {
-      setForm((current) => ({ ...current, distributionId: usable[0].distributionId }))
-      await loadServiceAreas(usable[0].distributionId)
     }
   }
 
@@ -299,6 +481,7 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
     try {
       const data = await enqueueAssistantDistributionReminder(accessToken, preview.distributionId, request)
       setResult({ kind: 'reminder', ...data })
+      taskMessage(`${data.queuedCount} reminder(s) queued. Reference: ${data.approvalId}. Open SMS delivery to review the result.`)
       setPendingTask(null)
       setUncertain(false)
       rememberConfirmation(null)
@@ -334,6 +517,7 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
       rememberConfirmation(null)
       setPendingTask(null)
       setResult(outcome)
+      taskMessage(outcome.kind === 'distribution' ? `Distribution draft created: ${outcome.distribution.title}. Reference: ${outcome.distribution.distributionId}.` : `${outcome.queuedCount} reminder(s) queued. Reference: ${outcome.approvalId}.`)
       setView('success')
     } catch (requestError) {
       if (requestError.status === 401) onSessionExpired?.()
@@ -343,13 +527,13 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
   }
 
   function navigate(path) {
-    closeAssistant()
     onNavigate?.(path)
   }
 
   function taskMessage(content) {
+    readingPositionRef.current.following = true
+    setShowLatest(false)
     setMessages((current) => [...current, { role: 'assistant', content, local: true }])
-    setExternalAiUsed(null)
   }
 
   function keepTaskDetails(update) {
@@ -360,8 +544,10 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
   }
 
   function beginTask(kind, content = '') {
+    if (!history.ready || history.working) return
     if (pendingTask) return taskMessage(translated(detailCopy.switch, language))
     if (kind === 'distributionDraft' && user?.role !== 'SYSTEM_ADMIN') return
+    setRestoredTask(false)
     setLastIntent(kind === 'reminder' ? 'PREPARE_AREA_REMINDER' : 'CREATE_DISTRIBUTION_DRAFT')
     setFeedbackStatus('')
     setError('')
@@ -419,7 +605,9 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
   async function sendChat(event) {
     event.preventDefault()
     const content = chatInput.trim()
-    if (!content || busy || chatRequestRef.current) return
+    if (!history.ready || history.working || !content || busy || chatRequestRef.current) return
+    readingPositionRef.current.following = true
+    setShowLatest(false)
     const classifiedIntent = messageIntent(content, user?.role)
     const guidanceDuringTask = pendingTask && isTaskQuestion(content)
     const intent = guidanceDuringTask && !['greeting', 'schedule', 'delivery', 'beneficiary', 'help'].includes(classifiedIntent) ? 'help' : classifiedIntent
@@ -428,6 +616,7 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
     setFeedbackStatus('')
     setChatInput('')
     setError('')
+    setChatNotice('')
     if (pendingTask) {
       if (isTaskCancellation(content)) return cancelTask()
       if (intent === 'cancel') return taskMessage(routingReplies.cancel[language])
@@ -436,7 +625,6 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
     }
     if (routingReplies[intent]) {
       setMessages((current) => [...current, { role: 'assistant', content: routingReplies[intent][language] }])
-      setExternalAiUsed(null)
       return
     }
     if (intent === 'reminder' || intent === 'distributionDraft') return beginTask(intent, content)
@@ -446,6 +634,7 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
     setChatStatus('thinking')
     const controller = new AbortController()
     chatRequestRef.current = controller
+    let partialReply = ''
     try {
       const data = await requestStaffAssistantMessage(accessToken, {
         language,
@@ -454,18 +643,17 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
         history: messages.filter((message) => !message.local).slice(-6).map((message) => ({ role: message.role, content: message.content.slice(0, 1000) })),
       }, {
         signal: controller.signal,
-        onText: (text) => { if (chatRequestRef.current === controller) setStreamingText(text) },
+        onText: (text) => { if (chatRequestRef.current === controller) { partialReply = text; setStreamingText(text) } },
         onStatus: (status) => { if (chatRequestRef.current === controller) setChatStatus(status) },
       })
       if (chatRequestRef.current !== controller) return
       setMessages((current) => [...current, { role: 'assistant', content: data.messageText }])
-      setExternalAiUsed(data.externalAiUsed)
     } catch (requestError) {
       if (chatRequestRef.current !== controller) return
       if (requestError.status === 401) onSessionExpired?.()
-      setError(controller.signal.aborted ? 'Response stopped. You can send another message.'
-        : requestError.name === 'TimeoutError' ? 'The answer took too long. Please try again.'
-          : requestError.message || 'GarantiyAid AI could not answer. Please try again.')
+      if (partialReply) setMessages((current) => [...current, { role: 'assistant', content: `${partialReply}\n\n*This reply was interrupted before completion.*`, local: true }])
+      if (controller.signal.aborted) setChatNotice('Response stopped. You can send another message.')
+      else setError(requestError.name === 'TimeoutError' ? 'The answer took too long. Please try again.' : requestError.message || 'GarantiyAid AI could not answer. Please try again.')
     } finally {
       if (chatRequestRef.current === controller) {
         chatRequestRef.current = null
@@ -505,105 +693,75 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
     setResult(null)
     setFeedbackStatus('')
     setError('')
+    setChatNotice('')
   }
+
+  const languageControl = <>
+    <label htmlFor="staff-ai-language" className="sr-only">Assistant language</label>
+    <select id="staff-ai-language" value={language} disabled={!history.ready || history.working || Boolean(busy)} onChange={(event) => setLanguage(event.target.value)} className="ga-assistant-language">
+      {Object.entries(LANGUAGE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+    </select>
+  </>
 
   return (
     <>
-      {(
-        <section id="garantiyaid-ai-panel" hidden={!open} style={open ? undefined : { display: 'none' }} ref={panelRef} role="dialog" aria-modal="false" aria-labelledby="garantiyaid-ai-title" className="fixed inset-x-3 bottom-3 top-[5.5rem] z-[60] flex flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-lg sm:inset-x-auto sm:bottom-6 sm:right-6 sm:top-auto sm:h-[min(44rem,calc(100dvh-7rem))] sm:w-[min(29rem,calc(100vw-3rem))]">
-          <header className="shrink-0 border-b border-blue-900/20 bg-brand-navy px-4 py-3 text-white">
-            <div className="flex items-center gap-3">
-              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white shadow-sm">
-                <img src="/GarantiyAid-AI-logo.svg" alt="" width="64" height="64" className="size-9" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <h2 id="garantiyaid-ai-title" className="whitespace-nowrap text-base font-bold">GarantiyAid AI</h2>
-                <p className="mt-1 truncate text-xs text-blue-100">{STAFF_ROLE_LABELS[user?.role] ?? 'Authorized staff'}</p>
-              </div>
-              <button ref={closeRef} type="button" onClick={closeAssistant} aria-label="Close GarantiyAid AI" className="grid size-11 shrink-0 place-items-center rounded-lg text-blue-100 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
-                <Icon name="close" />
-              </button>
-            </div>
-            <div className="mt-2 flex items-center justify-between gap-3 border-t border-white/10 pt-2">
-              <span role="status" className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${recovery ? 'bg-amber-300/15 text-amber-100' : 'bg-emerald-400/15 text-emerald-100'}`}><span aria-hidden="true" className="size-1.5 rounded-full bg-current" />{busy === 'chat' ? 'Thinking' : recovery ? 'Result pending' : 'Ready to help'}</span>
-              <label className="sr-only" htmlFor="staff-ai-language">Assistant language</label>
-              <select id="staff-ai-language" value={language} onChange={(event) => setLanguage(event.target.value)} className="min-h-11 w-28 rounded-lg border border-white/20 bg-white/10 px-2 text-xs font-bold text-white outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
-                {Object.entries(LANGUAGE_LABELS).map(([value, label]) => <option key={value} value={value} className="text-ink">{label}</option>)}
-              </select>
-            </div>
-          </header>
+    <div ref={backdropRef} hidden={!active || !compact} aria-hidden="true" className="ga-assistant-backdrop" />
+    <section id="garantiyaid-ai-panel" hidden={!active} ref={panelRef} role={compact ? 'dialog' : 'main'} tabIndex={-1} data-route-focus={compact ? undefined : true} style={active ? undefined : { display: 'none' }} aria-labelledby="garantiyaid-ai-title" className="ga-assistant-workspace" data-compact={compact} data-history-open={historyOpen} onKeyDown={(event) => { if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); if (historyOpen) closeHistory(); else minimizeConversation() } }}>
+      <header className="ga-assistant-heading">
+        <div className="ga-assistant-identity">
+          <img src="/GarantiyAid-AI-logo.svg" alt="" width="36" height="36" />
+          <div className="min-w-0"><h1 id="garantiyaid-ai-title" className="text-xl font-semibold text-ink">Staff Assistant</h1>
+          <p className="ga-assistant-role">{STAFF_ROLE_LABELS[user?.role] ?? 'Authorized staff'}</p></div>
+        </div>
+        <div className="ga-assistant-toolbar">
+          {view !== 'home' && languageControl}
+          <button type="button" onClick={startConversation} disabled={conversationLocked} aria-label="New chat" title={conversationLocked ? 'Finish or cancel the current task before starting a new conversation.' : 'New chat'} className="ga-assistant-tool"><Icon name="pen" /><span className="ga-assistant-tool-label">New chat</span></button>
+          <button ref={historyButtonRef} type="button" onClick={() => historyOpen ? closeHistory() : setHistoryOpen(true)} aria-label="History" title="Conversation history" aria-controls="staff-assistant-history" aria-expanded={historyOpen} className="ga-assistant-tool"><Icon name="clock" /><span className="ga-assistant-tool-label">History</span></button>
+          <button type="button" onClick={resizeConversation} aria-label={compact ? 'Expand conversation' : 'Use compact window'} title={compact ? 'Expand conversation' : 'Use compact window'} className="ga-assistant-tool ga-assistant-icon-tool"><Icon name={compact ? 'expand' : 'compact'} /></button>
+          <button type="button" onClick={minimizeConversation} aria-label="Minimize conversation" title="Minimize to chat button" className="ga-assistant-tool"><Icon name="minimize" /><span className="ga-assistant-tool-label">Minimize</span></button>
+        </div>
+      </header>
 
-          <div ref={contentRef} data-assistant-content className="min-h-0 flex-1 overflow-y-auto bg-page p-4">
-            {view === 'home' && (
-              <div className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <img src="/GarantiyAid-AI-logo.svg" alt="" width="64" height="64" className="mt-1 size-8 shrink-0" />
-                  <div className="max-w-[85%] rounded-2xl rounded-tl-md border border-line bg-white px-4 py-3 text-sm leading-6 text-copy shadow-sm">
-                    <p className="font-bold text-ink">{language === 'en' ? 'Good day' : language === 'fil' ? 'Magandang araw' : 'Maayong adlaw'}, {user?.fullName?.split(' ')[0] || 'Staff'}.</p>
-                    <p className="mt-1">{experience.greeting[language]}</p>
-                  </div>
+      <div className="ga-assistant-body">
+        <div className="ga-assistant-main">
+          <div ref={contentRef} onScroll={rememberReadingPosition} data-assistant-content data-empty={messages.length === 0 && view === 'home'} className="ga-assistant-content">
+            <div ref={readingRef} className="ga-assistant-reading">
+              {messages.length === 0 && view === 'home' && <div className="ga-assistant-welcome">
+                <span className="ga-assistant-welcome-mark"><img src="/GarantiyAid-AI-logo.svg" alt="" width="48" height="48" /></span>
+                <h2 className="mt-5 text-2xl font-semibold text-ink">{language === 'en' ? 'How can I help with your work?' : language === 'fil' ? 'Paano ako makatutulong sa iyong gawain?' : 'Unsa akong ikatabang sa imong trabaho?'}</h2>
+                <p className="mt-3 max-w-2xl text-base leading-7 text-copy">{experience.greeting[language]}</p>
+                <div className="ga-assistant-suggestions mt-6 grid gap-3 sm:grid-cols-2">
+                  {user?.role === 'SYSTEM_ADMIN' && <button type="button" onClick={() => beginTask('distributionDraft')} className="ga-assistant-suggestion"><Icon name="calendar" /><span><strong>Prepare a distribution draft</strong><small>Provide the program, place, and schedule.</small></span><Icon name="chevronRight" className="size-4" /></button>}
+                  <button type="button" onClick={() => beginTask('reminder')} className="ga-assistant-suggestion"><Icon name="smsDelivery" /><span><strong>Prepare a reminder</strong><small>Choose the event, recipients, and message.</small></span><Icon name="chevronRight" className="size-4" /></button>
                 </div>
+              </div>}
 
+              {(restoredTask || conversation.unfinished && !taskInProgress) && !recovery && <p role="status" className="mb-6 border-l-2 border-brand-blue bg-info-soft p-3 text-sm leading-6 text-copy">Your conversation was restored. The unfinished task needs to be prepared again. Check the official records before submitting a new request.</p>}
+              <div className="space-y-7" aria-label="Conversation">
                 {messages.map((message, index) => (
-                  <div key={`${message.role}-${index}`} className={`flex ${message.role === 'user' ? 'justify-end' : 'items-start gap-3'}`}>
-                    {message.role === 'assistant' && <img src="/GarantiyAid-AI-logo.svg" alt="" width="64" height="64" className="mt-1 size-8 shrink-0" />}
-                    {message.role === 'user' ? (
-                      <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-brand-blue px-4 py-3 text-sm leading-6 text-white">{message.content}</p>
-                    ) : (
-                      <div className="min-w-0 flex-1 rounded-2xl rounded-tl-md border border-line bg-white px-4 py-4 text-copy shadow-sm">
-                        <Suspense fallback={<p className="whitespace-pre-wrap break-words">{message.content}</p>}>
-                          <AssistantMessage content={message.content} />
-                        </Suspense>
+                  <article key={`${activeId}-${index}`} className={message.role === 'user' ? 'ga-assistant-user-message' : 'ga-assistant-reply'} aria-label={message.role === 'user' ? 'Your message' : 'Assistant reply'}>
+                    {message.role === 'user' ? <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{message.content}</p> : <>
+                      <p className="ga-assistant-reply-author"><img src="/GarantiyAid-AI-logo.svg" alt="" width="22" height="22" />GarantiyAid</p>
+                      <Suspense fallback={<p className="whitespace-pre-wrap break-words">{message.content}</p>}><AssistantMessage content={message.content} /></Suspense>
+                      <div className="ga-assistant-reply-actions">
+                        <button type="button" onClick={() => copyReply(message.content, index)} className="ga-assistant-copy" aria-label={`Copy reply ${index + 1}`} title={copyStatus?.index === index && copyStatus.copied ? 'Copied' : 'Copy reply'}><Icon name={copyStatus?.index === index && copyStatus.copied ? 'check' : 'copy'} className="size-4" /></button>
+                        {index === messages.length - 1 && !pendingTask && view === 'home' && <AssistantFeedback busy={feedbackBusy || Boolean(busy)} status={feedbackStatus} onRate={submitFeedback} />}
+                        {copyStatus?.index === index && <p role="status" className={copyStatus.copied ? 'text-xs text-muted-copy' : 'w-full text-xs text-brand-red'}>{copyStatus.text}</p>}
                       </div>
-                    )}
-                  </div>
+                    </>}
+                  </article>
                 ))}
-                {busy === 'chat' && <div className="flex items-start gap-3">
-                  <img src="/GarantiyAid-AI-logo.svg" alt="" width="64" height="64" className="mt-1 size-8 shrink-0" />
-                  <div className="min-w-0 flex-1 rounded-2xl rounded-tl-md border border-line bg-white px-4 py-4 text-sm leading-6 text-copy shadow-sm">
-                    {streamingText && <div aria-live="off"><Suspense fallback={<p className="whitespace-pre-wrap break-words">{streamingText}</p>}><AssistantMessage content={streamingText} /></Suspense></div>}
-                    <div role="status" className={streamingText ? 'mt-2 text-xs text-muted-copy' : ''}>
-                      <LoadingLabel>{streamingText ? 'Writing reply...' : chatStatus === 'retrying' ? 'Still working on your answer. Retrying...' : 'GarantiyAid AI is thinking...'}</LoadingLabel>
-                    </div>
-                  </div>
+                {busy === 'chat' && <div className="ga-assistant-reply">
+                  <p className="ga-assistant-reply-author"><img src="/GarantiyAid-AI-logo.svg" alt="" width="22" height="22" />GarantiyAid</p>
+                  {streamingText && <div aria-live="off"><Suspense fallback={<p className="whitespace-pre-wrap break-words">{streamingText}</p>}><AssistantMessage content={streamingText} /></Suspense></div>}
+                  <p role="status" className="mt-2 text-sm text-muted-copy"><LoadingLabel>{streamingText ? 'Writing reply...' : chatStatus === 'retrying' ? 'Still working on your answer...' : 'Preparing your answer...'}</LoadingLabel></p>
                 </div>}
-                {error && <p role="alert" className="rounded-xl border border-red-200 bg-danger-soft p-3 text-sm font-semibold text-brand-red">{error}</p>}
-                {pendingTask && <AssistantTaskDetails task={pendingTask} editing={editingDetail} onEdit={(key) => { setEditingDetail(key); setDetailError('') }} onSave={(key, value) => keepTaskDetails(setTaskValue(pendingTask, key, value))} onCancel={cancelTask} onPreview={previewTask} language={language} error={detailError} busy={Boolean(busy)} />}
-                <p role="status" className="sr-only">{busy !== 'chat' && messages.at(-1)?.role === 'assistant' ? messages.at(-1).content : ''}</p>
-                <div ref={messageEndRef} />
-
-                {!pendingTask && <fieldset disabled={busy === 'chat'} className="min-w-0 border-0 pt-2 disabled:opacity-60">
-                  <p className="text-xs font-bold uppercase tracking-[0.1em] text-muted-copy">Suggested actions</p>
-                  <div className="mt-3 grid gap-2">
-                    {user?.role === 'SYSTEM_ADMIN' && (
-                      <button type="button" onClick={() => beginTask('distributionDraft')} className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-blue-200 bg-info-soft px-4 text-left font-bold text-brand-blue transition-[background-color,border-color,transform] hover:-translate-y-0.5 hover:border-brand-blue hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue motion-reduce:transform-none">
-                        <Icon name="calendar" className="size-5 shrink-0" />
-                        <span className="flex-1">Draft a distribution event</span>
-                        <Icon name="chevronRight" className="size-4" />
-                      </button>
-                    )}
-                    <button type="button" onClick={() => beginTask('reminder')} className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-blue-200 bg-info-soft px-4 text-left font-bold text-brand-blue transition-[background-color,border-color,transform] hover:-translate-y-0.5 hover:border-brand-blue hover:bg-blue-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue motion-reduce:transform-none">
-                      <Icon name="smsDelivery" className="size-5 shrink-0" />
-                      <span className="flex-1">Prepare an area reminder</span>
-                      <Icon name="chevronRight" className="size-4" />
-                    </button>
-                    <button type="button" onClick={() => navigate(experience.schedulePath)} className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-line bg-white px-4 text-left text-sm font-bold text-copy transition-colors hover:border-blue-200 hover:bg-info-soft hover:text-brand-blue focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">
-                      <Icon name="calendar" className="size-5 shrink-0" />
-                      <span className="flex-1">{experience.scheduleLabel}</span>
-                      <Icon name="chevronRight" className="size-4" />
-                    </button>
-                    <button type="button" onClick={() => navigate('/notifications')} className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-line bg-white px-4 text-left text-sm font-bold text-copy transition-colors hover:border-blue-200 hover:bg-info-soft hover:text-brand-blue focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">
-                      <Icon name="notifications" className="size-5 shrink-0" />
-                      <span className="flex-1">Review delivery status</span>
-                      <Icon name="chevronRight" className="size-4" />
-                    </button>
-                  </div>
-                  <details className="mt-3 text-sm"><summary className="min-h-11 cursor-pointer rounded-lg py-3 font-semibold text-muted-copy focus-visible:outline-2 focus-visible:outline-brand-blue">Use an existing form</summary><div className="grid gap-2 pt-2">{user?.role === 'SYSTEM_ADMIN' && <button type="button" onClick={() => setView('scheduler')} className="ga-btn-secondary">Distribution form</button>}<button type="button" onClick={startReminder} className="ga-btn-secondary">Reminder form</button></div></details>
-                </fieldset>}
-                {messages.length > 0 && <AssistantFeedback busy={feedbackBusy || busy === 'chat'} status={feedbackStatus} onRate={submitFeedback} />}
               </div>
-            )}
-
+              <p role="status" className="sr-only">{active && busy !== 'chat' && messages.at(-1)?.role === 'assistant' ? messages.at(-1).content : ''}</p>
+              {view === 'home' && chatNotice && <p role="status" className="mt-4 text-sm text-muted-copy">{chatNotice}</p>}
+              {view === 'home' && error && <p role="alert" className="mt-4 border-l-2 border-brand-red bg-danger-soft p-3 text-sm text-brand-red">{error}</p>}
+              {view === 'home' && pendingTask && <div className="mt-6"><AssistantTaskDetails task={pendingTask} editing={editingDetail} onEdit={(key) => { setEditingDetail(key); setDetailError('') }} onSave={(key, value) => keepTaskDetails(setTaskValue(pendingTask, key, value))} onCancel={cancelTask} onPreview={previewTask} language={language} error={detailError} busy={Boolean(busy)} /></div>}
+              {view !== 'home' && <div data-assistant-task className="ga-assistant-task">
             {view === 'scheduler' && user?.role === 'SYSTEM_ADMIN' && (
               <AssistantDistributionScheduler
                 accessToken={accessToken}
@@ -614,6 +772,7 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
                 onDone={(distribution) => {
                   setPendingTask(null)
                   setResult({ kind: 'distribution', distribution })
+                  taskMessage(`Distribution draft created: ${distribution.title}. Reference: ${distribution.distributionId}. Review it in Distribution events before proceeding.`)
                   setLastIntent('CREATE_DISTRIBUTION_DRAFT')
                   setFeedbackStatus('')
                   setView('success')
@@ -736,12 +895,12 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
             )}
 
             {view === 'success' && result && (
-              <div className="flex min-h-full flex-col justify-center py-6 text-center">
-                <span aria-hidden="true" className="mx-auto grid size-16 place-items-center rounded-full bg-success-soft text-brand-green"><Icon name="check" className="size-8" strokeWidth={2.4} /></span>
+              <div className="flex flex-col py-4 text-left">
+                <span aria-hidden="true" className="grid size-11 place-items-center rounded-md bg-success-soft text-brand-green"><Icon name="check" className="size-8" strokeWidth={2.4} /></span>
                 <p className="mt-5 text-xs font-bold uppercase tracking-[0.1em] text-brand-green">{result.kind === 'distribution' ? 'Draft created' : 'Reminder approved'}</p>
                 <h3 className="mt-2 text-2xl font-bold text-ink">{result.kind === 'distribution' ? result.distribution.title : `${result.queuedCount} reminder${result.queuedCount === 1 ? '' : 's'} queued`}</h3>
                 <p className="mt-2 break-all text-xs text-muted-copy">Reference: {result.kind === 'distribution' ? result.distribution.distributionId : result.approvalId}</p>
-                <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-muted-copy">{result.kind === 'distribution' ? 'The event remains a draft. Review it in Distribution setup before allocating beneficiaries, generating schedules, sending notices, or opening field operations.' : 'The existing notification worker will process the approved records. Current environment: simulated SMS only, so no real phone received a text.'}</p>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-copy">{result.kind === 'distribution' ? 'The event remains a draft. Review it in Distribution setup before allocating beneficiaries, generating schedules, sending notices, or opening field operations.' : 'The existing notification worker will process the approved records. Current environment: simulated SMS only, so no real phone received a text.'}</p>
                 <div className="mt-5 text-left"><AssistantFeedback busy={feedbackBusy} status={feedbackStatus} onRate={submitFeedback} /></div>
                 <div className="mt-6 grid gap-3">
                   <button type="button" onClick={() => navigate(result.kind === 'distribution' ? '/distributions/manage' : '/notifications')} className="ga-btn-primary w-full">{result.kind === 'distribution' ? 'Review distribution draft' : 'Review delivery records'}</button>
@@ -749,30 +908,31 @@ function StaffAiAssistant({ accessToken, onNavigate, onSessionExpired, user }) {
                 </div>
               </div>
             )}
+              </div>}
+            </div>
           </div>
 
-          {view === 'home' && (
-            <form onSubmit={sendChat} className="shrink-0 border-t border-line bg-white p-3">
-              <label htmlFor="garantiyaid-ai-message" className="sr-only">Ask GarantiyAid AI</label>
-              <div className="flex items-end gap-2 rounded-xl border border-slate-300 bg-white p-1.5 focus-within:border-brand-blue focus-within:ring-2 focus-within:ring-blue-100">
-                <textarea id="garantiyaid-ai-message" rows="1" maxLength="300" value={chatInput} onChange={(event) => setChatInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit() } }} placeholder="Ask about reminders or schedules..." className="max-h-28 min-h-11 min-w-0 flex-1 resize-none bg-transparent px-3 py-2.5 text-base text-ink outline-none placeholder:text-slate-400" />
-                {busy === 'chat' ? (
-                  <button type="button" onClick={() => chatRequestRef.current?.abort()} aria-label="Stop generating answer" className="min-h-11 shrink-0 rounded-lg bg-brand-blue px-3 text-sm font-bold text-white hover:bg-brand-blue-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">Stop</button>
-                ) : (
-                  <button type="submit" disabled={!chatInput.trim()} aria-label="Send message" className="grid size-11 shrink-0 place-items-center rounded-lg bg-brand-blue text-white transition-colors hover:bg-brand-blue-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue disabled:opacity-40"><Icon name="arrowRight" /></button>
-                )}
+          {view === 'home' && <div className="ga-assistant-composer">
+            {showLatest && <button type="button" onClick={jumpToLatest} className="ga-assistant-latest"><Icon name="chevronDown" className="size-4" />Jump to latest</button>}
+            <form onSubmit={sendChat} className="ga-assistant-reading">
+              <label htmlFor="garantiyaid-ai-message" className="sr-only">Message Staff Assistant</label>
+              <div className="ga-assistant-input">
+                <textarea ref={inputRef} id="garantiyaid-ai-message" rows="1" maxLength="300" value={chatInput} disabled={!history.ready || history.working || Boolean(busy) && busy !== 'chat'} onChange={(event) => setChatInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit() } }} placeholder={language === 'ceb' ? 'Isulat ang imong pangutana...' : language === 'fil' ? 'Isulat ang iyong tanong...' : 'Ask anything about your work...'} aria-describedby="assistant-input-help assistant-input-limit" />
+                <div className="ga-assistant-composer-options">
+                  {languageControl}
+                  <span id="assistant-input-limit" className={chatInput.length >= 240 ? 'ga-assistant-input-limit' : 'sr-only'}>{chatInput.length}/300<span className="sr-only"> characters</span></span>
+                  {busy === 'chat' ? <button type="button" onClick={() => chatRequestRef.current?.abort()} aria-label="Stop generating answer" className="ga-assistant-send">Stop</button> : <button type="submit" disabled={!history.ready || history.working || !chatInput.trim() || Boolean(busy)} aria-label="Send message" className="ga-assistant-send"><Icon name="arrowRight" className="size-5 -rotate-90" /></button>}
+                </div>
               </div>
-              <p className="mt-2 text-center text-[0.6875rem] leading-4 text-muted-copy">{externalAiUsed === true ? 'OpenRouter AI · Sensitive patterns redacted' : externalAiUsed === false ? 'Controlled fallback active' : 'Secure AI guidance · Do not enter personal records'}</p>
+              <HistorySaveStatus history={history} store={historyStore} />
+              <p id="assistant-input-help" className="ga-assistant-input-help">Review AI guidance. Keep passwords and personal records private.</p>
             </form>
-          )}
-        </section>
-      )}
+          </div>}
+        </div>
 
-      <button ref={launcherRef} type="button" onClick={toggleAssistant} tabIndex={open ? -1 : 0} aria-label={open ? 'Close GarantiyAid AI' : 'Open GarantiyAid AI'} aria-expanded={open} aria-controls="garantiyaid-ai-panel" className={`fixed bottom-5 right-5 z-[61] grid size-16 place-items-center rounded-full border-2 border-white bg-brand-navy shadow-lg transition-[box-shadow,transform] hover:-translate-y-1 hover:shadow-xl focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-brand-blue motion-reduce:transform-none sm:bottom-7 sm:right-7 ${open ? 'pointer-events-none scale-90 opacity-0' : ''}`}>
-        <span aria-hidden="true" className="absolute inset-0 rounded-full border border-blue-300/60" />
-        <img src="/GarantiyAid-AI-logo.svg" alt="" width="64" height="64" className="relative size-14" />
-        <span className="sr-only">GarantiyAid AI assistant</span>
-      </button>
+        <AssistantHistory historyRef={historyRef} open={historyOpen} history={history} store={historyStore} locked={Boolean(busy || feedbackBusy || taskInProgress)} onClose={closeHistory} onSelect={selectConversation} onReset={() => { setRestoredTask(false); setCopyStatus(null); setLastIntent('GUIDANCE'); resetWorkflow() }} />
+      </div>
+    </section>
     </>
   )
 }

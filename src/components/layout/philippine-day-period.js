@@ -5,10 +5,11 @@ const philippineHour = new Intl.DateTimeFormat('en-PH', {
 })
 const dayPeriods = [
   { before: 4, label: 'Midnight', icon: 'moonStars', color: 'text-indigo-700' },
-  { before: 7, label: 'Early morning', icon: 'sunrise', color: 'text-orange-600' },
+  { before: 7, label: 'Sunrise', icon: 'sunrise', color: 'text-orange-600' },
   { before: 12, label: 'Morning', icon: 'sun', color: 'text-amber-600' },
   { before: 13, label: 'Noon', icon: 'sunHigh', color: 'text-amber-600' },
-  { before: 18, label: 'Afternoon', icon: 'sunset', color: 'text-orange-600' },
+  { before: 17, label: 'Afternoon', icon: 'sunLow', color: 'text-orange-600' },
+  { before: 19, label: 'Evening', icon: 'sunset', color: 'text-orange-700' },
   { before: 24, label: 'Night', icon: 'moon', color: 'text-indigo-600' },
 ]
 

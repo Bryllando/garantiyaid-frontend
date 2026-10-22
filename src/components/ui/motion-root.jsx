@@ -11,11 +11,13 @@ function MotionRoot({ children }) {
     }).add(({ matches }) => {
       if (matches.reducedMotion) return
 
-      animate('[data-motion-page]', {
-        opacity: [0, 1],
-        y: [8, 0],
-        duration: 360,
-        ease: 'outExpo',
+      root.current.querySelectorAll('[data-motion-page]').forEach((target) => {
+        animate(target, {
+          opacity: [0, 1],
+          y: [8, 0],
+          duration: 360,
+          ease: 'outExpo',
+        })
       })
 
       root.current.querySelectorAll('[data-motion-reveal]').forEach((target) => {

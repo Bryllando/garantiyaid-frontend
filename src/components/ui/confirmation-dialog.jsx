@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { LoadingLabel } from './spinner.jsx'
 
 export function ConfirmationDialog({ actionLabel, confirmationText, description, destructive = false, onCancel, onConfirm, open, reasonLabel, reasonMaxLength = 2000, title }) {
   const dialogRef = useRef(null)
+  const titleId = useId()
   const [confirmation, setConfirmation] = useState('')
   const [reason, setReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -28,10 +29,10 @@ export function ConfirmationDialog({ actionLabel, confirmationText, description,
   }
 
   return (
-    <dialog ref={dialogRef} onCancel={(event) => { event.preventDefault(); if (!isSubmitting) onCancel() }} onClose={() => { setConfirmation(''); setReason('') }} className="m-auto w-[min(32rem,calc(100%-2rem))] rounded-2xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/55">
+    <dialog ref={dialogRef} aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); if (!isSubmitting) onCancel() }} onClose={() => { setConfirmation(''); setReason('') }} className="m-auto w-[min(32rem,calc(100%-2rem))] rounded-2xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/55">
       <form onSubmit={confirm} className="p-6 sm:p-7">
         <span aria-hidden="true" className={`grid size-11 place-items-center rounded-full text-lg font-black ${destructive ? 'bg-danger-soft text-brand-red' : 'bg-info-soft text-brand-blue'}`}>{destructive ? '!' : '✓'}</span>
-        <h2 className="mt-4 text-xl font-extrabold">{title}</h2>
+        <h2 id={titleId} className="mt-4 text-xl font-extrabold">{title}</h2>
         <p className="mt-2 text-sm leading-6 text-muted-copy">{description}</p>
         {reasonLabel && (
           <div className="mt-5">

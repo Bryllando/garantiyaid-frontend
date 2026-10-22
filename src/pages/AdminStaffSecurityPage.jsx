@@ -27,6 +27,7 @@ function AdminStaffSecurityPage({ session, onLogout, onNavigate, onSessionExpire
   const [isSubmitting, setIsSubmitting] = useState(false)
   const resetHeadingRef = useRef(null)
   const resetTriggerRef = useRef(null)
+  const returnLinkRef = useRef(null)
   const isVerified = Object.values(verification).every(Boolean)
 
   useEffect(() => {
@@ -37,7 +38,14 @@ function AdminStaffSecurityPage({ session, onLogout, onNavigate, onSessionExpire
 
     requestStaffUsers(session.accessToken)
       .then((staffUsers) => {
-        if (active) setUsers(staffUsers)
+        if (!active) return
+        setUsers(staffUsers)
+        const staffId = new URLSearchParams(window.location.search).get('staff')
+        if (staffId) {
+          const match = staffUsers.find((user) => user.userId === staffId)
+          if (match?.isActive && match.totpEnabled && match.userId !== session.user.userId) setTarget(match)
+          else setError('This account is not available for authenticator recovery. Review the staff record and account status.')
+        }
       })
       .catch((requestError) => {
         if (!active) return
@@ -52,7 +60,7 @@ function AdminStaffSecurityPage({ session, onLogout, onNavigate, onSessionExpire
       })
 
     return () => { active = false }
-  }, [isAdministrator, onSessionExpired, session.accessToken])
+  }, [isAdministrator, onSessionExpired, session.accessToken, session.user.userId])
 
   useEffect(() => {
     if (target) requestAnimationFrame(() => resetHeadingRef.current?.focus())
@@ -68,7 +76,7 @@ function AdminStaffSecurityPage({ session, onLogout, onNavigate, onSessionExpire
 
   function cancelReset() {
     setTarget(null)
-    requestAnimationFrame(() => resetTriggerRef.current?.focus())
+    requestAnimationFrame(() => (resetTriggerRef.current ?? returnLinkRef.current)?.focus())
   }
 
   async function handleReset(event) {
@@ -110,9 +118,10 @@ function AdminStaffSecurityPage({ session, onLogout, onNavigate, onSessionExpire
 
   return (
     <DashboardShell breadcrumbs={['Operations', 'Administration', 'Staff security']} currentPath="/admin/staff-security" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Staff security" user={session.user}>
-      <section className="mx-auto w-full max-w-5xl" aria-labelledby="security-title">
+      <section className="w-full" aria-labelledby="security-title">
+        <a ref={returnLinkRef} href="/admin/administration" onClick={(event) => { event.preventDefault(); onNavigate('/admin/administration') }} className="mb-4 inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue"><Icon name="arrowLeft" className="size-4" />Staff & barangays</a>
         <div className="ga-card overflow-hidden">
-          <header className="border-b border-line bg-gradient-to-br from-white to-info-soft px-5 py-6 sm:px-8 sm:py-8">
+          <header className="ga-page-header border-b border-line bg-white px-5 py-4">
             <div className="flex items-start gap-4">
               <span aria-hidden="true" className="grid size-12 shrink-0 place-items-center rounded-xl bg-brand-navy text-white shadow-sm">
                 <Icon name="security" className="size-6" />
@@ -124,24 +133,10 @@ function AdminStaffSecurityPage({ session, onLogout, onNavigate, onSessionExpire
               </div>
             </div>
 
-            <ol className="mt-6 grid gap-3 sm:grid-cols-3" aria-label="Authenticator recovery process">
-              {[
-                ['1', 'Verify identity', 'Match the staff record and official ID.'],
-                ['2', 'Confirm authority', 'Obtain the supervisor confirmation.'],
-                ['3', 'Reset securely', 'Revoke sessions and require fresh setup.'],
-              ].map(([step, title, description]) => (
-                <li key={step} className="flex gap-3 rounded-xl border border-blue-100 bg-white p-4">
-                  <span aria-hidden="true" className="grid size-8 shrink-0 place-items-center rounded-full bg-info-soft text-sm font-extrabold text-brand-blue">{step}</span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-extrabold text-ink">{title}</span>
-                    <span className="mt-1 block text-xs leading-5 text-muted-copy">{description}</span>
-                  </span>
-                </li>
-              ))}
-            </ol>
+
           </header>
 
-          <div className="p-5 sm:p-8">
+          <div className="p-4">
             {success && <p role="status" className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-success-soft px-4 py-3 text-sm leading-6 text-brand-green"><Icon name="check" className="mt-0.5 size-5 shrink-0" /><span>{success}</span></p>}
             {error && <p role="alert" className="flex items-start gap-3 rounded-xl border border-red-200 bg-danger-soft px-4 py-3 text-sm leading-6 text-brand-red"><Icon name="info" className="mt-0.5 size-5 shrink-0" /><span>{error}</span></p>}
 

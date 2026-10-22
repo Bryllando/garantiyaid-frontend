@@ -7,25 +7,24 @@ const shellSource = readFileSync(new URL('../src/components/layout/DashboardShel
 const authSource = readFileSync(new URL('../src/auth/staffAuth.js', import.meta.url), 'utf8')
 const schedulerSource = readFileSync(new URL('../src/components/assistant/AssistantDistributionScheduler.jsx', import.meta.url), 'utf8')
 
-test('staff AI assistant is shared, role-aware, animated, responsive, and accessible', () => {
+test('staff AI assistant has a shared role-aware page and collapsible history', () => {
   assert.match(shellSource, /<StaffAiAssistant/)
   assert.match(source, /src="\/GarantiyAid-AI-logo\.svg"/)
   assert.match(source, /SYSTEM_ADMIN:[\s\S]*DSWD_STAFF:[\s\S]*BARANGAY_FACILITATOR:/)
-  assert.match(source, /prefers-reduced-motion: reduce/)
-  assert.match(source, /animate\(launcherRef\.current/)
-  assert.match(source, /role="dialog" aria-modal="false"/)
-  assert.match(source, /aria-expanded=\{open\}/)
-  assert.match(source, /aria-controls="garantiyaid-ai-panel"/)
-  assert.match(source, /tabIndex=\{open \? -1 : 0\}/)
-  assert.match(source, /sm:w-\[min\(29rem,calc\(100vw-3rem\)\)\]/)
+  assert.match(source, /hidden=\{!active\}/)
+  assert.match(source, /aria-expanded=\{historyOpen\}/)
+  assert.match(source, /aria-controls="staff-assistant-history"/)
+  assert.match(shellSource, /<StaffNotificationCenter[\s\S]*<StaffAiAssistant/)
+  assert.match(shellSource, /aria-label="Open assistant conversation"/)
+  assert.match(source, /ga-assistant-workspace/)
   assert.match(source, /English[\s\S]*Filipino[\s\S]*Cebuano/)
 })
 
 test('staff guidance uses authenticated OpenRouter AI with bounded conversation context', () => {
   assert.match(authSource, /\/chatbot\/staff-assistant\/messages/)
   assert.match(source, /requestStaffAssistantMessage\(accessToken, \{[\s\S]*messageText: content,[\s\S]*messages\.filter\(\(message\) => !message\.local\)\.slice\(-6\)/)
-  assert.match(source, /OpenRouter AI · Sensitive patterns redacted/)
-  assert.match(source, /GarantiyAid AI is thinking/)
+  assert.match(source, /Review AI guidance/)
+  assert.match(source, /Preparing your answer/)
 })
 
 test('assistant reminder requires a server preview and explicit confirmation', () => {

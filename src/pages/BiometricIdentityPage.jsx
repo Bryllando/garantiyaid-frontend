@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import ClaimSignaturePad from '../components/claims/ClaimSignaturePad.jsx'
 import BiometricDuplicateReview from '../components/biometrics/BiometricDuplicateReview.jsx'
+import BeneficiaryWorkflowNav from '../components/beneficiaries/BeneficiaryWorkflowNav.jsx'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Icon } from '../components/ui/icon.jsx'
@@ -272,7 +273,8 @@ function CaptureChecklist() {
 
 function BiometricIdentityPage({ session, onLogout, onNavigate, onSessionExpired }) {
   const role = session.user.role
-  const canCapture = role === 'SYSTEM_ADMIN' || role === 'BARANGAY_FACILITATOR'
+  const canCapture = role === 'BARANGAY_FACILITATOR'
+  const canReenroll = role === 'SYSTEM_ADMIN' || canCapture
   const canReviewDuplicates = role === 'SYSTEM_ADMIN' || role === 'DSWD_STAFF'
   const [view, setView] = useState(() => {
     const requested = new URLSearchParams(window.location.search).get('view')
@@ -444,7 +446,7 @@ function BiometricIdentityPage({ session, onLogout, onNavigate, onSessionExpired
   const verificationDistributions = distributions.filter((item) => item.status === 'OPEN' && item.verificationRequirement !== 'QR')
   const claimCandidates = schedules.filter((schedule) => ['SCHEDULED', 'CHECKED_IN'].includes(schedule.status))
   const tabs = [
-    ['enrollment', 'Consent & enrollment'],
+    ['enrollment', role === 'SYSTEM_ADMIN' ? 'Profiles & consent' : 'Consent & enrollment'],
     ...(canCapture ? [['verify', 'Claim verification']] : []),
     ...(canReviewDuplicates ? [['duplicates', 'Duplicate review']] : []),
     ['history', 'Attempt history'],
@@ -452,10 +454,12 @@ function BiometricIdentityPage({ session, onLogout, onNavigate, onSessionExpired
 
   return (
     <DashboardShell breadcrumbs={['Operations', 'Identity assurance', 'Biometric identity']} currentPath="/biometrics" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Biometric identity" user={session.user}>
-      <header className="flex flex-col gap-5 border-b border-line pb-6 lg:flex-row lg:items-end lg:justify-between">
-        <div><p className="ga-eyebrow">Consent-led identity assurance</p><h1 className="ga-page-title">Biometric enrollment and verification</h1><p className="ga-page-copy">Record informed consent, protect biometric enrollment, and verify eligible aid claims within your assigned role.</p></div>
-        <span className="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-200 bg-success-soft px-4 py-2 text-sm font-bold text-brand-green"><span aria-hidden="true" className="size-2 rounded-full bg-emerald-500" /> Audited secure workflow</span>
+      <header className="ga-page-header flex flex-col gap-5 border-b border-line pb-6 lg:flex-row lg:items-end lg:justify-between">
+        <div><p className="ga-eyebrow">Consent-led identity assurance</p><h1 className="ga-page-title">{role === 'SYSTEM_ADMIN' ? 'Biometric records' : 'Biometric identity'}</h1><p className="ga-page-copy">{role === 'SYSTEM_ADMIN' ? 'Review consent and existing face profiles, resolve duplicate exceptions, and inspect attempt history. Re-enrollment is available for an existing profile.' : 'Review consent and biometric records. Enrollment and live claim checks appear according to your role.'}</p></div>
+        {role !== 'SYSTEM_ADMIN' && <span className="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-200 bg-success-soft px-4 py-2 text-sm font-bold text-brand-green"><span aria-hidden="true" className="size-2 rounded-full bg-emerald-500" /> Audited secure workflow</span>}
       </header>
+
+      {role === 'SYSTEM_ADMIN' && <BeneficiaryWorkflowNav currentPath="/biometrics" onNavigate={onNavigate} />}
 
       <div className="mt-6 overflow-x-auto border-b border-line" role="tablist" aria-label="Biometric work areas">
         <div className="flex min-w-max gap-1">
@@ -464,7 +468,7 @@ function BiometricIdentityPage({ session, onLogout, onNavigate, onSessionExpired
       </div>
 
       {isLoading ? <WorkspaceSkeleton /> : view === 'enrollment' ? (
-        <EnrollmentWorkspace beneficiaries={beneficiaries} beneficiaryId={beneficiaryId} setBeneficiaryId={(value) => { setBeneficiaryId(value); setConsents([]); setProfile(null); setProcessing(null); setIsLoadingProfile(Boolean(value)) }} selectedBeneficiary={selectedBeneficiary} consents={consents} profile={profile} processing={processing} activeConsent={activeConsent} canCapture={canCapture} isLoadingProfile={isLoadingProfile} isSubmitting={isSubmitting} onConsent={submitConsent} onEnrollment={submitEnrollment} onRevoke={(consentId) => setDialogAction({ type: 'revoke', consentId })} onDelete={() => setDialogAction({ type: 'delete' })} isAdmin={role === 'SYSTEM_ADMIN'} />
+        <EnrollmentWorkspace beneficiaries={beneficiaries} beneficiaryId={beneficiaryId} setBeneficiaryId={(value) => { setBeneficiaryId(value); setConsents([]); setProfile(null); setProcessing(null); setIsLoadingProfile(Boolean(value)) }} selectedBeneficiary={selectedBeneficiary} consents={consents} profile={profile} processing={processing} activeConsent={activeConsent} canCapture={canCapture} canReenroll={canReenroll} isLoadingProfile={isLoadingProfile} isSubmitting={isSubmitting} onConsent={submitConsent} onEnrollment={submitEnrollment} onRevoke={(consentId) => setDialogAction({ type: 'revoke', consentId })} onDelete={() => setDialogAction({ type: 'delete' })} isAdmin={role === 'SYSTEM_ADMIN'} />
       ) : view === 'verify' ? (
         <VerificationWorkspace distributions={verificationDistributions} distributionId={distributionId} setDistributionId={(value) => { setDistributionId(value); setBeneficiaryId(''); setSchedules([]); setAttemptData(null); setAttemptPage(1); setIsLoadingAttempts(Boolean(value)); setVerificationResult(null) }} beneficiaryId={beneficiaryId} setBeneficiaryId={setBeneficiaryId} selectedDistribution={selectedDistribution} candidates={claimCandidates} isSubmitting={isSubmitting} result={verificationResult} onSubmit={submitVerification} onSignature={completeSignature} onReset={() => setVerificationResult(null)} processing={verificationResult?.biometricVerification ?? processing} />
       ) : view === 'duplicates' ? (
@@ -478,7 +482,7 @@ function BiometricIdentityPage({ session, onLogout, onNavigate, onSessionExpired
   )
 }
 
-function EnrollmentWorkspace({ beneficiaries, beneficiaryId, setBeneficiaryId, selectedBeneficiary, consents, profile, processing, activeConsent, canCapture, isLoadingProfile, isSubmitting, onConsent, onEnrollment, onRevoke, onDelete, isAdmin }) {
+function EnrollmentWorkspace({ beneficiaries, beneficiaryId, setBeneficiaryId, selectedBeneficiary, consents, profile, processing, activeConsent, canCapture, canReenroll, isLoadingProfile, isSubmitting, onConsent, onEnrollment, onRevoke, onDelete, isAdmin }) {
   const progress = profile?.biometricStatus === 'ENROLLED' ? 3 : activeConsent ? 2 : beneficiaryId ? 1 : 0
   const duplicateHold = ['PENDING_DUPLICATE_REVIEW', 'DUPLICATE_BLOCKED'].includes(profile?.biometricStatus)
   return (
@@ -504,14 +508,14 @@ function EnrollmentWorkspace({ beneficiaries, beneficiaryId, setBeneficiaryId, s
 
           <section className="ga-card p-5 sm:p-6" aria-labelledby="capture-heading">
             <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="ga-eyebrow">Step 3</p><h2 id="capture-heading" className="mt-1 ga-section-heading">Protected face enrollment</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-copy">Use a current, well-lit, front-facing capture with one person visible and no face obstruction.</p></div><StatusBadge value={profile?.biometricStatus ?? 'NOT_ENROLLED'} /></div>
-            {!canCapture ? <p className="mt-5 rounded-lg border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">DSWD oversight access:</strong> you can record consent and review metadata. A System Administrator or assigned Barangay Facilitator must complete the physical capture.</p> : duplicateHold ? <div className={`mt-5 rounded-xl border p-5 ${profile.biometricStatus === 'DUPLICATE_BLOCKED' ? 'border-red-200 bg-danger-soft' : 'border-amber-200 bg-warning-soft'}`}><p className={`font-extrabold ${profile.biometricStatus === 'DUPLICATE_BLOCKED' ? 'text-brand-red' : 'text-brand-amber'}`}>{profile.biometricStatus === 'DUPLICATE_BLOCKED' ? 'Duplicate profile confirmed' : 'Authorized review pending'}</p><p className="mt-2 text-sm leading-6 text-copy">{profile.biometricStatus === 'DUPLICATE_BLOCKED' ? 'This template cannot be used for claims. A System Administrator must resolve the beneficiary record before any new enrollment.' : 'The similarity scan found another active profile above the configured threshold. Claim verification and replacement are paused while authorized staff review the records.'}</p><p className="mt-3 text-xs font-semibold text-muted-copy">For privacy, facilitators are not shown the matching person or barangay.</p>{isAdmin && <button type="button" onClick={onDelete} disabled={isSubmitting} className="ga-btn-secondary mt-4 border-red-200 text-brand-red hover:bg-danger-soft">Delete held template</button>}</div> : !activeConsent ? <p className="mt-5 rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">Enrollment locked:</strong> record active consent above before capturing biometric data.</p> : <form onSubmit={onEnrollment} className="mt-5"><CaptureField id="enrollment-face-capture" help="Use the device camera or select a verified capture." /><div className="mt-5 flex flex-col gap-3 sm:flex-row"><button type="submit" disabled={isSubmitting} className="ga-btn-primary flex-1">{isSubmitting ? <LoadingLabel>Running liveness and duplicate checks...</LoadingLabel> : profile?.biometricId ? 'Replace biometric profile' : 'Enroll biometric profile'}</button>{isAdmin && profile?.biometricId && <button type="button" onClick={onDelete} disabled={isSubmitting} className="ga-btn-secondary border-red-200 text-brand-red hover:bg-danger-soft">Delete template</button>}</div></form>}
+            {!(canCapture || (canReenroll && profile?.biometricId)) ? <p className="mt-5 rounded-lg border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">Enrollment is assigned to facilitators.</strong> You can review the status and consent; administrators may re-enroll an existing profile.</p> : duplicateHold ? <div className={`mt-5 rounded-xl border p-5 ${profile.biometricStatus === 'DUPLICATE_BLOCKED' ? 'border-red-200 bg-danger-soft' : 'border-amber-200 bg-warning-soft'}`}><p className={`font-extrabold ${profile.biometricStatus === 'DUPLICATE_BLOCKED' ? 'text-brand-red' : 'text-brand-amber'}`}>{profile.biometricStatus === 'DUPLICATE_BLOCKED' ? 'Duplicate profile confirmed' : 'Authorized review pending'}</p><p className="mt-2 text-sm leading-6 text-copy">{profile.biometricStatus === 'DUPLICATE_BLOCKED' ? 'This template cannot be used for claims. A System Administrator must resolve the beneficiary record before any new enrollment.' : 'The similarity scan found another active profile above the configured threshold. Claim verification and replacement are paused while authorized staff review the records.'}</p><p className="mt-3 text-xs font-semibold text-muted-copy">For privacy, facilitators are not shown the matching person or barangay.</p>{isAdmin && <button type="button" onClick={onDelete} disabled={isSubmitting} className="ga-btn-secondary mt-4 border-red-200 text-brand-red hover:bg-danger-soft">Delete held template</button>}</div> : !activeConsent ? <p className="mt-5 rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">Enrollment locked:</strong> record active consent above before capturing biometric data.</p> : <form onSubmit={onEnrollment} className="mt-5"><CaptureField id="enrollment-face-capture" help="Use the device camera or select a verified capture." /><div className="mt-5 flex flex-col gap-3 sm:flex-row"><button type="submit" disabled={isSubmitting} className="ga-btn-primary flex-1">{isSubmitting ? <LoadingLabel>Running liveness and duplicate checks...</LoadingLabel> : profile?.biometricId ? 'Replace biometric profile' : 'Enroll biometric profile'}</button>{isAdmin && profile?.biometricId && <button type="button" onClick={onDelete} disabled={isSubmitting} className="ga-btn-secondary border-red-200 text-brand-red hover:bg-danger-soft">Delete template</button>}</div></form>}
             {profile?.biometricId && <dl className="mt-5 grid gap-4 border-t border-line pt-5 text-sm sm:grid-cols-3"><Info label="Enrolled" value={displayDate(profile.createdAt)} /><Info label="Successful checks" value={profile.verificationCount ?? 0} /><Info label="Last verified" value={displayDate(profile.lastVerifiedAt)} /></dl>}
           </section>
         </>}
       </div>
 
       <aside className="space-y-5">
-        <StepList heading="Enrollment progress" steps={[
+        <StepList heading={isAdmin ? "Profile checklist" : "Enrollment progress"} steps={[
           { label: 'Beneficiary selected', complete: progress >= 1 },
           { label: 'Consent recorded', complete: progress >= 2 },
           { label: 'Face profile cleared for claims', complete: progress >= 3 },

@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import AuthShell from '../components/auth/AuthShell.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
 import { getAuthErrorMessage, getLoginOutcome, requestStaffLogin, storeStaffSession } from '../auth/staffAuth.js'
+import { checkSignInReadiness } from '../auth/signInReadiness.js'
 
 function LoginPage({ onAuthenticated, onPasswordChangeRequired, onTotpRequired, onTotpEnrollmentRequired, securityReview = false }) {
   const [identifier, setIdentifier] = useState('')
@@ -10,9 +11,14 @@ function LoginPage({ onAuthenticated, onPasswordChangeRequired, onTotpRequired, 
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState('checking')
+  const [connectionAttempt, setConnectionAttempt] = useState(0)
+
+  useEffect(() => checkSignInReadiness(setConnectionStatus), [connectionAttempt])
 
   async function handleSubmit(event) {
     event.preventDefault()
+    if (isSubmitting || connectionStatus !== 'ready') return
     setError('')
     setIsSubmitting(true)
 
@@ -34,7 +40,12 @@ function LoginPage({ onAuthenticated, onPasswordChangeRequired, onTotpRequired, 
         onAuthenticated(data.user)
       }
     } catch (requestError) {
-      setError(getAuthErrorMessage(requestError))
+      if (['API_UNREACHABLE', 'API_UNAVAILABLE'].includes(requestError.code) || (!requestError.code && [502, 503, 504].includes(requestError.status))) {
+        setConnectionStatus('checking')
+        setConnectionAttempt((attempt) => attempt + 1)
+      } else {
+        setError(getAuthErrorMessage(requestError))
+      }
     } finally {
       setIsSubmitting(false)
     }
@@ -107,8 +118,16 @@ function LoginPage({ onAuthenticated, onPasswordChangeRequired, onTotpRequired, 
 
               {error && <p id="login-error" role="alert" className="rounded-lg border border-red-200 bg-danger-soft px-4 py-3 text-sm leading-6 text-brand-red">{error}</p>}
 
-              <button type="submit" disabled={isSubmitting} className="ga-btn-primary w-full">
-                {isSubmitting ? <LoadingLabel>Signing in...</LoadingLabel> : 'Sign in securely'}
+              <div id="login-connection" role="status" aria-live="polite">
+                {connectionStatus !== 'ready' && <p className="text-sm leading-6 text-muted-copy">
+                  {connectionStatus === 'checking'
+                    ? 'Connecting to the sign-in service…'
+                    : 'The sign-in service is not available yet. This page will reconnect automatically.'}
+                </p>}
+              </div>
+
+              <button type="submit" disabled={isSubmitting || connectionStatus !== 'ready'} aria-describedby={connectionStatus !== 'ready' ? 'login-connection' : undefined} className="ga-btn-primary w-full">
+                {isSubmitting ? <LoadingLabel>Signing in...</LoadingLabel> : connectionStatus !== 'ready' ? <LoadingLabel>Connecting...</LoadingLabel> : 'Sign in securely'}
               </button>
             </form>
           </>
