@@ -60,6 +60,7 @@ test('time window and slot validation prevents a misleading complete state', () 
   assert.ok(set(empty(), 'slotDurationMinutes', '4').error)
   assert.ok(set(empty(), 'slotDurationMinutes', '30.5').error)
   for (const value of ['QR_AND_BIOMETRIC', 'QR and biometric', 'QR + biometric']) assert.equal(set(empty(), 'verificationRequirement', value).task.values.verificationRequirement, 'QR_AND_BIOMETRIC')
+  for (const value of ['QR_OR_BIOMETRIC', 'QR or biometric']) assert.equal(set(empty(), 'verificationRequirement', value).task.values.verificationRequirement, 'QR_OR_BIOMETRIC')
   assert.equal(set(empty(), 'deliveryMode', 'physical goods').task.values.deliveryMode, 'PHYSICAL_GOODS')
 })
 

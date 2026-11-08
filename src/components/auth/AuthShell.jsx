@@ -1,4 +1,4 @@
-function AuthShell({ children, navigationLabel = 'Authentication navigation' }) {
+function AuthShell({ children, navigationLabel = 'Authentication navigation', compact = false }) {
   return (
     <div className="flex min-h-[100dvh] flex-col bg-page">
       <a href="#main-content" className="fixed left-4 top-4 z-50 -translate-y-20 rounded-lg bg-brand-navy px-4 py-2 font-semibold text-white transition-transform focus:translate-y-0">
@@ -11,14 +11,14 @@ function AuthShell({ children, navigationLabel = 'Authentication navigation' }) 
             <img src="/GarantiyAid-logo.svg" alt="" width="512" height="512" className="size-12 shrink-0 object-contain sm:size-14" />
             <span className="text-lg">GarantiyAid</span>
           </a>
-          <a href="/" className="ga-btn-secondary min-h-11 px-4 text-sm">Back to public home</a>
+          <a href="/" className="ga-btn-secondary min-h-11 px-4 text-sm">{compact ? 'Home' : 'Back to public home'}</a>
         </nav>
       </header>
 
-      <main id="main-content" data-route-focus data-motion-page tabIndex={-1} className="relative flex flex-1 items-center px-4 py-8 outline-none sm:px-6 sm:py-12 lg:px-8">
-        <div aria-hidden="true" className="absolute inset-x-0 top-0 h-64 bg-gradient-to-b from-info-soft to-transparent" />
-        <div className="relative mx-auto grid w-full max-w-7xl overflow-hidden rounded-2xl border border-line bg-white shadow-lg lg:grid-cols-[minmax(19rem,0.72fr)_minmax(0,1.28fr)]">
-          <aside className="hidden bg-brand-navy px-8 py-10 text-white lg:flex lg:flex-col lg:justify-between xl:px-10 xl:py-12" aria-label="Secure portal information">
+      <main id="main-content" data-route-focus data-motion-page tabIndex={-1} className={`relative flex flex-1 px-4 py-8 outline-none sm:px-6 sm:py-12 lg:px-8 ${compact ? 'items-start' : 'items-center'}`}>
+        {!compact && <div aria-hidden="true" className="absolute inset-x-0 top-0 h-64 bg-gradient-to-b from-info-soft to-transparent" />}
+        <div className={`relative mx-auto grid w-full overflow-hidden border border-line bg-white ${compact ? 'max-w-xl rounded-sm border-t-4 border-t-brand-navy' : 'max-w-7xl rounded-2xl shadow-lg lg:grid-cols-[minmax(19rem,0.72fr)_minmax(0,1.28fr)]'}`}>
+          {!compact && <aside className="hidden bg-brand-navy px-8 py-10 text-white lg:flex lg:flex-col lg:justify-between xl:px-10 xl:py-12" aria-label="Secure portal information">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-blue-200">Authorized access</p>
               <h2 className="mt-4 text-3xl font-bold leading-tight">Secure access for public-service operations.</h2>
@@ -37,9 +37,9 @@ function AuthShell({ children, navigationLabel = 'Authentication navigation' }) 
               </ul>
             </div>
             <p className="mt-10 border-t border-white/10 pt-5 text-sm font-semibold text-blue-100">Restricted to authorized personnel</p>
-          </aside>
+          </aside>}
 
-          <div className="flex min-w-0 items-center justify-center bg-white px-3 py-8 sm:px-8 sm:py-10 lg:px-10 xl:px-14">
+          <div className={`flex min-w-0 items-center justify-center bg-white py-8 sm:px-8 sm:py-10 ${compact ? 'px-5' : 'px-3 lg:px-10 xl:px-14'}`}>
             {children}
           </div>
         </div>

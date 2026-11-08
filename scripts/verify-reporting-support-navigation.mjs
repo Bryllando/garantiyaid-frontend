@@ -1,17 +1,18 @@
 import assert from 'node:assert/strict'
-import { chromium } from '@playwright/test'
+import { chromium, expect } from '@playwright/test'
 import { createServer } from 'vite'
 
 const event = (distributionId, title) => ({ distributionId, title, distributionDate: '2026-10-10', status: 'OPEN', program: { programName: 'Community Assistance', programCode: 'AID-2026' }, barangay: { barangayName: 'Poblacion' }, deliveryMode: 'PHYSICAL_GOODS' })
 const pagination = (total = 0) => ({ page: 1, totalPages: 1, total })
 const auditFilters = []
-const vite = await createServer({ server: { host: '127.0.0.1', port: 0 } })
+const vite = await createServer({ cacheDir: '../tmp/reporting-support-vite', server: { host: '127.0.0.1', port: 0 } })
 await vite.listen()
 const baseUrl = `http://127.0.0.1:${vite.httpServer.address().port}`
 const browser = await chromium.launch({ headless: true, channel: 'chrome' })
 
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, acceptDownloads: true })
+  page.setDefaultNavigationTimeout(45000)
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.addInitScript(() => {
@@ -19,8 +20,8 @@ try {
     sessionStorage.setItem('garantiyaid.user', JSON.stringify({ userId: 'admin-1', role: 'SYSTEM_ADMIN', fullName: 'System Administrator', email: 'admin@example.gov.ph' }))
   })
   await page.route('**/socket.io/**', (route) => route.abort())
-  await page.routeWebSocket('ws://localhost:4000/socket.io/**', () => {})
-  await page.route('http://localhost:4000/api/v1/**', async (route) => {
+  await page.routeWebSocket(/socket\.io/, () => {})
+  await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url())
     const path = url.pathname.replace('/api/v1', '')
     let data = {}
@@ -34,6 +35,7 @@ try {
     else if (path === '/notifications') data = { notifications: [], pagination: pagination() }
     else if (path === '/notifications/summary') data = { total: 0, byStatus: {} }
     else if (path === '/notifications/queue/health') data = { status: 'ready', counts: {} }
+    else if (path === '/distributions/event-2/schedules') data = { schedules: [], summary: {}, pagination: pagination() }
     else if (path === '/chatbot/escalations') data = { escalations: [{ sessionId: 'case-1', status: 'ESCALATED', messageCount: 1, lastActivityAt: '2026-09-26T08:00:00.000Z', beneficiary: { firstName: 'Maria', lastName: 'Santos' } }], pagination: pagination(1) }
     else if (path === '/chatbot/escalations/case-1') data = { session: { sessionId: 'case-1', status: 'ESCALATED', language: 'en', lastActivityAt: '2026-09-26T08:00:00.000Z', beneficiary: { firstName: 'Maria', lastName: 'Santos' } }, messages: [{ messageId: 'message-1', senderType: 'BENEFICIARY', messageText: 'Where is my schedule?', createdAt: '2026-09-26T08:00:00.000Z' }] }
     await route.fulfill({ json: { data } })
@@ -51,6 +53,7 @@ try {
   await page.getByLabel('Status', { exact: true }).selectOption('CLAIMED')
   assert.equal(await page.getByRole('heading', { name: 'Claim status' }).count(), 0, 'changing report filters must clear the old result')
   const download = page.waitForEvent('download')
+  await page.getByText('Download full-event CSV', { exact: true }).click()
   await page.getByRole('button', { name: 'Export selected event CSV' }).click()
   assert.match((await download).suggestedFilename(), /\.csv$/)
   await page.getByRole('link', { name: 'Review export in audit logs' }).click()
@@ -61,7 +64,7 @@ try {
   assert.equal(await page.getByLabel('Entity').inputValue(), '')
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
   await page.setViewportSize({ width: 320, height: 700 })
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 
   await page.goto(`${baseUrl}/notifications?distribution=event-2`)
   await page.getByRole('heading', { name: 'SMS delivery' }).waitFor()
@@ -70,6 +73,12 @@ try {
   assert.equal(await page.getByLabel('Distribution', { exact: true }).inputValue(), 'event-2')
   assert.equal(await page.getByRole('button', { name: 'Refresh history' }).count(), 1)
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
+  await page.getByRole('button', { name: 'Queue reminders', exact: true }).click()
+  assert.equal(await page.getByRole('dialog').getByLabel('Distribution event', { exact: true }).inputValue(), 'event-2')
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.getByRole('button', { name: 'Queue schedule message', exact: true }).click()
+  assert.equal(await page.getByRole('dialog').getByLabel('Distribution event', { exact: true }).inputValue(), 'event-2')
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
 
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto(`${baseUrl}/help-cases`)

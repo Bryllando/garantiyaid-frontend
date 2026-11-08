@@ -52,31 +52,31 @@ function BeneficiaryHelpChat() {
 
   useEffect(() => {
     if (!open) return undefined
+    const launcher = launcherRef.current
     if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches && panelRef.current) {
       animate(panelRef.current, { opacity: [0, 1], y: [20, 0], scale: [0.96, 1], duration: 420, ease: 'outExpo' })
     }
-    requestAnimationFrame(() => closeRef.current?.focus())
+    const focusFrame = requestAnimationFrame(() => closeRef.current?.focus())
     const closeOnEscape = (event) => {
       if (event.key !== 'Escape') return
       setOpen(false)
-      requestAnimationFrame(() => launcherRef.current?.focus())
     }
     document.addEventListener('keydown', closeOnEscape)
-    return () => document.removeEventListener('keydown', closeOnEscape)
+    return () => {
+      cancelAnimationFrame(focusFrame)
+      document.removeEventListener('keydown', closeOnEscape)
+      launcher?.focus()
+    }
   }, [open])
 
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'nearest' }) }, [messages, notice])
 
   function toggle() {
-    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches && launcherRef.current) {
-      animate(launcherRef.current, { scale: [1, 0.88, 1.08, 1], rotate: [0, -7, 7, 0], duration: 560, ease: 'outExpo' })
-    }
     setOpen((current) => !current)
   }
 
   function close() {
     setOpen(false)
-    requestAnimationFrame(() => launcherRef.current?.focus())
   }
 
   function newChat() {
@@ -169,9 +169,9 @@ function BeneficiaryHelpChat() {
         </section>
       )}
 
-      <button ref={launcherRef} type="button" onClick={toggle} tabIndex={open ? -1 : 0} aria-label={open ? 'Close beneficiary help' : 'Open beneficiary help'} aria-expanded={open} aria-controls="beneficiary-help-panel" className={`fixed bottom-5 right-5 z-[61] grid size-16 place-items-center rounded-full border-2 border-white bg-brand-navy shadow-lg transition-[box-shadow,transform] hover:-translate-y-1 hover:shadow-xl focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-brand-blue motion-reduce:transform-none sm:bottom-7 sm:right-7 ${open ? 'pointer-events-none scale-90 opacity-0' : ''}`}>
-        <img src="/GarantiyAid-AI-logo.svg" alt="" width="64" height="64" className="size-14" />
-        <span className="sr-only">Beneficiary help assistant</span>
+      <button ref={launcherRef} type="button" onClick={toggle} aria-expanded={open} aria-controls="beneficiary-help-panel" className="mt-5 inline-flex min-h-12 items-center justify-center gap-2 rounded-sm bg-brand-blue px-4 py-3 text-sm font-semibold text-white hover:bg-brand-blue-hover focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-blue">
+        <Icon name="helpCases" className="size-4" />
+        {open ? 'Close general guidance' : 'Open general guidance'}
       </button>
     </>
   )

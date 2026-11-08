@@ -107,9 +107,11 @@ export function StaffNotificationCenter({ accessToken, onNavigate }) {
   const mountedRef = useRef(true)
   const rootRef = useRef(null)
   const triggerRef = useRef(null)
+  const notificationLoadingRef = useRef(false)
 
   const loadNotifications = useCallback(async () => {
-    if (!accessToken) return
+    if (!accessToken || notificationLoadingRef.current) return
+    notificationLoadingRef.current = true
     try {
       const data = await requestStaffNotifications(accessToken)
       if (!mountedRef.current) return
@@ -119,6 +121,7 @@ export function StaffNotificationCenter({ accessToken, onNavigate }) {
     } catch {
       if (mountedRef.current) setError('Notifications are temporarily unavailable.')
     } finally {
+      notificationLoadingRef.current = false
       if (mountedRef.current) setLoading(false)
     }
   }, [accessToken])
@@ -158,7 +161,9 @@ export function StaffNotificationCenter({ accessToken, onNavigate }) {
     if (!open) return undefined
     // oxlint-disable-next-line react/set-state-in-effect -- reconcile persisted state whenever the popover opens.
     loadNotifications()
-    const refreshTimer = window.setInterval(loadNotifications, 15000)
+    const refreshTimer = window.setInterval(() => {
+      if (!liveReady && document.visibilityState === 'visible') loadNotifications()
+    }, 60_000)
     const closePopover = (event) => {
       if (event.key === 'Escape') {
         setOpen(false)
@@ -174,7 +179,7 @@ export function StaffNotificationCenter({ accessToken, onNavigate }) {
       document.removeEventListener('keydown', closePopover)
       document.removeEventListener('pointerdown', closePopover)
     }
-  }, [loadNotifications, open])
+  }, [liveReady, loadNotifications, open])
 
   function goTo(path) {
     if (!path) return

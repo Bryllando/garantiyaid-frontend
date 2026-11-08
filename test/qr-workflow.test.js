@@ -4,6 +4,7 @@ import test from 'node:test'
 
 const facilitatorSource = readFileSync(new URL('../src/pages/FacilitatorOperationsPage.jsx', import.meta.url), 'utf8')
 const distributionSource = readFileSync(new URL('../src/pages/DistributionManagementPage.jsx', import.meta.url), 'utf8')
+const credentialSource = readFileSync(new URL('../src/components/distributions/QrCredentialsDialog.jsx', import.meta.url), 'utf8')
 const staffAuthSource = readFileSync(new URL('../src/auth/staffAuth.js', import.meta.url), 'utf8')
 
 test('QR workflow previews identity before confirmation and keeps scanner fallbacks', () => {
@@ -17,6 +18,7 @@ test('QR workflow previews identity before confirmation and keeps scanner fallba
   assert.match(staffAuthSource, /claims\/preview-qr/)
   assert.match(facilitatorSource, /Continue to biometric/)
   assert.match(facilitatorSource, /role="alert"/)
-  assert.match(distributionSource, /<QRCodeSVG value=\{item\.token\}/)
-  assert.match(distributionSource, /window\.print\(\)/)
+  assert.match(distributionSource, /<QrCredentialsDialog distribution=\{rawTokens\.distribution\}/)
+  assert.match(credentialSource, /<QRCodeSVG value=\{item\.token\}/)
+  assert.match(credentialSource, /window\.print\(\)/)
 })

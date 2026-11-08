@@ -6,7 +6,7 @@ import { createServer } from 'vite'
 import { readFileSync } from 'node:fs'
 
 test('task summary renders labelled fields, editable values, progress, and an honest completion state', async () => {
-  const vite = await createServer({ server: { middlewareMode: true, ws: false }, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom' })
+  const vite = await createServer({ cacheDir: 'node_modules/.vite-verify/assistant-task-details', server: { middlewareMode: true, ws: false }, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom' })
   try {
     const { default: Summary } = await vite.ssrLoadModule('/src/components/assistant/AssistantTaskDetails.jsx')
     const render = (task, extra = {}) => renderToStaticMarkup(createElement(Summary, { task, language: 'en', ...extra }))

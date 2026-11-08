@@ -12,6 +12,7 @@ dist
 dist-ssr
 artifacts/assistant-phase6/
 artifacts/email-ui/
+artifacts/import-ui/
 .env
 .env.*
 !.env.example

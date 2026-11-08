@@ -92,7 +92,7 @@ try {
     if (composer) assert.ok(composer.y >= box.y && composer.y + composer.height <= box.y + box.height, 'Composer stays inside the window')
   }
   await page.goto(`${origin}/beneficiaries`)
-  await expect(page.locator('.ga-staff-header img[src="/GarantiyAid-AI-logo.svg"]')).toHaveCount(0)
+  await expect(page.locator('.ga-staff-header').getByRole('button', { name: 'Open assistant conversation', exact: true })).toBeVisible()
   await expect(launcher).toBeVisible()
   const beneficiarySearch = page.getByPlaceholder('Name, email, or PhilSys number')
   await beneficiarySearch.fill('Unapplied search draft')

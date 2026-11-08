@@ -28,16 +28,19 @@ const ChatbotOperationsPage = lazy(() => import('./pages/ChatbotOperationsPage.j
 const ServiceReviewPage = lazy(() => import('./pages/ServiceReviewPage.jsx'))
 const BiometricIdentityPage = lazy(() => import('./pages/BiometricIdentityPage.jsx'))
 const DswdOperationsPage = lazy(() => import('./pages/DswdOperationsPage.jsx'))
+const DswdMonitoringPage = lazy(() => import('./pages/DswdMonitoringPage.jsx'))
 const ClaimAccountabilityPage = lazy(() => import('./pages/ClaimAccountabilityPage.jsx'))
 const AccountSettingsPage = lazy(() => import('./pages/AccountSettingsPage.jsx'))
-const staffPaths = new Set(['/dashboard', '/account', '/admin/staff-security', '/admin/administration', '/notifications', '/help-cases', '/service-review', '/biometrics', '/facilitator/queue', '/facilitator/qr-verification', '/dswd/live-dashboard', '/dswd/ledger', '/claim-accountability', '/reports', '/audit-logs', '/beneficiaries', '/enrollments', '/programs', '/distributions/manage'])
+const BurialReferralPage = lazy(() => import('./pages/BurialReferralPage.jsx'))
+const staffPaths = new Set(['/dashboard', '/account', '/admin/staff-security', '/admin/administration', '/admin/schedules', '/admin/verify-claims', '/dswd/verify-claims', '/notifications', '/help-cases', '/service-review', '/biometrics', '/facilitator/queue', '/facilitator/qr-verification', '/dswd/live-dashboard', '/dswd/ledger', '/claim-accountability', '/reports', '/audit-logs', '/beneficiaries', '/enrollments', '/programs', '/distributions/manage'])
 
 function currentPath() {
   return window.location.pathname.replace(/\/$/, '') || '/'
 }
 
 function App() {
-  const [path, setPath] = useState(currentPath)
+  const [route, setRoute] = useState(() => ({ path: currentPath(), search: window.location.search }))
+  const path = route.path
   const [pageDetails, setPageDetails] = useState(null)
   const [pendingLogin, setPendingLogin] = useState(null)
   const [returnTo, setReturnTo] = useState(() => accountReturnPath(window.location.pathname + window.location.search)
@@ -51,7 +54,7 @@ function App() {
   useEffect(() => {
     const handlePopState = () => {
       const nextPath = currentPath()
-      setPath(nextPath)
+      setRoute({ path: nextPath, search: window.location.search })
       if (!['/password-setup', '/totp-verification'].includes(nextPath)) setPendingLogin(null)
     }
     window.addEventListener('popstate', handlePopState)
@@ -218,11 +221,11 @@ function App() {
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
     )
-  } else if (path === '/facilitator/queue' || path === '/facilitator/qr-verification') {
+  } else if (['/admin/schedules', '/admin/verify-claims', '/dswd/verify-claims', '/facilitator/queue', '/facilitator/qr-verification'].includes(path)) {
     page = session.accessToken && session.user ? (
       <FacilitatorOperationsPage
         key={path}
-        view={path === '/facilitator/queue' ? 'queue' : 'qr'}
+        view={['/admin/schedules', '/facilitator/queue'].includes(path) ? 'queue' : 'qr'}
         session={session}
         onLogout={logout}
         onNavigate={navigate}
@@ -234,14 +237,14 @@ function App() {
   } else if (path === '/dswd/live-dashboard' || path === '/dswd/ledger') {
     page = session.accessToken && session.user ? (
       <Suspense fallback={<ContentLoader />}>
-        <DswdOperationsPage
+        {path === '/dswd/live-dashboard' ? <DswdMonitoringPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} /> : <DswdOperationsPage
           key={path}
-          view={path === '/dswd/live-dashboard' ? 'live' : 'ledger'}
+          view="ledger"
           session={session}
           onLogout={logout}
           onNavigate={navigate}
           onSessionExpired={expireSession}
-        />
+        />}
       </Suspense>
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
@@ -289,11 +292,15 @@ function App() {
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
     )
+  } else if (path === '/burial-referrals') {
+    page = session.accessToken && session.user ? (
+      <Suspense fallback={<ContentLoader />}><BurialReferralPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} /></Suspense>
+    ) : <SessionExpiredPage onLogin={backToLogin} />
   } else if (path === '/session-expired') {
     page = <SessionExpiredPage onLogin={backToLogin} />
   }
 
-  const isStaffPage = Boolean(session.accessToken && session.user && (staffPaths.has(path) || path === '/assistant'))
+  const isStaffPage = Boolean(session.accessToken && session.user && (staffPaths.has(path) || path === '/assistant' || path === '/burial-referrals'))
   const navigation = isStaffPage ? getDashboardNavigation(session.user.role) : []
   const navigationItem = navigation.flatMap((item) => item.children ?? [item]).find((item) => item.href === path)
   const shellDetails = pageDetails?.currentPath === path ? pageDetails : null
@@ -303,7 +310,7 @@ function App() {
     <AppLayout>
       {isStaffPage ? (
         <DashboardShell breadcrumbs={shellDetails?.breadcrumbs ?? ['Operations', pageTitle]} currentPath={path} onLogout={logout} onNavigate={navigate} pageTitle={pageTitle} showAssistant={shellDetails?.showAssistant ?? path !== '/service-review'} user={session.user}>
-          <StaffShellContext.Provider value={setPageDetails}>{page}</StaffShellContext.Provider>
+          <StaffShellContext.Provider key={route.path + route.search} value={setPageDetails}>{page}</StaffShellContext.Provider>
         </DashboardShell>
       ) : page}
       <Toaster />

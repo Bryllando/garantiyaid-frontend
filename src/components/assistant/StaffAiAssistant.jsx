@@ -235,7 +235,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
     return () => cancelAnimationFrame(frame)
   }, [active, compact])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!active) return
     const media = window.matchMedia('(max-width: 639px)')
     let restore = () => {}

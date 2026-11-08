@@ -10,7 +10,7 @@ export const taskFields = {
     field('location', 'Venue', ['Where will it take place?', 'Saan ito gaganapin?', 'Asa kini ipahigayon?']),
     field('slotDurationMinutes', 'Slot duration', ['How many minutes per slot? For example, 30 minutes.', 'Ilang minuto bawat slot? Halimbawa, 30 minutes.', 'Pila ka minuto matag slot? Pananglitan, 30 minutes.'], 'number'),
     field('deliveryMode', 'Assistance delivery', ['Will this release physical goods or use the simulated wallet?', 'Pisikal na ayuda ba ito o simulated wallet?', 'Pisikal nga ayuda ba kini o simulated wallet?'], 'select', ['PHYSICAL_GOODS', 'SIMULATED_WALLET']),
-    field('verificationRequirement', 'Verification', ['Which verification method?', 'Anong verification method?', 'Unsang verification method?'], 'select', ['QR', 'BIOMETRIC', 'QR_AND_BIOMETRIC', 'BIOMETRIC_AND_SIGNATURE']),
+    field('verificationRequirement', 'Verification', ['Which verification method?', 'Anong verification method?', 'Unsang verification method?'], 'select', ['QR', 'BIOMETRIC', 'QR_OR_BIOMETRIC', 'QR_AND_BIOMETRIC', 'BIOMETRIC_AND_SIGNATURE']),
     field('title', 'Event title', ['What title should the event use?', 'Ano ang pamagat ng event?', 'Unsa ang titulo sa event?']),
   ],
   reminder: [

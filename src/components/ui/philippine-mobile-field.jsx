@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Icon } from './icon.jsx'
 
 const LOCAL_MOBILE_PATTERN = /^09\d{9}$/
 
@@ -20,7 +21,7 @@ function getPhilippineMobileError(value, required = false) {
   return ''
 }
 
-export function PhilippineMobileField({ describedBy, id, label = 'Contact number', onChange, required = false, value }) {
+export function PhilippineMobileField({ describedBy, icon, id, label = 'Contact number', onChange, required = false, value }) {
   const [touched, setTouched] = useState(false)
   const formattedValue = formatPhilippineMobileInput(value)
   const digitCount = localDigits(formattedValue).length
@@ -30,6 +31,7 @@ export function PhilippineMobileField({ describedBy, id, label = 'Contact number
   return (
     <div>
       <label htmlFor={id} className="ga-label">
+        {icon && <Icon name={icon} className="mr-2 inline-block size-4 align-text-bottom text-brand-blue" />}
         {label}{!required && <span className="font-normal text-muted-copy"> (optional)</span>}
       </label>
       <input

@@ -8,6 +8,7 @@ import { getPhilippineDayPeriod } from './philippine-day-period.js'
 import StaffAiAssistant from '../assistant/StaffAiAssistant.jsx'
 import { StaffShellContext } from './staff-shell-context.js'
 import { ConfirmationDialog } from '../ui/confirmation-dialog.jsx'
+import { monitoringReturnPath } from '../../utils/monitoringLocation.js'
 
 function staffInitials(name = 'Staff') {
   return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()
@@ -59,6 +60,7 @@ function DashboardShellFrame({ breadcrumbs, children, currentPath, onLogout, onN
   const roleLabel = STAFF_ROLE_LABELS[user?.role] ?? 'Staff'
   const barangayLabel = user?.barangay?.barangayName
   const breadcrumbItems = breadcrumbs ?? ['Operations', pageTitle]
+  const monitorReturn = typeof window !== 'undefined' && ['SYSTEM_ADMIN', 'DSWD_STAFF'].includes(user?.role) ? monitoringReturnPath(window.location.search) : ''
   const accessToken = getStoredStaffSession().accessToken
 
   useEffect(() => {
@@ -347,7 +349,7 @@ function DashboardShellFrame({ breadcrumbs, children, currentPath, onLogout, onN
 
             <div className="min-w-0 flex-1">
               <p className="ga-staff-greeting text-sm leading-6 text-copy sm:text-base">
-                <span className="block sm:inline">Mabuting araw! </span>
+                <span lang="fil" className="block sm:inline">{dayPeriod.greeting}, </span>
                 <strong className="break-words font-semibold uppercase text-ink">{user?.fullName ?? 'Staff'}</strong>
                 <span role="img" aria-label={`${dayPeriod.label} in Philippine time`} title={`${dayPeriod.label} · Philippine time`} className="ml-2 inline-block align-text-bottom">
                   <Icon name={dayPeriod.icon} className={`size-5 ${dayPeriod.color}`} />
@@ -357,6 +359,7 @@ function DashboardShellFrame({ breadcrumbs, children, currentPath, onLogout, onN
 
             <div className="order-last w-full min-w-0 xl:order-none xl:w-auto"><PhilippineClock onDayPeriodChange={setDayPeriod} /></div>
             <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
+              {showAssistant && !assistantPage && !assistantOpen && <button ref={assistantLauncherRef} type="button" onClick={() => setAssistantOpen(true)} aria-label="Open assistant conversation" title="Ask GarantiyAid" aria-controls="garantiyaid-ai-panel" aria-expanded="false" className="ga-assistant-launcher"><img src="/GarantiyAid-AI-logo.svg" alt="" width="28" height="28" /><span className="ga-assistant-launcher-label">Ask GarantiyAid</span></button>}
               <StaffNotificationCenter accessToken={accessToken} onNavigate={onNavigate} />
             </div>
           </div>
@@ -376,11 +379,11 @@ function DashboardShellFrame({ breadcrumbs, children, currentPath, onLogout, onN
               })}
             </ol>
           </nav>
+          {monitorReturn && <a href={monitorReturn} onClick={(event) => navigate(event, monitorReturn)} className="ga-admin-link mb-4">Return to live monitoring</a>}
           {children}
         </main>
         <StaffAiAssistant key={`${user?.userId}:${user?.role}:${user?.barangayId}`} historyHandle={assistantHistoryRef} active={assistantPage || (showAssistant && assistantOpen)} compact={!assistantPage} onExpand={expandAssistant} onCompact={compactAssistant} onMinimize={minimizeAssistant} accessToken={accessToken} onNavigate={navigateFromAssistant} onSessionExpired={onLogout} user={user} />
       </div>
-      {showAssistant && !assistantPage && !assistantOpen && <button ref={assistantLauncherRef} type="button" onClick={() => setAssistantOpen(true)} aria-label="Open assistant conversation" aria-controls="garantiyaid-ai-panel" aria-expanded="false" className="ga-assistant-launcher"><img src="/GarantiyAid-AI-logo.svg" alt="" width="44" height="44" /><span className="ga-assistant-launcher-label">Ask GarantiyAid</span></button>}
       <ConfirmationDialog open={unsavedLogout} title="Some chat changes are not saved" description="Saved conversations will stay in your account. The latest unsaved messages or draft will be lost if you sign out now. Cancel to return to the assistant and retry saving." actionLabel="Sign out anyway" destructive onCancel={() => setUnsavedLogout(false)} onConfirm={async () => { await onLogout(); setUnsavedLogout(false) }} />
     </div>
   )

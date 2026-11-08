@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { isSessionExpiredError, previewProgramImport, startProgramImport, requestProgramImports, requestProgramImport, requestProgramImportResults, resumeProgramImport } from '../../auth/staffAuth.js'
 import ImportProgress, { ImportPagination, StaffImportHistory as ImportHistory } from '../admin/StaffImportProgress.jsx'
-import { downloadStaffCsv, STAFF_IMPORT_LIMIT, STAFF_IMPORT_FILE_LIMIT_MB } from '../../utils/staffImport.js'
+import { downloadStaffCsv, importTemplateRows, STAFF_IMPORT_LIMIT, STAFF_IMPORT_FILE_LIMIT_MB } from '../../utils/staffImport.js'
+import ImportTemplateGuide from '../ui/ImportTemplateGuide.jsx'
+import { programTemplateGuide, templateFileName } from '../../utils/importTemplateGuides.js'
 import { PROGRAM_IMPORT_FIELDS, programTableFromSheet, readProgramImportFile, suggestProgramColumns, PROGRAM_DOCUMENT_TYPES, sourceDocumentTypes, suggestProgramDocument, mapProgramImportRows, programCorrectionsCsv } from '../../utils/programImport.js'
 
 const api = { list: requestProgramImports, status: requestProgramImport, results: requestProgramImportResults, resume: resumeProgramImport }
@@ -94,9 +96,9 @@ export default function ProgramImportDialog({ accessToken, onClose, onImported, 
 
       {step === 0 && <div className="max-w-3xl space-y-5">
         <ImportHistory accessToken={accessToken} api={api} label="programs" disabled={busy} onSessionExpired={onSessionExpired} onOpen={existing => { setJob(existing); setStep(3); setError('') }} />
-        <p className="text-sm leading-6 text-copy">CSV (.csv) or Excel (.xlsx), up to {STAFF_IMPORT_FILE_LIMIT_MB} MB and {STAFF_IMPORT_LIMIT.toLocaleString('en-US')} programs per worksheet. Use column headings in the first row.</p>
+        <p className="text-sm leading-6 text-copy">CSV (.csv) or Excel (.xlsx), up to {STAFF_IMPORT_FILE_LIMIT_MB} MB and {STAFF_IMPORT_LIMIT.toLocaleString('en-US')} programs per worksheet. Existing files with headings in the first row are also supported.</p>
         <div className="border-y border-line py-4 text-sm leading-6"><p><strong>Required:</strong> Program name, unique program code and program type.</p><p className="mt-1">You may also include descriptions, grant and budget amounts, application dates and required documents. Separate document names with semicolons.</p><p className="mt-1"><strong>All imported programs are saved as Draft.</strong> Review each draft and add eligibility rules before activation. Beneficiaries, approvals, payments and eligibility rules from the old system are not imported here.</p></div>
-        <button type="button" disabled={busy} onClick={() => run(() => downloadStaffCsv('garantiyaid-program-template.csv', [PROGRAM_IMPORT_FIELDS.map(([, label]) => label)]))} className="min-h-11 text-sm font-semibold text-brand-blue underline underline-offset-4">Download CSV template</button>
+        <ImportTemplateGuide title="Program import template" fields={programTemplateGuide} excelFile={templateFileName('programs')} disabled={busy} onDownload={() => run(() => downloadStaffCsv('garantiyaid-program-template.csv', importTemplateRows('programs', PROGRAM_IMPORT_FIELDS)))} />
         <div><label htmlFor="program-import-file" className="ga-label">Program list file</label><input id="program-import-file" type="file" accept=".csv,.xlsx" disabled={busy} className="ga-input mt-2 py-2 file:mr-3 file:rounded file:border-0 file:bg-info-soft file:px-3 file:py-2 file:font-semibold file:text-brand-blue" onChange={event => {
           const file = event.target.files?.[0]; if (!file) return
           setTable(null); setSheets([])

@@ -10,5 +10,5 @@ export function getBeneficiaryNextTask(beneficiary, documents, role) {
   if (documents.some((item) => item.reviewStatus === 'REJECTED')) {
     return { title: 'Replace a rejected document', detail: 'Read the reviewer’s reason and upload a corrected file.', href: '#beneficiary-documents-heading', action: 'Open documents' }
   }
-  return { title: 'Choose an assistance program', detail: 'Check the program’s document requirements before submitting this record.', href: '#beneficiary-enrollment-heading', action: 'Check program requirements' }
+  return null
 }

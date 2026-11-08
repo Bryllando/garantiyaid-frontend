@@ -51,6 +51,8 @@ function connectRealtime(accessToken, events, handlers = {}, createSocket = io) 
     transports: ['polling', 'websocket'],
     tryAllTransports: true,
     reconnection: true,
+    reconnectionDelay: 2000,
+    reconnectionDelayMax: 30_000,
   })
 
   socket.on('realtime.ready', (payload) => handlers.onReady?.(payload))

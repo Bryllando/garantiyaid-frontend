@@ -6,7 +6,7 @@ import { createServer } from 'vite'
 import { getPhilippineDayPeriod } from '../src/components/layout/philippine-day-period.js'
 
 test('staff shell renders authorized navigation, nested page selection, and safe account details', async (t) => {
-  const vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' })
+  const vite = await createServer({ cacheDir: 'node_modules/.vite-verify/dashboard-shell', server: { middlewareMode: true }, appType: 'custom' })
   try {
     const { default: DashboardShell } = await vite.ssrLoadModule('/src/components/layout/DashboardShell.jsx')
     const { Icon } = await vite.ssrLoadModule('/src/components/ui/icon.jsx')
@@ -21,8 +21,8 @@ test('staff shell renders authorized navigation, nested page selection, and safe
       ['04:00:00', '06:59:59', 'Sunrise', 'sunrise'],
       ['07:00:00', '11:59:59', 'Morning', 'sun'],
       ['12:00:00', '12:59:59', 'Noon', 'sunHigh'],
-      ['13:00:00', '16:59:59', 'Afternoon', 'sunLow'],
-      ['17:00:00', '18:59:59', 'Evening', 'sunset'],
+      ['13:00:00', '17:59:59', 'Afternoon', 'sunLow'],
+      ['18:00:00', '18:59:59', 'Evening', 'sunset'],
       ['19:00:00', '23:59:59', 'Night', 'moon'],
     ]
     for (const [start, end, label, icon] of periods) {
@@ -34,6 +34,7 @@ test('staff shell renders authorized navigation, nested page selection, and safe
         for (const role of ['SYSTEM_ADMIN', 'DSWD_STAFF', 'BARANGAY_FACILITATOR']) {
           const header = render(role, '/dashboard').match(/<header[\s\S]*?<\/header>/)[0]
           assert.ok(header.includes(`aria-label="${label} in Philippine time"`))
+          assert.ok(header.includes(`${period.greeting},`))
           assert.ok(header.includes(renderToStaticMarkup(createElement(Icon, { name: icon, className: `size-5 ${period.color}` }))))
         }
       }
@@ -62,8 +63,9 @@ test('staff shell renders authorized navigation, nested page selection, and safe
       assert.match(sidebar, /href="\/account\?section=password"/)
       assert.match(sidebar, /Sign out securely/)
       assert.doesNotMatch(header, /Open account menu|Sign out securely|<details/)
-      assert.doesNotMatch(header, /Open Staff Assistant|GarantiyAid-AI-logo/)
-      assert.match(header, /Mabuting araw!/)
+      assert.match(header, /aria-label="Open assistant conversation"/)
+      assert.match(header, /GarantiyAid-AI-logo/)
+      assert.match(header, /Magandang (umaga|tanghali|hapon|gabi),/)
       assert.match(header, /Maria &lt;Admin&gt; Santos/)
       assert.doesNotMatch(header, /aria-label="Breadcrumb"/)
       assert.match(header, /<time[^>]*>[\s\S]*?(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), [A-Z][a-z]+ \d{1,2}, \d{4}/)

@@ -1,5 +1,24 @@
 import { STAFF_IMPORT_LIMIT, STAFF_IMPORT_FILE_LIMIT_MB } from './staffImportLimits.js'
+import { importTemplateGroups, importTemplateHints, templateHeading, IMPORT_TEMPLATE_ENTRY_HINT, IMPORT_TEMPLATE_INSTRUCTIONS, IMPORT_TEMPLATE_DATA, IMPORT_TEMPLATE_GUIDE_LIMIT } from './importTemplateGuides.js'
 export { STAFF_IMPORT_LIMIT, STAFF_IMPORT_FILE_LIMIT_MB } from './staffImportLimits.js'
+export const IMPORT_TEMPLATE_TITLES = Object.freeze({
+  staff: 'GarantiyAid - Staff import template',
+  beneficiaries: 'GarantiyAid - Beneficiary import template',
+  barangays: 'GarantiyAid - Barangay import template',
+  programs: 'GarantiyAid - Program import template',
+})
+
+export function importTemplateRows(label, fields) {
+  const single = text => [text, ...fields.slice(1).map(() => '')]
+  const groups = fields.map((_, index) => importTemplateGroups[label].find(([, start]) => start === index)?.[0] || '')
+  return [
+    single(IMPORT_TEMPLATE_TITLES[label]),
+    single(IMPORT_TEMPLATE_ENTRY_HINT),
+    groups,
+    fields.map(templateHeading),
+    fields.map(([field]) => importTemplateHints[label][field]),
+  ]
+}
 export const STAFF_IMPORT_FIELDS = [
   ['fullName', 'Full name', true], ['email', 'Email', true], ['role', 'Role'],
   ['username', 'Username'], ['contactNumber', 'Contact number'], ['barangayId', 'Barangay'],
@@ -12,16 +31,38 @@ const aliases = {
   barangayId: ['barangay', 'barangayname', 'barangaycode', 'barangayid', 'assignedbarangay'],
 }
 
-export function tableFromSheet(data, { label = "staff", maxCellLength = 300 } = {}) {
+export function tableFromSheet(data, { label = "staff", maxCellLength = 300, maxRows = STAFF_IMPORT_LIMIT } = {}) {
   const cell = value => value instanceof Date ? value.toISOString().slice(0, 10) : String(value ?? "").trim()
   if (!data?.length) throw new Error('This worksheet is empty.')
-  const headers = data[0].map(value => String(value ?? '').trim())
+  if (cell(data[0]?.[0]).endsWith(' - Column guide')) throw new Error('Choose the Data worksheet. The Guide worksheet contains instructions and examples, not records.')
+  const fileTitle = cell(data[0]?.[0]).replace(/^\uFEFF/, '')
+  if (Object.values(IMPORT_TEMPLATE_TITLES).includes(fileTitle) && fileTitle !== IMPORT_TEMPLATE_TITLES[label]) throw new Error(`This template belongs to a different import. Download the ${label} template.`)
+  const hasTitle = IMPORT_TEMPLATE_TITLES[label] && cell(data[0]?.[0]).replace(/^\uFEFF/, '') === IMPORT_TEMPLATE_TITLES[label]
+  if (hasTitle && data[0].slice(1).some(value => cell(value))) throw new Error('Keep the template title on its own row. Enter records in the data-entry section below the column headings.')
+  let headerIndex = hasTitle ? 1 : 0
+  let firstDataIndex
+  if (hasTitle && cell(data[1]?.[0]) === IMPORT_TEMPLATE_ENTRY_HINT) {
+    headerIndex = 3
+    firstDataIndex = 5
+  }
+  if (hasTitle && cell(data[1]?.[0]) === IMPORT_TEMPLATE_INSTRUCTIONS) {
+    const markerIndex = data.findIndex((row, index) => index > 1 && index < IMPORT_TEMPLATE_GUIDE_LIMIT && cell(row?.[0]) === IMPORT_TEMPLATE_DATA)
+    if (markerIndex < 0 || data[markerIndex].slice(1).some(value => cell(value))) throw new Error('The template data-entry section is missing or changed. Download a fresh template and paste your records below its column headings.')
+    headerIndex = markerIndex + 1
+  }
+  const headers = (data[headerIndex] ?? []).map(value => String(value ?? '').trim())
+  while (headers.length && !headers.at(-1)) headers.pop()
   if (headers.length > 40) throw new Error(`Use a ${label} list with no more than 40 columns.`)
-  if (headers.some(header => !header) || new Set(headers.map(key)).size !== headers.length) throw new Error('Give each column a unique heading in the first row.')
-  const rows = data.slice(1).map((values, index) => ({ sourceRow: index + 2, values: values.map(value => cell(value)) }))
+  if (!headers.length || headers.some(header => !header) || new Set(headers.map(key)).size !== headers.length) throw new Error('Give each column a unique heading in the first row, or directly below the GarantiyAid template title.')
+  if (firstDataIndex === 5) {
+    const hints = (data[4] ?? []).map(cell).filter(Boolean)
+    if (hints.length !== headers.length || hints.some(hint => !Object.values(importTemplateHints[label]).includes(hint))) throw new Error('Keep the format and example row (row 5) unchanged. Paste your records from row 6 in a fresh template.')
+  }
+  firstDataIndex ??= headerIndex + 1
+  const rows = data.slice(firstDataIndex).map((values, index) => ({ sourceRow: index + firstDataIndex + 1, values: values.map(value => cell(value)) }))
     .filter(row => row.values.some(Boolean))
   if (!rows.length) throw new Error(`Add ${label} details below the column headings before importing.`)
-  if (rows.length > STAFF_IMPORT_LIMIT) throw new Error(`Import up to ${STAFF_IMPORT_LIMIT.toLocaleString('en-US')} ${label} per file. Split larger lists into smaller files.`)
+  if (rows.length > maxRows) throw new Error(`Import up to ${maxRows.toLocaleString('en-US')} ${label} per file. Split larger lists into smaller files.`)
   if (rows.some(row => row.values.slice(headers.length).some(Boolean))) throw new Error('Some rows contain values without a column heading. Check the file.')
   if (rows.some(row => row.values.some(value => value.length > maxCellLength))) throw new Error(`A cell exceeds ${maxCellLength} characters. Use a ${label} list without long notes or documents.`)
   return { headers, rows }

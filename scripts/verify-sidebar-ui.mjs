@@ -3,16 +3,22 @@ import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { chromium, expect } from '@playwright/test'
 import { createServer } from 'vite'
+import { getPhilippineDayPeriod } from '../src/components/layout/philippine-day-period.js'
+
+for (const [hour, expected] of [[0, 'gabi'], [3, 'gabi'], [4, 'umaga'], [7, 'umaga'], [11, 'umaga'], [12, 'tanghali'], [13, 'hapon'], [17, 'hapon'], [18, 'gabi'], [19, 'gabi'], [23, 'gabi']]) {
+  const date = new Date(`2026-10-30T${String(hour).padStart(2, '0')}:00:00+08:00`)
+  assert.equal(getPhilippineDayPeriod(date).greeting, `Magandang ${expected}`)
+}
 
 // Exercise the real app with local response fixtures; no staff account or live data is used.
 const output = resolve('../output/sidebar-refinement')
 await mkdir(output, { recursive: true })
-const vite = await createServer({ server: { host: '127.0.0.1', port: 0 } })
+const vite = await createServer({ cacheDir: 'node_modules/.vite-verify/sidebar-ui', server: { host: '127.0.0.1', port: 0 } })
 await vite.listen()
 const baseUrl = `http://127.0.0.1:${vite.httpServer.address().port}`
 let browser
 const roles = [
-  ['SYSTEM_ADMIN', 'admin', 'Beneficiaries', 'User Accounts', 'Enrollment review'],
+  ['SYSTEM_ADMIN', 'admin', 'Beneficiaries', 'Administration', 'Enrollment review'],
   ['DSWD_STAFF', 'dswd', 'Programs & enrollment', 'Identity & claims', 'Enrollment review'],
   ['BARANGAY_FACILITATOR', 'barangay', 'Beneficiary services', 'Distribution day', 'Enrollments'],
 ]
@@ -20,7 +26,7 @@ const roles = [
 try {
   browser = await chromium.launch({ headless: true, channel: 'chrome' })
   for (const [role, name, activeGroup, otherGroup, enrollmentLabel] of roles) {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, timezoneId: 'America/New_York' })
     await context.addInitScript(({ role }) => {
       sessionStorage.setItem('garantiyaid.accessToken', 'sidebar-preview-token')
       sessionStorage.setItem('garantiyaid.user', JSON.stringify({
@@ -31,6 +37,8 @@ try {
       }))
     }, { role })
     const page = await context.newPage()
+    let clockTime = '2026-10-30T13:45:00+08:00'
+    await page.clock.setFixedTime(new Date(clockTime))
     const errors = []
     let logoutRequests = 0
     page.on('pageerror', (error) => errors.push(error.message))
@@ -40,7 +48,7 @@ try {
       const path = new URL(route.request().url()).pathname.replace('/api/v1', '')
       const pagination = { page: 1, pageSize: 20, total: 0, totalPages: 1 }
       let data = {}
-      if (path === '/health') data = { timestamp: new Date().toISOString() }
+      if (path === '/health') data = { timestamp: new Date(clockTime).toISOString() }
       else if (path === '/auth/logout') { logoutRequests++; data = { message: 'Signed out.' } }
       else if (path === '/barangays') data = { barangays: [{ barangayId: 'barangay-1', barangayName: 'Poblacion', city: 'Cebu City' }] }
       else if (path === '/beneficiaries') data = { beneficiaries: [], pagination }
@@ -53,13 +61,31 @@ try {
     await page.goto(`${baseUrl}/beneficiaries`)
     const sidebar = page.locator('#staff-navigation')
     const nav = sidebar.getByRole('navigation')
-    await expect(page.getByRole('heading', { name: 'Beneficiary management' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: role === 'SYSTEM_ADMIN' ? 'Beneficiary records' : 'Beneficiary management', level: 1 })).toBeVisible()
     await expect(nav.getByRole('button', { name: activeGroup, exact: true })).toHaveAttribute('aria-expanded', 'true')
     await expect(nav.locator('[aria-current="page"]')).toHaveCount(1)
     assert.equal(await sidebar.locator('a[href="/admin/administration"]').count(), role === 'SYSTEM_ADMIN' ? 1 : 0)
     assert.equal(await sidebar.locator('a[href="/facilitator/queue"]').count(), role === 'BARANGAY_FACILITATOR' ? 1 : 0)
     assert.equal(await sidebar.evaluate((element) => getComputedStyle(element).backgroundColor), 'rgb(6, 38, 77)')
-    await expect(page.locator('.ga-staff-greeting')).toContainText('Mabuting araw!')
+    const greeting = page.locator('.ga-staff-greeting')
+    await expect(greeting).toContainText('Magandang hapon,')
+    if (role === 'SYSTEM_ADMIN') {
+      for (const [time, text, period] of [
+        ['2026-10-30T11:59:59+08:00', 'umaga', 'Morning'],
+        ['2026-10-30T12:00:00+08:00', 'tanghali', 'Noon'],
+        ['2026-10-30T13:00:00+08:00', 'hapon', 'Afternoon'],
+        ['2026-10-30T18:00:00+08:00', 'gabi', 'Evening'],
+        ['2026-10-30T19:00:00+08:00', 'gabi', 'Night'],
+        ['2026-10-31T00:00:00+08:00', 'gabi', 'Midnight'],
+        ['2026-10-31T04:00:00+08:00', 'umaga', 'Sunrise'],
+        ['2026-10-31T13:45:00+08:00', 'hapon', 'Afternoon'],
+      ]) {
+        clockTime = time
+        await page.clock.setFixedTime(new Date(time))
+        await expect(greeting).toContainText(`Magandang ${text},`)
+        await expect(greeting.getByRole('img', { name: `${period} in Philippine time`, exact: true })).toBeVisible()
+      }
+    }
     await expect(page.locator('.ga-staff-greeting strong')).toHaveText('Alexandra Maria De Los Santos')
     await expect(sidebar.locator('summary')).toContainText('Staff ID: STAFF-024')
     if (role === 'BARANGAY_FACILITATOR') await expect(sidebar.locator('summary')).toContainText('Poblacion · Cebu City')
@@ -145,6 +171,7 @@ try {
     await nav.getByRole('button', { name: 'Collapse navigation', exact: true }).click()
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(page.locator('.ga-staff-header time')).toBeVisible()
+    await page.locator('.ga-staff-header').screenshot({ path: `${output}/${name}-greeting-mobile.png`, animations: 'disabled' })
     await expect(sidebar).toHaveJSProperty('inert', true)
     const open = page.getByRole('button', { name: 'Open navigation', exact: true })
     await open.click()
@@ -193,7 +220,7 @@ try {
     await sidebar.locator('.ga-account-logout').click()
     await expect(page).toHaveURL(/\/login$/)
     assert.equal(logoutRequests, 1, 'the account-card sign-out must use the secure logout endpoint once')
-    console.log(`${name}: routes, collapsible groups, keyboard, icon rail, account menu, mobile and reduced motion passed`)
+    console.log(`${name}: Philippine-time greeting, routes, collapsible groups, keyboard, icon rail, account menu, mobile and reduced motion passed`)
     await context.close()
   }
 } finally {

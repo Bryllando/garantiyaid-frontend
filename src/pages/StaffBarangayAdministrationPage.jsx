@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import StaffImportDialog from '../components/admin/StaffImportDialog.jsx'
+import BarangayImportDialog from '../components/admin/BarangayImportDialog.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Icon } from '../components/ui/icon.jsx'
 import { emailDeliveryFeedback, SecurityEmailStatus } from '../components/ui/SecurityEmailStatus.jsx'
@@ -45,8 +46,8 @@ const emptyBarangay = { barangayCode: '', barangayName: '', city: '', province: 
 const dateFormatter = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeZone: 'Asia/Manila' })
 const initials = (name = 'Staff') => name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase()
 
-function StatusBadge({ active, archivedAt }) {
-  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${archivedAt ? 'border-blue-200 bg-info-soft text-brand-blue' : active ? 'ga-status-success' : 'border-line bg-slate-100 text-copy'}`}>{archivedAt ? 'Archived' : active ? 'Active' : 'Inactive'}</span>
+function StatusBadge({ active, archivedAt, archived = Boolean(archivedAt) }) {
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${archived ? 'border-blue-200 bg-info-soft text-brand-blue' : active ? 'ga-status-success' : 'border-line bg-slate-100 text-copy'}`}>{archived ? 'Archived' : active ? 'Active' : 'Inactive'}</span>
 }
 
 function LoadingRows({ label }) {
@@ -384,6 +385,13 @@ function StaffActions({ isSelf, onEdit, onToggle, onEmailHistory, onRecover, use
   return <div className="flex flex-wrap gap-2"><button type="button" onClick={() => onEmailHistory(user)} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">Email history</button><button type="button" onClick={() => onEdit(user)} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">Edit</button>{user.isActive && user.totpEnabled && !isSelf && <button type="button" onClick={() => onRecover(user)} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">Recover access</button>}<button type="button" disabled={isSelf} title={isSelf ? 'Another administrator must change your active status.' : user.isActive ? 'Block sign-in and revoke active sessions without deleting records.' : 'Restore sign-in access using the existing credentials.'} onClick={() => onToggle(user)} className={`min-h-11 rounded-lg px-3 text-sm font-bold focus-visible:outline-2 disabled:cursor-not-allowed disabled:text-slate-400 ${user.isActive ? 'text-brand-red hover:bg-danger-soft focus-visible:outline-brand-red' : 'text-brand-green hover:bg-success-soft focus-visible:outline-brand-green'}`}>{user.isActive ? 'Deactivate' : 'Reactivate'}</button>{!user.isActive && <button type="button" disabled={isSelf} title={archivesHistory ? 'Hide this account while preserving its linked official records.' : 'Permanently delete this unused account while retaining its audit entries.'} onClick={() => onToggle(user, true)} className={`inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-bold focus-visible:outline-2 disabled:cursor-not-allowed disabled:text-slate-400 ${archivesHistory ? 'text-brand-blue hover:bg-info-soft focus-visible:outline-brand-blue' : 'text-brand-red hover:bg-danger-soft focus-visible:outline-brand-red'}`}>{archivesHistory && <Icon name="archive" />}{archivesHistory ? 'Move to archive' : 'Delete'}</button>}</div>
 }
 
+function BarangayActions({ barangay, onEdit, onToggle }) {
+  return <div className="flex flex-wrap gap-2">
+    {barangay.isActive && <button type="button" onClick={() => onEdit(barangay)} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">Edit</button>}
+    <button type="button" onClick={() => onToggle(barangay)} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue"><Icon name={barangay.isActive ? 'archive' : 'reset'} className="size-4" />{barangay.isActive ? 'Archive' : 'Restore barangay'}</button>
+  </div>
+}
+
 function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSessionExpired }) {
   const authorized = session.user.role === 'SYSTEM_ADMIN'
   const [view, setView] = useState(() => new URLSearchParams(window.location.search).get('section') === 'barangays' ? 'barangays' : 'staff')
@@ -393,7 +401,7 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
   const [staffData, setStaffData] = useState(null)
   const [barangays, setBarangays] = useState([])
   const [barangaySearch, setBarangaySearch] = useState('')
-  const [barangayStatus, setBarangayStatus] = useState('')
+  const [showArchivedBarangays, setShowArchivedBarangays] = useState(false)
   const [staffLoading, setStaffLoading] = useState(authorized)
   const [barangayLoading, setBarangayLoading] = useState(authorized)
   const [staffError, setStaffError] = useState('')
@@ -402,6 +410,7 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
   const [barangayReload, setBarangayReload] = useState(0)
   const [staffRolePickerOpen, setStaffRolePickerOpen] = useState(false)
   const [staffImportOpen, setStaffImportOpen] = useState(false)
+  const [barangayImportOpen, setBarangayImportOpen] = useState(false)
   const [staffForm, setStaffForm] = useState(null)
   const [createdStaff, setCreatedStaff] = useState(null)
   const [emailHistoryUser, setEmailHistoryUser] = useState(null)
@@ -411,6 +420,7 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
   const staffRegistryRef = useMotionEntry(showingArchived ? 'archived' : 'current')
   const staffRegistryHeadingRef = useRef(null)
   const archiveViewInitialized = useRef(false)
+  const barangayRegistryHeadingRef = useRef(null)
 
   const reportError = useCallback((requestError) => {
     if (isSessionExpiredError(requestError)) return onSessionExpired()
@@ -448,8 +458,8 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
   const activeBarangays = useMemo(() => barangays.filter((barangay) => barangay.isActive), [barangays])
   const visibleBarangays = useMemo(() => {
     const search = barangaySearch.trim().toLowerCase()
-    return barangays.filter((barangay) => (!barangayStatus || String(barangay.isActive) === barangayStatus) && (!search || [barangay.barangayCode, barangay.barangayName, barangay.city, barangay.province].some((value) => value?.toLowerCase().includes(search))))
-  }, [barangaySearch, barangayStatus, barangays])
+    return barangays.filter((barangay) => barangay.isActive === !showArchivedBarangays && (!search || [barangay.barangayCode, barangay.barangayName, barangay.city, barangay.province].some((value) => value?.toLowerCase().includes(search))))
+  }, [barangaySearch, showArchivedBarangays, barangays])
 
   function applyStaffFilters(event) { event.preventDefault(); setStaffLoading(true); setStaffPage(1); setStaffFilters({ ...staffDraft, search: staffDraft.search.trim() }) }
   async function saveStaff(payload) {
@@ -489,12 +499,16 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
         })
         setStaffLoading(true); setStaffReload((value) => value + 1)
       } else {
-        await updateBarangay(session.accessToken, action.record.barangayId, { isActive: !action.record.isActive })
-        toast.success(action.record.isActive ? 'Barangay deactivated.' : 'Barangay reactivated.')
+        const saved = await updateBarangay(session.accessToken, action.record.barangayId, { isActive: !action.record.isActive })
+        setBarangays(current => current.map(item => item.barangayId === saved.barangayId ? saved : item))
+        toast.success(action.record.isActive ? 'Barangay archived; linked records preserved.' : 'Barangay restored to active service areas.')
         setBarangayLoading(true); setBarangayReload((value) => value + 1)
       }
       setConfirmation(null)
-    } catch (error) { reportError(error); throw error }
+    } catch (error) {
+      setConfirmation(current => current ? { ...current, error: getAuthErrorMessage(error) } : current)
+      reportError(error); throw error
+    }
   }
   function toggleStaff(user, action) {
     if (action === 'restore') return restoreStaff(user)
@@ -513,7 +527,12 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
     setStaffDraft(nextFilters); setStaffFilters(nextFilters); setStaffPage(1); setStaffLoading(true)
   }
   function toggleBarangay(barangay) {
-    setConfirmation({ type: 'barangay', record: barangay, title: `${barangay.isActive ? 'Deactivate' : 'Reactivate'} ${barangay.barangayName}?`, description: barangay.isActive ? 'New facilitator assignments and distribution events will be blocked. Active facilitators must be reassigned or deactivated first.' : 'The barangay will become available for staff assignments and new distribution events.', actionLabel: barangay.isActive ? 'Deactivate barangay' : 'Reactivate barangay', destructive: barangay.isActive })
+    setConfirmation({ type: 'barangay', record: barangay, title: `${barangay.isActive ? 'Archive' : 'Restore'} ${barangay.barangayName}?`, description: barangay.isActive ? 'Move this barangay to Archived barangays and stop new staff assignments, beneficiary registrations, and distribution events. Linked beneficiary records, receipts, and audit history are retained. Reassign or deactivate active facilitators and close or cancel unfinished events first.' : 'Return this barangay to active service areas. New assignments and events will be allowed again. Staff accounts keep their existing status.', actionLabel: barangay.isActive ? 'Archive barangay' : 'Restore barangay' })
+  }
+  function changeBarangayArchiveView() {
+    setShowArchivedBarangays(current => !current)
+    setBarangaySearch('')
+    requestAnimationFrame(() => barangayRegistryHeadingRef.current?.focus({ preventScroll: true }))
   }
 
   const staffRows = staffData?.users ?? []
@@ -521,7 +540,16 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
   if (!authorized) return <DashboardShell breadcrumbs={['Operations', 'Administration']} currentPath="/admin/administration" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Staff & barangays" user={session.user}><section className="ga-card mx-auto max-w-md p-8 text-center" role="alert"><h1 className="text-2xl font-extrabold">Administrator access required</h1><p className="mt-3 text-muted-copy">Only System Administrators can manage staff accounts and barangay service areas.</p><button type="button" onClick={() => onNavigate('/dashboard')} className="ga-btn-primary mt-6">Return to dashboard</button></section></DashboardShell>
 
   return <DashboardShell breadcrumbs={['Operations', 'Administration', view === 'staff' ? 'Staff accounts' : 'Barangays']} currentPath="/admin/administration" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Staff & barangays" user={session.user}>
-    <header className="ga-page-header flex flex-col gap-5 border-b border-line pb-6 sm:flex-row sm:items-end sm:justify-between"><div><p className="ga-eyebrow">Administration</p><h1 className="ga-page-title">Staff and barangays</h1><p className="ga-page-copy">Manage staff access, account status, and barangay assignments.</p></div><div className="flex flex-col gap-2 sm:flex-row">{view === 'staff' && <button type="button" onClick={() => changeStaffArchiveView(!showingArchived)} className="ga-btn-secondary shrink-0"><Icon name={showingArchived ? 'arrowLeft' : 'archive'} />{showingArchived ? 'Back to current accounts' : 'Archived accounts'}</button>}{view === 'staff' && !showingArchived && <button type="button" onClick={() => setStaffImportOpen(true)} className="ga-btn-secondary shrink-0">Import staff</button>}<button type="button" onClick={() => view === 'staff' ? setStaffRolePickerOpen(true) : setBarangayForm({ barangay: null })} className="ga-btn-primary shrink-0">{view === 'staff' ? 'Create staff account' : 'Add barangay'}</button></div></header>
+    <header className="ga-page-header flex flex-col gap-5 border-b border-line pb-6 sm:flex-row sm:items-end sm:justify-between">
+      <div><p className="ga-eyebrow">Administration</p><h1 className="ga-page-title">Staff and barangays</h1><p className="ga-page-copy">Manage staff access, account status, and barangay assignments.</p></div>
+      <div className="flex flex-wrap gap-2">
+        {view === 'staff' && <button type="button" onClick={() => changeStaffArchiveView(!showingArchived)} className="ga-btn-secondary shrink-0"><Icon name={showingArchived ? 'arrowLeft' : 'archive'} />{showingArchived ? 'Back to current accounts' : 'Archived accounts'}</button>}
+        {view === 'barangays' && <button type="button" onClick={changeBarangayArchiveView} className="ga-btn-secondary shrink-0"><Icon name={showArchivedBarangays ? 'arrowLeft' : 'archive'} />{showArchivedBarangays ? 'Back to current barangays' : 'Archived barangays'}</button>}
+        {view === 'staff' && !showingArchived && <button type="button" onClick={() => setStaffImportOpen(true)} className="ga-btn-secondary shrink-0">Import staff</button>}
+        {view === 'barangays' && !showArchivedBarangays && <button type="button" onClick={() => setBarangayImportOpen(true)} className="ga-btn-secondary shrink-0">Import barangays</button>}
+        {(view === 'staff' || !showArchivedBarangays) && <button type="button" onClick={() => view === 'staff' ? setStaffRolePickerOpen(true) : setBarangayForm({ barangay: null })} className="ga-btn-primary shrink-0">{view === 'staff' ? 'Create staff account' : 'Add barangay'}</button>}
+      </div>
+    </header>
     <details className="ga-admin-guide mt-4">
       <summary>How to set up a barangay and facilitator account</summary>
       <ol className="grid md:grid-cols-3">
@@ -546,17 +574,42 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
           {staffData.pagination.totalPages > 1 && <div className="flex flex-col gap-3 border-t border-line px-5 py-4 text-sm sm:flex-row sm:items-center sm:justify-between"><span>Page {staffPage} of {staffData.pagination.totalPages}</span><div className="flex gap-2"><button type="button" disabled={staffPage === 1} onClick={() => { setStaffLoading(true); setStaffPage((value) => value - 1) }} className="ga-btn-secondary min-h-11 px-4 text-sm">Previous</button><button type="button" disabled={staffPage === staffData.pagination.totalPages} onClick={() => { setStaffLoading(true); setStaffPage((value) => value + 1) }} className="ga-btn-secondary min-h-11 px-4 text-sm">Next</button></div></div>}
         </>}
       </div>
-    </section> : <section className="mt-5"><div className="grid gap-3 sm:grid-cols-3"><div className="ga-card-flat p-4"><p className="text-xs font-bold uppercase tracking-wide text-muted-copy">Registered barangays</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{barangays.length}</p></div><div className="ga-card-flat p-4"><p className="text-xs font-bold uppercase tracking-wide text-muted-copy">Active service areas</p><p className="mt-1 text-2xl font-extrabold tabular-nums text-brand-green">{activeBarangayCount}</p></div><div className="ga-card-flat p-4"><p className="text-xs font-bold uppercase tracking-wide text-muted-copy">Inactive records</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{barangays.length - activeBarangayCount}</p></div></div>
-      <div className="ga-card mt-4 grid gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_12rem]" aria-label="Barangay filters"><div><label htmlFor="barangay-search" className="sr-only">Search barangays</label><input id="barangay-search" value={barangaySearch} onChange={(event) => setBarangaySearch(event.target.value)} placeholder="Search name, code, city, or province" className="ga-input" /></div><div><label htmlFor="barangay-status" className="sr-only">Barangay status</label><select id="barangay-status" value={barangayStatus} onChange={(event) => setBarangayStatus(event.target.value)} className="ga-input"><option value="">All statuses</option><option value="true">Active</option><option value="false">Inactive</option></select></div></div>
-      <div className="ga-card mt-4 overflow-hidden">{barangayLoading ? <LoadingRows label="Loading barangays" /> : barangayError ? <div className="p-6" role="alert"><h2 className="font-extrabold">Barangays could not be loaded</h2><p className="mt-2 text-sm text-muted-copy">{barangayError}</p><button type="button" onClick={() => { setBarangayLoading(true); setBarangayReload((value) => value + 1) }} className="ga-btn-primary mt-4">Try again</button></div> : visibleBarangays.length === 0 ? <div className="p-10 text-center"><span className="mx-auto grid size-12 place-items-center rounded-full bg-info-soft font-black text-brand-blue">0</span><h2 className="mt-4 font-extrabold">No barangays found</h2><p className="mt-2 text-sm text-muted-copy">Adjust the search or add an official barangay record.</p></div> : <><div className="hidden overflow-x-auto md:block"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-copy"><tr><th className="px-5 py-3">Barangay</th><th className="px-5 py-3">Jurisdiction</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-line">{visibleBarangays.map((barangay) => <tr key={barangay.barangayId} className="hover:bg-slate-50"><td className="px-5 py-4"><p className="font-bold">{barangay.barangayName}</p><p className="mt-1 text-xs text-muted-copy">{barangay.barangayCode || 'No barangay code recorded'}</p></td><td className="px-5 py-4"><p>{barangay.city}</p><p className="mt-1 text-xs text-muted-copy">{barangay.province}</p></td><td className="px-5 py-4"><StatusBadge active={barangay.isActive} /></td><td className="px-5 py-4"><div className="flex justify-end gap-2"><button type="button" onClick={() => setBarangayForm({ barangay })} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft">Edit</button><button type="button" onClick={() => toggleBarangay(barangay)} className={`min-h-11 rounded-lg px-3 text-sm font-bold ${barangay.isActive ? 'text-brand-red hover:bg-danger-soft' : 'text-brand-green hover:bg-success-soft'}`}>{barangay.isActive ? 'Deactivate' : 'Reactivate'}</button></div></td></tr>)}</tbody></table></div><div className="divide-y divide-line md:hidden">{visibleBarangays.map((barangay) => <article key={barangay.barangayId} className="p-5"><div className="flex items-start justify-between gap-3"><div><h2 className="font-extrabold">{barangay.barangayName}</h2><p className="mt-1 text-sm text-muted-copy">{barangay.barangayCode || 'No code'} · {barangay.city}, {barangay.province}</p></div><StatusBadge active={barangay.isActive} /></div><div className="mt-4 flex gap-2 border-t border-line pt-3"><button type="button" onClick={() => setBarangayForm({ barangay })} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft">Edit</button><button type="button" onClick={() => toggleBarangay(barangay)} className={`min-h-11 rounded-lg px-3 text-sm font-bold ${barangay.isActive ? 'text-brand-red hover:bg-danger-soft' : 'text-brand-green hover:bg-success-soft'}`}>{barangay.isActive ? 'Deactivate' : 'Reactivate'}</button></div></article>)}</div></>}</div>
+    </section> : <section className="mt-5" aria-labelledby="barangay-registry-heading">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="ga-card-flat p-4"><p className="text-xs font-bold uppercase tracking-wide text-muted-copy">Registered barangays</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{barangays.length}</p></div>
+        <div className="ga-card-flat p-4"><p className="text-xs font-bold uppercase tracking-wide text-muted-copy">Active service areas</p><p className="mt-1 text-2xl font-extrabold tabular-nums text-brand-green">{activeBarangayCount}</p></div>
+        <div className="ga-card-flat p-4"><p className="text-xs font-bold uppercase tracking-wide text-muted-copy">Archived barangays</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{barangays.length - activeBarangayCount}</p></div>
+      </div>
+      <h2 ref={barangayRegistryHeadingRef} id="barangay-registry-heading" tabIndex={-1} className="mt-6 text-base font-semibold text-ink outline-none">{showArchivedBarangays ? 'Archived barangays' : 'Current barangays'} <span className="ml-2 font-normal text-muted-copy">Records: {visibleBarangays.length}</span></h2>
+      <p className="mt-2 max-w-3xl text-sm leading-6 text-copy">{showArchivedBarangays ? 'Archived barangays are inactive service areas. Their linked records and audit history remain available. Restore a barangay when it is needed again.' : 'Archive barangays no longer in use. Resolve active facilitator assignments and unfinished distributions first. Existing beneficiary records and receipts are retained.'}</p>
+      <div className="ga-card mt-4 p-4" aria-label="Barangay filters"><label htmlFor="barangay-search" className="sr-only">Search barangays</label><input id="barangay-search" value={barangaySearch} onChange={(event) => setBarangaySearch(event.target.value)} placeholder="Search name, code, city, or province" className="ga-input" /></div>
+      <div className="ga-card mt-4 overflow-hidden">
+        {barangayLoading ? <LoadingRows label="Loading barangays" /> : barangayError ? <div className="p-6" role="alert"><h2 className="font-extrabold">Barangays could not be loaded</h2><p className="mt-2 text-sm text-muted-copy">{barangayError}</p><button type="button" onClick={() => { setBarangayLoading(true); setBarangayReload((value) => value + 1) }} className="ga-btn-primary mt-4">Try again</button></div> : visibleBarangays.length === 0 ? <div className="p-8 text-center"><h3 className="font-extrabold">{showArchivedBarangays ? 'No archived barangays found' : 'No current barangays found'}</h3><p className="mt-2 text-sm text-muted-copy">{barangaySearch ? 'Try another name, code, city, or province.' : showArchivedBarangays ? 'Archived service areas will appear here and can be restored.' : 'Add a barangay or restore an archived service area.'}</p></div> : <>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-copy"><tr><th className="px-5 py-3">Barangay</th><th className="px-5 py-3">Jurisdiction</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Actions</th></tr></thead>
+              <tbody className="divide-y divide-line">{visibleBarangays.map(barangay => <tr key={barangay.barangayId} className="hover:bg-slate-50">
+                <td className="px-5 py-4"><p className="font-bold">{barangay.barangayName}</p><p className="mt-1 text-xs text-muted-copy">{barangay.barangayCode || 'No barangay code recorded'}</p></td>
+                <td className="px-5 py-4"><p>{barangay.city}</p><p className="mt-1 text-xs text-muted-copy">{barangay.province}</p></td>
+                <td className="px-5 py-4"><StatusBadge active={barangay.isActive} archived={!barangay.isActive} /></td>
+                <td className="px-5 py-4"><div className="flex justify-end"><BarangayActions barangay={barangay} onEdit={record => setBarangayForm({ barangay: record })} onToggle={toggleBarangay} /></div></td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+          <div className="divide-y divide-line md:hidden">{visibleBarangays.map(barangay => <article key={barangay.barangayId} className="p-5">
+            <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="break-words font-extrabold">{barangay.barangayName}</h3><p className="mt-1 break-words text-sm text-muted-copy">{barangay.barangayCode || 'No code'} · {barangay.city}, {barangay.province}</p></div><StatusBadge active={barangay.isActive} archived={!barangay.isActive} /></div>
+            <div className="mt-4 border-t border-line pt-3"><BarangayActions barangay={barangay} onEdit={record => setBarangayForm({ barangay: record })} onToggle={toggleBarangay} /></div>
+          </article>)}</div>
+        </>}
+      </div>
     </section>}
+    {barangayImportOpen && <BarangayImportDialog accessToken={session.accessToken} onClose={() => setBarangayImportOpen(false)} onImported={() => { setBarangayLoading(true); setBarangayReload(value => value + 1) }} onSessionExpired={onSessionExpired} />}
     {staffImportOpen && <StaffImportDialog accessToken={session.accessToken} barangays={activeBarangays} onClose={() => setStaffImportOpen(false)} onImported={() => { setStaffLoading(true); setStaffReload(value => value + 1) }} onSessionExpired={onSessionExpired} />}
     {staffRolePickerOpen && <StaffRoleDialog onClose={() => setStaffRolePickerOpen(false)} onSelect={(role) => { setStaffRolePickerOpen(false); setStaffForm({ user: null, role }) }} />}
     {staffForm && <StaffFormDialog activeBarangays={activeBarangays} currentUserId={session.user.userId} initialRole={staffForm.role} user={staffForm.user} onBack={staffForm.user ? undefined : () => { setStaffForm(null); setStaffRolePickerOpen(true) }} onClose={() => setStaffForm(null)} onSave={saveStaff} />}
     {emailHistoryUser && <StaffEmailHistoryDialog key={emailHistoryUser.userId} user={emailHistoryUser} accessToken={session.accessToken} onClose={() => setEmailHistoryUser(null)} onSessionExpired={onSessionExpired} />}
     {createdStaff && <StaffAccountCreatedDialog account={createdStaff} onClose={() => setCreatedStaff(null)} />}
     {barangayForm && <BarangayFormDialog barangay={barangayForm.barangay} onClose={() => setBarangayForm(null)} onSave={saveBarangay} />}
-    <ConfirmationDialog open={Boolean(confirmation)} title={confirmation?.title} description={confirmation?.description} actionLabel={confirmation?.actionLabel} confirmationText={confirmation?.confirmationText} destructive={confirmation?.destructive} onCancel={() => setConfirmation(null)} onConfirm={confirmStatusChange} />
+    <ConfirmationDialog open={Boolean(confirmation)} title={confirmation?.title} description={confirmation?.description} actionLabel={confirmation?.actionLabel} confirmationText={confirmation?.confirmationText} destructive={confirmation?.destructive} error={confirmation?.error} onCancel={() => setConfirmation(null)} onConfirm={confirmStatusChange} />
   </DashboardShell>
 }
 

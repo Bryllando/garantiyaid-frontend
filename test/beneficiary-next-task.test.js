@@ -9,6 +9,6 @@ test('beneficiary next task follows the record and document state', () => {
   assert.equal(getBeneficiaryNextTask(active, [{ reviewStatus: 'SUBMITTED' }], 'DSWD_STAFF').action, 'Review documents')
   assert.equal(getBeneficiaryNextTask(active, [{ reviewStatus: 'REJECTED' }], 'BARANGAY_FACILITATOR').action, 'Open documents')
   assert.equal(getBeneficiaryNextTask(inactive, [], 'SYSTEM_ADMIN').action, 'View record details')
-  assert.equal(getBeneficiaryNextTask(active, [], 'SYSTEM_ADMIN').action, 'Check program requirements')
+  assert.equal(getBeneficiaryNextTask(active, [], 'SYSTEM_ADMIN'), null)
   assert.equal(getBeneficiaryNextTask(active, [], 'DSWD_STAFF'), null)
 })

@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { createServer } from 'vite'
 
 test('administrator beneficiary navigation has three accessible pages without false step order', async () => {
-  const vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' })
+  const vite = await createServer({ cacheDir: 'node_modules/.vite-verify/beneficiary-workflow-nav', server: { middlewareMode: true }, appType: 'custom' })
   try {
     const { default: BeneficiaryWorkflowNav } = await vite.ssrLoadModule('/src/components/beneficiaries/BeneficiaryWorkflowNav.jsx')
     for (const currentPath of ['/beneficiaries', '/enrollments', '/biometrics']) {

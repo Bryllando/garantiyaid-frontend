@@ -4,8 +4,42 @@ import { once } from 'node:events'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { createServer } from 'vite'
-import config from '../vite.config.js'
+import config, { createDevProxyLogger, validateProductionApiUrl } from '../vite.config.js'
 import { realtimeServerUrl } from '../src/realtime/staffRealtime.js'
+
+test('development proxy reports connection outages at most once per 30 seconds and preserves other errors', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1000 })
+  const warnings = []
+  const errors = []
+  const logger = createDevProxyLogger({
+    warn: (...args) => warnings.push(args),
+    error: (...args) => errors.push(args),
+  })
+  const refused = { error: { code: 'ECONNREFUSED' } }
+  const reset = { error: { code: 'ECONNRESET' } }
+  logger.error('http proxy error: /socket.io/', refused)
+  for (let i = 0; i < 5; i += 1) logger.error('ws proxy error:', refused)
+  logger.error('http proxy error: /api/v1/beneficiaries', reset)
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0][0], /npm start.*garantiyaid-backend/)
+  assert.match(warnings[0][0], /ECONNREFUSED/)
+  t.mock.timers.tick(30_000)
+  logger.error('ws proxy error:', reset)
+  assert.equal(warnings.length, 2)
+  assert.match(warnings[1][0], /ECONNRESET/)
+
+  const unexpected = { error: { code: 'EPROTO' } }
+  logger.error('ws proxy error:', unexpected)
+  logger.error('Unrelated application error', refused)
+  assert.deepEqual(errors, [['ws proxy error:', unexpected], ['Unrelated application error', refused]])
+})
+
+test('production builds require a deployed HTTPS API without bundled credentials', () => {
+  assert.doesNotThrow(() => validateProductionApiUrl('https://api.example.test/api/v1/'))
+  for (const value of [undefined, '', '/api/v1', 'http://api.example.test/api/v1', 'https://localhost/api/v1', 'https://user:secret@api.example.test/api/v1', 'https://api.example.test', 'https://api.example.test/api/v1?token=secret']) {
+    assert.throws(() => validateProductionApiUrl(value), /VITE_API_URL/)
+  }
+})
 
 test('local API proxy forwards login and protected requests and reports an unavailable backend', async (t) => {
   const requests = []
@@ -75,7 +109,20 @@ test('local API proxy forwards login and protected requests and reports an unava
   assert.equal(unavailable.status, 503)
   assert.equal(unavailable.headers.get('cache-control'), 'no-store')
   assert.equal((await unavailable.json()).error.code, 'API_UNAVAILABLE')
+  const pollingUnavailable = await fetch(`${origin}/socket.io/?EIO=4&transport=polling`)
+  assert.equal(pollingUnavailable.status, 503)
+  assert.equal(pollingUnavailable.headers.get('cache-control'), 'no-store')
+  assert.equal((await pollingUnavailable.json()).error.code, 'API_UNAVAILABLE')
   assert.equal(requests.filter((request) => request.path.endsWith('/login')).length, 1)
+
+  backend.listen(Number(new URL(target).port), '127.0.0.1')
+  await once(backend, 'listening')
+  const recovered = await fetch(`${origin}/api/v1/health`)
+  assert.equal(recovered.status, 200)
+  await recovered.json()
+  const pollingRecovered = await fetch(`${origin}/socket.io/?EIO=4&transport=polling`)
+  assert.equal(pollingRecovered.status, 200)
+  await pollingRecovered.json()
 })
 
 test('relative API addresses send live updates through the same frontend origin', (t) => {
@@ -88,6 +135,7 @@ test('relative API addresses send live updates through the same frontend origin'
 
 test('an explicitly configured HTTPS API still overrides the development proxy', async (t) => {
   const vite = await createServer({
+    cacheDir: 'node_modules/.vite-verify/api-connection-override',
     configFile: false,
     root: fileURLToPath(new URL('../', import.meta.url)),
     logLevel: 'silent',

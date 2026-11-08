@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   applyManualEligibilityDecisions,
   eligibilityApprovalBlockers,
+  enrollmentReadiness,
   manualEligibilityPayload,
 } from '../src/utils/enrollmentEligibility.js'
 
@@ -44,4 +45,27 @@ test('a failed mandatory manual criterion blocks approval', () => {
   })
   assert.equal(result.overallStatus, 'INELIGIBLE')
   assert.equal(result.results[1].blocking, true)
+})
+
+test('review readiness requires accepted documents and completed eligibility in validation', () => {
+  const ready = { status: 'FOR_VALIDATION', evaluation: { overallStatus: 'ELIGIBLE' }, canReview: true }
+  assert.equal(enrollmentReadiness(ready), 'Ready for decision')
+  assert.equal(enrollmentReadiness({ ...ready, unacceptedDocumentTypes: ['VALID_ID'] }), 'Documents incomplete')
+  assert.equal(enrollmentReadiness({ ...ready, evaluation: { overallStatus: 'REVIEW_REQUIRED' } }), 'Eligibility review pending')
+  assert.equal(enrollmentReadiness({ ...ready, evaluation: { overallStatus: 'INELIGIBLE' } }), 'Eligibility requirement not met')
+  assert.equal(enrollmentReadiness({ ...ready, evaluation: null }), 'Eligibility review pending')
+})
+
+test('complete evidence never makes a closed, loading, failed or self-submitted case ready for decision', () => {
+  const ready = { status: 'FOR_VALIDATION', evaluation: { overallStatus: 'ELIGIBLE' }, canReview: true }
+  for (const patch of [
+    { status: 'PENDING' }, { status: 'APPROVED' }, { status: 'REJECTED' }, { status: 'NEEDS_CORRECTION' },
+    { status: 'SUSPENDED' }, { status: 'WITHDRAWN' }, { canReview: false }, { loading: true }, { error: 'Unavailable' },
+  ]) assert.notEqual(enrollmentReadiness({ ...ready, ...patch }), 'Ready for decision')
+  assert.equal(enrollmentReadiness({ ...ready, status: 'NEEDS_CORRECTION' }), 'Awaiting corrected submission')
+  assert.equal(enrollmentReadiness({ ...ready, canReview: false }), 'Another reviewer required')
+})
+
+test('unknown eligibility states cannot enable approval', () => {
+  assert.equal(eligibilityApprovalBlockers({ overallStatus: 'UNAVAILABLE' }).length, 1)
 })

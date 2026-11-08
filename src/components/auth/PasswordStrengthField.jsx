@@ -35,20 +35,21 @@ const toneClasses = {
   },
 }
 
-function PasswordStrengthField({ describedBy, id, label, name, onChange, onRevealChange, revealed, value }) {
+function PasswordStrengthField({ compact = false, disabled = false, describedBy, id, label, name, onChange, onRevealChange, revealed, value }) {
   const readiness = getPasswordReadiness(value)
   const tone = toneClasses[readiness.tone]
   const readinessId = `${id}-readiness`
 
   return (
     <div>
-      <label htmlFor={id} className="ga-label">{label}</label>
+      <label htmlFor={id} className={compact ? "ga-label after:text-brand-red after:content-['_*']" : 'ga-label'}>{label}</label>
       <div className="relative mt-2">
         <input
           id={id}
           name={name}
           type={revealed ? 'text' : 'password'}
           required
+          disabled={disabled}
           minLength={STAFF_PASSWORD_MIN_LENGTH}
           maxLength={STAFF_PASSWORD_MAX_LENGTH}
           autoComplete="new-password"
@@ -59,6 +60,7 @@ function PasswordStrengthField({ describedBy, id, label, name, onChange, onRevea
         />
         <button
           type="button"
+          disabled={disabled}
           onClick={() => onRevealChange(!revealed)}
           aria-label={`${revealed ? 'Hide' : 'Show'} ${label.toLowerCase()}`}
           aria-pressed={revealed}
@@ -68,7 +70,7 @@ function PasswordStrengthField({ describedBy, id, label, name, onChange, onRevea
         </button>
       </div>
 
-      <div id={readinessId} className={`mt-3 rounded-xl border p-3.5 transition-colors duration-200 ${tone.panel}`}>
+      {compact ? <p id={readinessId} className="mt-2 text-sm leading-6 text-copy">{readiness.message}</p> : <div id={readinessId} className={`mt-3 rounded-xl border p-3.5 transition-colors duration-200 ${tone.panel}`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-bold ${tone.badge}`}>
             <span aria-hidden="true" className={`size-2 rounded-full ${tone.dot}`} />
@@ -92,7 +94,7 @@ function PasswordStrengthField({ describedBy, id, label, name, onChange, onRevea
           />
         </div>
         <p className="mt-2 text-xs leading-5 text-copy">{readiness.message}</p>
-      </div>
+      </div>}
     </div>
   )
 }

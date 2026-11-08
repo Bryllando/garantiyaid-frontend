@@ -98,7 +98,7 @@ try {
     if (name !== 'admin') {
       assert.equal(await page.locator('#staff-navigation a[href^="/admin/"]').count(), 0)
       if (name === 'barangay') assert.equal(await page.locator('#staff-navigation a[href^="/dswd/"]').count(), 0)
-      const expectedLinks = name === 'dswd' ? ['/dswd/live-dashboard', '/enrollments', '/programs', '/dswd/ledger'] : ['/facilitator/queue', '/facilitator/qr-verification', '/beneficiaries', '/biometrics']
+      const expectedLinks = name === 'dswd' ? ['/dswd/live-dashboard', '/enrollments', '/programs', '/dswd/ledger'] : ['/beneficiaries', '/biometrics', '/facilitator/queue', '/claim-accountability']
       assert.deepEqual(await page.locator('section[aria-labelledby="tools-heading"] a').evaluateAll((links) => links.map((link) => link.getAttribute('href'))), expectedLinks)
       await expect(page.getByRole('progressbar', { name: 'Claim completion', exact: true })).toHaveAttribute('aria-valuenow', '50')
       claimed = 60

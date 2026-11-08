@@ -53,7 +53,25 @@ export function eligibilityApprovalBlockers(evaluation, unacceptedDocumentTypes 
   if (evaluation.overallStatus === 'REVIEW_REQUIRED') {
     blockers.push('Complete every manual eligibility decision and enter at least 5 characters of remarks.')
   }
+  if (!['ELIGIBLE', 'INELIGIBLE', 'REVIEW_REQUIRED'].includes(evaluation.overallStatus)) {
+    blockers.push('Eligibility evidence is unavailable. Reload the case before making a decision.')
+  }
   return blockers
+}
+
+export function enrollmentReadiness({ status, evaluation, unacceptedDocumentTypes = [], canReview, loading, error }) {
+  if (loading) return 'Checking review requirements…'
+  if (error) return 'Review needs a refresh'
+  if (status === 'APPROVED') return 'Review complete'
+  if (status === 'REJECTED') return 'Review closed'
+  if (status === 'NEEDS_CORRECTION') return 'Awaiting corrected submission'
+  if (!['PENDING', 'FOR_VALIDATION'].includes(status)) return 'Review is not active'
+  if (!canReview) return 'Another reviewer required'
+  if (status === 'PENDING') return 'Ready to start validation'
+  if (unacceptedDocumentTypes.length) return 'Documents incomplete'
+  if (evaluation?.overallStatus === 'INELIGIBLE') return 'Eligibility requirement not met'
+  if (evaluation?.overallStatus !== 'ELIGIBLE') return 'Eligibility review pending'
+  return 'Ready for decision'
 }
 
 function humanize(value = '') {

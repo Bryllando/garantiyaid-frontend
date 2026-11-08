@@ -1,4 +1,5 @@
 const paths = {
+  eye: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></>,
   overview: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
   security: <><path d="M12 22s8-3.5 8-10V5l-8-3-8 3v7c0 6.5 8 10 8 10Z" /><path d="m9 12 2 2 4-4" /></>,
   reports: <><path d="M4 19.5V4.5A2.5 2.5 0 0 1 6.5 2H20v18H6.5A2.5 2.5 0 0 0 4 22.5" /><path d="M8 7h8M8 11h8M8 15h5" /></>,
@@ -14,6 +15,8 @@ const paths = {
   administration: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M17 8h4M19 6v4M16 15h5v6h-5z" /></>,
   notifications: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>,
   email: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></>,
+  mobile: <><rect x="6" y="2" width="12" height="20" rx="2" /><path d="M10 18h4" /></>,
+  idCard: <><rect x="2" y="5" width="20" height="14" rx="2" /><circle cx="8" cy="10" r="2" /><path d="M5 16a3 3 0 0 1 6 0M14 9h5M14 13h5" /></>,
   smsDelivery: <><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" /><path d="m8 11 2.25 2.25L16 7.5" /></>,
   helpCases: <><path d="M4 5h16v12H9l-5 3V5Z" /><path d="M8 9h8M8 13h5" /></>,
   biometrics: <><path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3" /><circle cx="12" cy="11" r="3" /><path d="M7.5 17c.8-2.1 2.3-3 4.5-3s3.7.9 4.5 3" /></>,
@@ -40,6 +43,8 @@ const paths = {
   copy: <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></>,
   thumbsUp: <><path d="M7 10v11H3V10h4ZM7 10l4-8a3 3 0 0 1 3 3v4h5a2 2 0 0 1 2 2.4l-1.4 7A3 3 0 0 1 16.7 21H7" /></>,
   download: <><path d="M12 3v12m-5-5 5 5 5-5" /><path d="M5 21h14" /></>,
+  upload: <><path d="M12 16V3m-5 5 5-5 5 5" /><path d="M4 16v5h16v-5" /></>,
+  office: <><rect x="4" y="3" width="16" height="18" rx="1" /><path d="M8 7h2M14 7h2M8 11h2M14 11h2M10 21v-6h4v6" /></>,
   archive: <><path d="M3 5h18v5H3z" /><path d="M5 10v10h14V10M10 14h4" /></>,
   more: <><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></>,
   search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></>,
@@ -62,7 +67,7 @@ const paths = {
 
 export function Icon({ name, className = 'size-5', strokeWidth = 1.8 }) {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className}>
       {paths[name] ?? paths.info}
     </svg>
   )

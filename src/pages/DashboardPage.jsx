@@ -1,4 +1,5 @@
 import AdminOverview from '../components/admin/AdminOverview.jsx'
+import DswdWorkOverview from '../components/dswd/DswdWorkOverview.jsx'
 import { useEffect, useState } from 'react'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import { Icon } from '../components/ui/icon.jsx'
@@ -16,16 +17,17 @@ import { connectOverviewRealtime } from '../realtime/staffRealtime.js'
 const moduleDescriptions = {
   'Assistance programs': 'Maintain assistance programs and their eligibility rules.',
   'Enrollment review': 'Review beneficiary submissions and supporting documents.',
-  Beneficiaries: 'Open beneficiary records available within your authorized scope.',
+  Beneficiaries: 'Register residents, update verified details, and submit supporting documents.',
   Reports: 'Generate distribution, claim, schedule, and fund summaries.',
   'Audit logs': 'Review recorded staff and system actions.',
   'Live monitoring': 'Watch active distributions, queues, claims, and exceptions.',
   Ledger: 'Review simulated fund utilization and transaction records.',
-  'Queue & schedules': 'Manage today\'s assigned beneficiary queue and time slots.',
+  'Queue & schedules': 'Find a scheduled beneficiary and continue their required claim checks.',
   'QR verification': 'Validate single-use claim references at distribution sites.',
   Notifications: 'Monitor simulated SMS delivery and follow up on failed reminders.',
   'Biometric identity': 'Record consent, enroll a face profile, and verify claims.',
   'Claim accountability': 'Issue claim receipts, file disputes, and record independent review decisions.',
+  'Releases & receipts': 'Record a verified physical handover, issue a receipt, or refer a concern.',
 }
 
 const roleContent = {
@@ -36,14 +38,14 @@ const roleContent = {
   },
   BARANGAY_FACILITATOR: {
     heading: 'Barangay overview',
-    description: 'Beneficiary records, schedules, and claim verification for your assigned barangay.',
+    description: 'Register beneficiaries, prepare their records, and record assistance handovers in your barangay.',
     primary: { label: 'View beneficiary queue', href: '/facilitator/queue' },
   },
 }
 
 const featuredModuleHrefs = {
   DSWD_STAFF: ['/dswd/live-dashboard', '/enrollments', '/programs', '/dswd/ledger'],
-  BARANGAY_FACILITATOR: ['/facilitator/queue', '/facilitator/qr-verification', '/beneficiaries', '/biometrics'],
+  BARANGAY_FACILITATOR: ['/beneficiaries', '/biometrics', '/facilitator/queue', '/claim-accountability'],
 }
 
 const numberFormatter = new Intl.NumberFormat('en-PH')
@@ -60,9 +62,9 @@ function dashboardMetrics(overview, role) {
   if (role === 'BARANGAY_FACILITATOR') {
     return [
       { label: 'Scheduled queue', value: formatCount(overview.queue.scheduledCount), detail: 'Assigned beneficiaries' },
-      { label: 'Checked in', value: formatCount(overview.queue.checkedInCount), detail: 'Currently in progress' },
-      { label: 'Unclaimed', value: formatCount(overview.beneficiaries.unclaimedAllocationCount), detail: 'Allocations awaiting a claim' },
-      { label: 'Claim completion', value: `${overview.beneficiaries.claimCompletionPercentage}%`, detail: 'Verified assistance claims' },
+      { label: 'Verified, awaiting assistance', value: formatCount(overview.beneficiaries.verifiedBeneficiaryCount), detail: 'Release or credit not yet recorded' },
+      { label: 'Completed claims', value: formatCount(overview.beneficiaries.claimedBeneficiaryCount), detail: 'Recorded handover or wallet credit' },
+      { label: 'Unclaimed allocations', value: formatCount(overview.beneficiaries.unclaimedAllocationCount), detail: 'Assistance not yet recorded as received' },
     ]
   }
 
@@ -75,6 +77,9 @@ function dashboardMetrics(overview, role) {
 }
 
 function attentionFor(overview, role) {
+  if (role === 'BARANGAY_FACILITATOR' && overview.beneficiaries.verifiedBeneficiaryCount > 0) {
+    return { title: `Verified claims awaiting assistance: ${formatCount(overview.beneficiaries.verifiedBeneficiaryCount)}`, description: 'Record physical handovers after checking the claim. DSWD handles simulated wallet credits.', action: ['Review verified claims', '/claim-accountability?status=VERIFIED'] }
+  }
   if (role === 'DSWD_STAFF' && overview.distributions.upcomingDistributionCount > 0) {
     return { title: `Upcoming distributions: ${formatCount(overview.distributions.upcomingDistributionCount)}`, description: 'Review scheduled events, queues, and claims in live monitoring.', action: ['View distributions', '/dswd/live-dashboard'] }
   }
@@ -141,8 +146,9 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
       },
       onDisconnect: () => { if (active) setLiveStatus('reconnecting') },
     })
-    return () => { active = false; clearTimeout(refreshTimer); disconnect() }
-  }, [onSessionExpired, session.accessToken])
+    const safetyRefresh = ['DSWD_STAFF', 'BARANGAY_FACILITATOR'].includes(role) ? setInterval(() => { if (document.visibilityState === 'visible') refresh() }, 60_000) : undefined
+    return () => { active = false; clearTimeout(refreshTimer); clearInterval(safetyRefresh); disconnect() }
+  }, [onSessionExpired, role, session.accessToken])
 
   useEffect(() => {
     let active = true
@@ -181,7 +187,7 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
     : session.user.barangay?.barangayName ?? 'Assigned barangay scope'
 
   return (
-    <DashboardShell breadcrumbs={['Operations', 'Overview']} currentPath="/dashboard" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Overview" user={session.user}>
+    <DashboardShell breadcrumbs={['Operations', 'Overview']} currentPath="/dashboard" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Overview" showAssistant={role === 'SYSTEM_ADMIN'} user={session.user}>
       {isLoading ? <DashboardSkeleton /> : error && !overview ? (
         <section className="ga-card mx-auto max-w-2xl border-amber-200 p-6 sm:p-8" role="alert" aria-labelledby="dashboard-error-title">
           <span aria-hidden="true" className="grid size-12 place-items-center rounded-xl bg-warning-soft text-brand-amber"><Icon name="info" className="size-6" /></span>
@@ -193,7 +199,7 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
       ) : role === 'SYSTEM_ADMIN' ? <>
         {error && <p role="status" className="mb-4 border-l-4 border-brand-amber bg-warning-soft p-3 text-sm">Latest figures could not be loaded. Showing the last available update.</p>}
         <AdminOverview session={session} overview={overview} draftEvents={draftEvents} draftError={draftError} draftLoading={draftLoading} liveStatus={liveStatus} reloadCount={reloadCount} onRefresh={() => setReloadCount((count) => count + 1)} onNavigate={onNavigate} onSessionExpired={onSessionExpired} />
-      </> : (
+      </> : role === 'DSWD_STAFF' ? <DswdWorkOverview session={session} overview={overview} error={error} liveStatus={liveStatus} reloadCount={reloadCount} onRefresh={() => setReloadCount((count) => count + 1)} onNavigate={onNavigate} onSessionExpired={onSessionExpired} /> : (
         <div className="ga-dashboard-ready">
           {error && <p role="status" className="mb-4 border-l-4 border-brand-amber bg-warning-soft p-3 text-sm">Latest figures could not be loaded. Showing the last available update.</p>}
           <header className="ga-page-header flex flex-wrap items-start justify-between gap-4 border-b border-line pb-4">
@@ -237,11 +243,19 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
               </div>
               <div className="space-y-5 p-4">
                 <ProgressRow label="Claim completion" value={overview.beneficiaries.claimCompletionPercentage} />
-                <ProgressRow label="Queue capacity used" value={overview.queue.capacityUtilizationPercentage} />
-                <ProgressRow label="Beneficiaries checked in" value={overview.queue.checkInPercentage} />
+                <p className="text-sm leading-6 text-copy">Completion counts recorded handovers and wallet credits. Check-in and identity verification alone do not mean assistance was received.</p>
               </div>
             </section>
           </div>
+
+          <section className="ga-admin-register mt-5" aria-labelledby="handoff-heading">
+            <header><h2 id="handoff-heading">Who handles the next step</h2></header>
+            <dl className="grid divide-y divide-line text-sm md:grid-cols-3 md:divide-x md:divide-y-0">
+              <div className="p-4"><dt className="font-semibold text-ink">Barangay staff</dt><dd className="mt-2 leading-6 text-copy">Register and update residents, submit enrollment documents, record face consent and enrollment, assist claim checks, and record physical release.</dd></div>
+              <div className="p-4"><dt className="font-semibold text-ink">DSWD</dt><dd className="mt-2 leading-6 text-copy">Review eligibility and enrollment, verify claims, and record simulated wallet credits. Refer review concerns to DSWD.</dd></div>
+              <div className="p-4"><dt className="font-semibold text-ink">Admin</dt><dd className="mt-2 leading-6 text-copy">Set up events, allocations and sessions, issue QR credentials, and close events. Barangay staff can adjust assigned schedules while an event is still a draft.</dd></div>
+            </dl>
+          </section>
 
           <details className="ga-admin-guide mt-5">
             <summary className="cursor-pointer">Account and data scope</summary>

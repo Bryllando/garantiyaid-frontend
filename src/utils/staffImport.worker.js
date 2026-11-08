@@ -1,4 +1,5 @@
 import { STAFF_IMPORT_LIMIT } from './staffImportLimits.js'
+import { IMPORT_TEMPLATE_GUIDE_LIMIT } from './importTemplateGuides.js'
 
 self.onmessage = async ({ data: file }) => {
   try {
@@ -16,7 +17,7 @@ self.onmessage = async ({ data: file }) => {
     // Keep oversized worksheets out of the UI without silently importing a truncated list.
     self.postMessage({ sheets: sheets.map(({ sheet, data }) => {
       const nonEmpty = data.filter(row => row.some(value => value !== null && String(value).trim() !== ''))
-      return nonEmpty.length > STAFF_IMPORT_LIMIT + 1 || data.length > 100_000 ? { sheet, tooLarge: true } : { sheet, data }
+      return nonEmpty.length > STAFF_IMPORT_LIMIT + IMPORT_TEMPLATE_GUIDE_LIMIT || data.length > 100_000 ? { sheet, tooLarge: true } : { sheet, data }
     }) })
   } catch (error) {
     self.postMessage({ error: error.message || 'The file could not be read. Export a CSV or .xlsx list and try again.' })

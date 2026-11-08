@@ -101,6 +101,8 @@ import {
   startOwnTotpReplacement,
   submitClaimSignature,
   uploadBeneficiaryDocument,
+  downloadBeneficiaryDocument,
+  removeBeneficiaryDocument,
   updateBarangay,
   updateStaffUser,
   updateOwnProfile,
@@ -255,14 +257,15 @@ test('dashboard navigation is limited to the signed-in staff role', () => {
 
   assert.deepEqual(adminLabels, ['Overview', 'Beneficiaries', 'Assistance programs', 'Distributions', 'Transactions', 'Reports and audit', 'Notifications and help', 'Administration', 'Staff Assistant'])
   assert.deepEqual(getDashboardNavigation('SYSTEM_ADMIN').find(({ label }) => label === 'Administration').children.map(({ label }) => label), ['Staff and barangays', 'Authenticator recovery'])
-  assert.deepEqual(getDashboardNavigation('SYSTEM_ADMIN').find(({ label }) => label === 'Beneficiaries').children.map(({ label }) => label), ['Beneficiary records', 'Enrollment review', 'Biometric records'])
+  assert.deepEqual(getDashboardNavigation('SYSTEM_ADMIN').find(({ label }) => label === 'Beneficiaries').children.map(({ label }) => label), ['Beneficiary records', 'Burial referrals', 'Enrollment review', 'Biometric records'])
+  for (const role of ['SYSTEM_ADMIN', 'DSWD_STAFF', 'BARANGAY_FACILITATOR']) assert.equal(linksFor(role).find(({ label }) => label === 'Burial referrals').href, '/burial-referrals')
   assert.deepEqual(getDashboardNavigation('SYSTEM_ADMIN').find(({ label }) => label === 'Reports and audit').children.map(({ label }) => label), ['Reports', 'Audit logs'])
-  assert.deepEqual(getDashboardNavigation('SYSTEM_ADMIN').find(({ label }) => label === 'Distributions').children.map(({ label }) => label), ['Distribution events', 'Live monitoring', 'Claims and receipts'])
+  assert.deepEqual(getDashboardNavigation('SYSTEM_ADMIN').find(({ label }) => label === 'Distributions').children.map(({ label }) => label), ['Distribution events', 'Queue and schedules', 'Verify QR claims', 'Live monitoring', 'Claims and receipts'])
   assert.ok(!linksFor('SYSTEM_ADMIN').some(({ href }) => href === '/service-review'))
   assert.deepEqual(dswdLabels, ['Overview', 'Programs & enrollment', 'Identity & claims', 'Distribution & funds', 'Reports & review', 'Notifications & support', 'Staff Assistant'])
   assert.deepEqual(facilitatorLabels, ['Overview', 'Beneficiary services', 'Distribution day', 'Notifications & support', 'Staff Assistant'])
   for (const label of ['Ledger', 'Enrollment review', 'Assistance programs', 'SMS delivery', 'Claim accountability', 'Help cases']) assert.ok(dswdLinks.some((item) => item.label === label))
-  for (const label of ['Assistance programs', 'SMS delivery', 'QR verification', 'Enrollments', 'Claim accountability', 'Help cases']) assert.ok(facilitatorLinks.some((item) => item.label === label))
+  for (const label of ['Assistance programs', 'SMS delivery', 'QR verification', 'Enrollments', 'Releases & receipts', 'Help cases']) assert.ok(facilitatorLinks.some((item) => item.label === label))
   assert.equal(dswdLinks.find(({ label }) => label === 'Live monitoring').href, '/dswd/live-dashboard')
   assert.equal(dswdLinks.find(({ label }) => label === 'Ledger').href, '/dswd/ledger')
   assert.equal(dswdLinks.find(({ label }) => label === 'Reports').href, '/reports')
@@ -506,6 +509,22 @@ test('beneficiary document upload leaves the multipart boundary to the browser',
   assert.equal(request.options.headers['Content-Type'], undefined)
 })
 
+test('document preview uses authenticated cancellable binary access and removal requires a complete confirmation', async context => {
+  const originalFetch = globalThis.fetch
+  context.after(() => { globalThis.fetch = originalFetch })
+  const requests = [], controller = new AbortController()
+  const file = new Blob(['%PDF-1.4'], { type: 'application/pdf' })
+  globalThis.fetch = async (url, options) => { requests.push({ url, options }); return { ok: true, blob: async () => file, json: async () => ({ data: { removed: true, documentId: 'document-1' } }) } }
+  assert.equal(await downloadBeneficiaryDocument('staff-token', 'beneficiary-1', 'document-1', { signal: controller.signal }), file)
+  assert.equal(requests[0].options.signal, controller.signal)
+  assert.equal(requests[0].options.headers.Authorization, 'Bearer staff-token')
+  assert.match(requests[0].url, /\/documents\/document-1\/download$/)
+  assert.deepEqual(await removeBeneficiaryDocument('staff-token', 'beneficiary-1', 'document-1'), { removed: true, documentId: 'document-1' })
+  assert.equal(requests[1].options.method, 'DELETE')
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ data: { documentId: 'another-document' } }) })
+  await assert.rejects(removeBeneficiaryDocument('staff-token', 'beneficiary-1', 'document-1'), /removal response was incomplete/)
+})
+
 test('biometric identity workflow preserves consent, multipart capture, idempotency, and privacy contracts', async (context) => {
   const originalFetch = globalThis.fetch
   const requests = []
@@ -743,6 +762,8 @@ test('DSWD realtime client authenticates once and forwards subscribed events', (
   assert.equal(socketUrl, 'http://localhost:4000')
   assert.deepEqual(socketOptions.auth, { accessToken: 'dswd-token' })
   assert.equal(socketOptions.reconnection, true)
+  assert.equal(socketOptions.reconnectionDelay, 2000)
+  assert.equal(socketOptions.reconnectionDelayMax, 30_000)
   assert.equal(DSWD_LIVE_EVENTS.includes('claim.released'), true)
   assert.deepEqual(Object.keys(listeners).filter((event) => DSWD_LIVE_EVENTS.includes(event)), [...DSWD_LIVE_EVENTS])
   listeners['dashboard.metrics.updated']({ distributionId: 'distribution-1' })
@@ -889,7 +910,7 @@ test('facilitator queue and QR verification preserve scoped backend contracts', 
   globalThis.fetch = async (url, options) => {
     requests.push({ url, options })
     const responses = [
-      { distributions: [{ distributionId: 'distribution-1' }], pagination: {} },
+      { distributions: [{ distributionId: 'distribution-1' }], pagination: { totalPages: 1 } },
       { schedules: [], summary: { countsByStatus: {} }, pagination: { page: 2 } },
       { beneficiary: { beneficiaryId: 'beneficiary-1' }, schedule: { scheduleId: 'schedule-1' }, checksInBeneficiary: true },
       { claim: { claimId: 'claim-1' }, verificationComplete: true },
@@ -958,7 +979,7 @@ test('claim receipts and independent disputes preserve authenticated accountabil
     beneficiaryPresent: true,
   })
   await requestClaimDisputes('staff-token', 'distribution-1', { status: 'OPEN' })
-  await reviewClaimDispute('staff-token', 'distribution-1', 'dispute-1', { action: 'START_REVIEW' })
+  await reviewClaimDispute('staff-token', 'distribution-1', 'dispute-1', { action: 'START_REVIEW', expectedUpdatedAt: '2026-11-03T00:00:00.000Z' })
 
   assert.match(requests[0].url, /\/distributions\/distribution-1\/claims\?page=2&status=CLAIMED$/)
   assert.match(requests[1].url, /\/claims\/claim-1\/receipt$/)
@@ -967,7 +988,7 @@ test('claim receipts and independent disputes preserve authenticated accountabil
   assert.equal(JSON.parse(requests[3].options.body).beneficiaryPresent, true)
   assert.match(requests[4].url, /\/claim-disputes\?status=OPEN$/)
   assert.match(requests[5].url, /\/claim-disputes\/dispute-1\/review$/)
-  assert.deepEqual(JSON.parse(requests[5].options.body), { action: 'START_REVIEW' })
+  assert.deepEqual(JSON.parse(requests[5].options.body), { action: 'START_REVIEW', expectedUpdatedAt: '2026-11-03T00:00:00.000Z' })
   requests.forEach(({ options }) => assert.equal(options.headers.Authorization, 'Bearer staff-token'))
 })
 

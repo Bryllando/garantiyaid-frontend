@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import ImportTemplateGuide from '../ui/ImportTemplateGuide.jsx'
+import { staffTemplateGuide, templateFileName } from '../../utils/importTemplateGuides.js'
+import { importTemplateRows } from '../../utils/staffImport.js'
 import { startStaffImport, resumeStaffImport, isSessionExpiredError, previewStaffImport, STAFF_ROLE_LABELS } from '../../auth/staffAuth.js'
 import { LoadingLabel } from '../ui/spinner.jsx'
 import StaffImportProgress, { ImportPagination, StaffImportHistory } from './StaffImportProgress.jsx'
@@ -144,9 +147,9 @@ export default function StaffImportDialog({ accessToken, barangays, onClose, onI
 
       {step === 0 && <div className="max-w-2xl space-y-5">
         <StaffImportHistory accessToken={accessToken} disabled={busy} onSessionExpired={onSessionExpired} onOpen={existing => { setJob(existing); setStep(3); setError('') }} />
-        <p className="text-sm leading-6 text-copy">Use a CSV (.csv) or Excel (.xlsx) file up to {STAFF_IMPORT_FILE_LIMIT_MB} MB, with up to {STAFF_IMPORT_LIMIT.toLocaleString('en-US')} staff in the selected worksheet. Put column headings in the first row.</p>
+        <p className="text-sm leading-6 text-copy">Use a CSV (.csv) or Excel (.xlsx) file up to {STAFF_IMPORT_FILE_LIMIT_MB} MB, with up to {STAFF_IMPORT_LIMIT.toLocaleString('en-US')} staff in the selected worksheet. Existing files with headings in the first row are also supported.</p>
         <div className="border-y border-line py-4 text-sm leading-6"><p><strong>Required:</strong> Full name, email and a GarantiyAid role.</p><p className="mt-1">Barangay Facilitators also need a username and an active barangay assignment. You can match role and barangay names in the next step.</p><p className="mt-1">Staff IDs and temporary passwords are generated here. Do not include passwords from the other system.</p></div>
-        <button type="button" disabled={busy} onClick={() => run(() => downloadStaffCsv('garantiyaid-staff-template.csv', [STAFF_IMPORT_FIELDS.map(([, label]) => label)]))} className="min-h-11 text-sm font-semibold text-brand-blue underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-brand-blue">Download CSV template</button>
+        <ImportTemplateGuide title="Staff import template" fields={staffTemplateGuide} excelFile={templateFileName('staff')} disabled={busy} onDownload={() => run(() => downloadStaffCsv('garantiyaid-staff-template.csv', importTemplateRows('staff', STAFF_IMPORT_FIELDS)))} />
         <div><label htmlFor="staff-import-file" className="ga-label">Staff list file</label><input id="staff-import-file" type="file" accept=".csv,.xlsx" disabled={busy} className="ga-input mt-2 py-2 file:mr-3 file:rounded file:border-0 file:bg-info-soft file:px-3 file:py-2 file:font-semibold file:text-brand-blue" onChange={event => {
           const file = event.target.files?.[0]
           if (!file) return

@@ -1,7 +1,16 @@
 import { API_BASE_URL } from '../config/api.js'
 import { ASSISTANT_HISTORY_KEY } from '../components/assistant/conversation-history.js'
+import { PUSH_DRAFTS_KEY } from '../utils/pushDrafts.js'
+import { BIOMETRIC_FOLLOW_UP_KEY } from '../utils/biometricFollowUp.js'
 
 const API_CONNECTION_ERROR = 'Unable to connect to GarantiyAid. Check your connection and try again. If the problem continues, contact your system administrator.'
+const apiRetryAt = new Map()
+
+function rateLimitError(seconds) {
+  const error = new Error(`Too many requests. Try again in ${seconds >= 60 ? `${Math.ceil(seconds / 60)} minute(s)` : `${seconds} second(s)`}.`)
+  Object.assign(error, { status: 429, code: 'RATE_LIMIT_EXCEEDED', retryAfterSeconds: seconds })
+  return error
+}
 
 function queryString(values) {
   const query = new URLSearchParams()
@@ -13,6 +22,10 @@ function queryString(values) {
 }
 
 async function requestJson(path, { body, headers, token, signal, method = 'POST' } = {}) {
+  const cooldownKey = token || 'anonymous'
+  const remaining = Math.ceil(((apiRetryAt.get(cooldownKey) ?? 0) - Date.now()) / 1000)
+  if (remaining > 0) throw rateLimitError(remaining)
+  apiRetryAt.delete(cooldownKey)
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
   let response
   try {
@@ -40,6 +53,11 @@ async function requestJson(path, { body, headers, token, signal, method = 'POST'
     error.code = payload?.error?.code
     error.details = payload?.error?.details
     error.data = payload?.data
+    if (response.status === 429) {
+      const seconds = Number(payload?.error?.retryAfterSeconds ?? response.headers?.get?.('Retry-After'))
+      error.retryAfterSeconds = Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 60
+      if (payload?.error?.scope === 'garantiyaid-api') apiRetryAt.set(cooldownKey, Date.now() + error.retryAfterSeconds * 1000)
+    }
     throw error
   }
 
@@ -347,9 +365,7 @@ export async function revokeOwnOtherSessions(token) {
 }
 
 export async function requestOpenDistributions(token) {
-  const data = await requestDistributionList(token, { page: 1, pageSize: 100, status: 'OPEN' })
-
-  return data.distributions
+  return requestAllDistributions(token, { status: 'OPEN' })
 }
 
 export async function requestDistributionList(token, filters = {}) {
@@ -360,6 +376,22 @@ export async function requestDistributionList(token, filters = {}) {
   }
 
   return data
+}
+
+export async function requestAllDistributions(token, filters = {}) {
+  const distributions = []
+  const seen = new Set()
+  for (let page = 1; ; page += 1) {
+    const data = await requestDistributionList(token, { page, pageSize: 100, ...filters })
+    if (!Number.isInteger(data.pagination.totalPages) || data.pagination.totalPages < 0) throw new Error('The event list could not be loaded completely. Refresh events and try again.')
+    for (const item of data.distributions) {
+      if (!item.distributionId || seen.has(item.distributionId)) throw new Error('Events changed while loading. Refresh events and try again.')
+      seen.add(item.distributionId)
+      distributions.push(item)
+    }
+    if (page >= data.pagination.totalPages) return distributions
+    if (!data.distributions.length) throw new Error('The event list is incomplete. Refresh events and try again.')
+  }
 }
 
 export async function requestDistributionQueue(token, distributionId, { page = 1, search = '', status = '' } = {}) {
@@ -434,6 +466,12 @@ export async function requestDistributionClaims(token, distributionId, filters =
   return data
 }
 
+export async function requestDistributionClaim(token, distributionId, claimId) {
+  const data = await requestJson(`/distributions/${encodeURIComponent(distributionId)}/claims/${encodeURIComponent(claimId)}`, { token, method: 'GET' })
+  if (data?.claim?.claimId !== claimId || !data.claim.beneficiary) throw new Error('The server returned an unexpected claim record.')
+  return data.claim
+}
+
 export async function markPhysicalClaimReleased(token, distributionId, claimId, evidence, idempotencyKey = crypto.randomUUID()) {
   const data = await requestJson(`/distributions/${distributionId}/claims/${claimId}/release`, {
     token,
@@ -472,6 +510,13 @@ export async function reviewClaimDispute(token, distributionId, disputeId, revie
   const data = await requestJson(`/distributions/${distributionId}/claim-disputes/${disputeId}/review`, { token, body: review })
   if (!data?.dispute?.referenceNo) throw new Error('The server returned an unexpected claim-dispute response.')
   return data.dispute
+}
+
+export async function requestClaimDispute(token, distributionId, disputeId) {
+  const data = await requestClaimDisputes(token, distributionId, { search: disputeId, page: 1, pageSize: 20 })
+  const dispute = data.disputes.find((item) => item.disputeId === disputeId)
+  if (!dispute) throw new Error('This case was not found in the selected event. Return to the case list and refresh records.')
+  return dispute
 }
 
 export async function creditVerifiedClaim(token, distributionId, claimId, description = '', idempotencyKey = crypto.randomUUID()) {
@@ -680,6 +725,23 @@ export async function requestBiometricAttempts(token, distributionId, filters = 
   return data
 }
 
+export async function requestBiometricAttemptReview(token, distributionId, beneficiaryId, attemptId) {
+  let firstPage
+  let total
+  for (let page = 1; ; page += 1) {
+    const data = await requestBiometricAttempts(token, distributionId, { page, pageSize: 20, beneficiaryId })
+    if (data.pagination.page !== page || !Number.isInteger(data.pagination.totalPages) || !Number.isInteger(data.pagination.total)) throw new Error('Attempt history could not be verified. Please try again.')
+    if (total !== undefined && total !== data.pagination.total) throw new Error('New attempts were recorded during review. Please refresh the attempt.')
+    total = data.pagination.total
+    if (data.attempts.some((item) => item.beneficiaryId !== beneficiaryId || item.distributionId !== distributionId)) throw new Error('The server returned an unrelated attempt record.')
+    if (page === 1) firstPage = data
+    const attempt = data.attempts.find((item) => item.attemptId === attemptId)
+    if (attempt) return { attempt, history: firstPage }
+    if (page >= data.pagination.totalPages || !data.attempts.length) break
+  }
+  throw new Error('This attempt is not available for the selected beneficiary and event. Return to attempt history and select it again.')
+}
+
 export async function requestBarangays(token) {
   return requestBarangayList(token, { activeOnly: true })
 }
@@ -696,10 +758,42 @@ export async function createBarangay(token, barangay) {
   return data.barangay
 }
 
+export async function previewBarangayImport(token, rows) {
+  const data = await requestJson('/barangays/import/preview', { token, body: { rows } })
+  if (!Array.isArray(data?.rows) || typeof data.invalidCount !== 'number') throw new Error('The server returned an unexpected barangay import review.')
+  return data
+}
+
+export async function confirmBarangayImport(token, rows, approvalId) {
+  const data = await requestJson('/barangays/import/confirm', { token, headers: { 'Idempotency-Key': approvalId }, body: { rows, approvalId, confirmed: true } })
+  if (!Array.isArray(data?.barangays) || !data.importId || data.createdCount !== data.barangays.length) throw new Error('The import response was incomplete. Retry the same confirmation to retrieve its result.')
+  return data
+}
+
 export async function updateBarangay(token, barangayId, barangay) {
   const data = await requestJson(`/barangays/${barangayId}`, { token, method: 'PATCH', body: barangay })
   if (!data?.barangay) throw new Error('The server returned an unexpected barangay response.')
   return data.barangay
+}
+
+export async function requestBurialReferrals(token, filters = {}) {
+  const data = await requestJson(`/burial-referrals${queryString(filters)}`, { token, method: 'GET' })
+  if (!Array.isArray(data?.referrals) || !data?.pagination) throw new Error('Unable to load burial referrals.')
+  return data
+}
+
+export async function requestBurialReferral(token, id) {
+  const data = await requestJson(`/burial-referrals/${encodeURIComponent(id)}`, { token, method: 'GET' })
+  if (!data?.referral) throw new Error('Unable to load the burial referral.')
+  return data.referral
+}
+
+export async function saveBurialReferral(token, id, body, key, action = false) {
+  const data = await requestJson(`/burial-referrals${id ? `/${encodeURIComponent(id)}${action ? '/actions' : ''}` : ''}`, {
+    token, method: id && !action ? 'PATCH' : 'POST', body, headers: { 'Idempotency-Key': key },
+  })
+  if (!data?.referral) throw new Error('The save response was incomplete. Retry the same request or refresh the record.')
+  return data.referral
 }
 
 export async function requestBeneficiaryDocuments(token, beneficiaryId) {
@@ -708,26 +802,27 @@ export async function requestBeneficiaryDocuments(token, beneficiaryId) {
   return data.documents
 }
 
-function documentForm(documentType, file) {
+function documentForm(documentType, file, documentName) {
   const body = new FormData()
   body.set('documentType', documentType)
   body.set('file', file)
+  if (documentType === 'OTHER' && documentName?.trim()) body.set('documentName', documentName.trim())
   return body
 }
 
-export async function uploadBeneficiaryDocument(token, beneficiaryId, documentType, file) {
+export async function uploadBeneficiaryDocument(token, beneficiaryId, documentType, file, documentName) {
   const data = await requestJson(`/beneficiaries/${beneficiaryId}/documents`, {
     token,
-    body: documentForm(documentType, file),
+    body: documentForm(documentType, file, documentName),
   })
   if (!data?.document) throw new Error('The server returned an unexpected document response.')
   return data.document
 }
 
-export async function replaceBeneficiaryDocument(token, beneficiaryId, documentId, documentType, file) {
+export async function replaceBeneficiaryDocument(token, beneficiaryId, documentId, documentType, file, documentName) {
   const data = await requestJson(`/beneficiaries/${beneficiaryId}/documents/${documentId}/replacement`, {
     token,
-    body: documentForm(documentType, file),
+    body: documentForm(documentType, file, documentName),
   })
   if (!data?.document) throw new Error('The server returned an unexpected document response.')
   return data.document
@@ -739,9 +834,16 @@ export async function reviewBeneficiaryDocument(token, beneficiaryId, documentId
   return data.document
 }
 
-export async function downloadBeneficiaryDocument(token, beneficiaryId, documentId) {
+export async function removeBeneficiaryDocument(token, beneficiaryId, documentId) {
+  const data = await requestJson(`/beneficiaries/${beneficiaryId}/documents/${documentId}`, { token, method: 'DELETE' })
+  if (!data?.removed || data.documentId !== documentId) throw new Error('The removal response was incomplete. Refresh the document list before trying again.')
+  return data
+}
+
+export async function downloadBeneficiaryDocument(token, beneficiaryId, documentId, { signal } = {}) {
   const response = await fetch(`${API_BASE_URL}/beneficiaries/${beneficiaryId}/documents/${documentId}/download`, {
     headers: { Authorization: `Bearer ${token}` },
+    ...(signal ? { signal } : {}),
   })
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
@@ -870,6 +972,11 @@ export async function cancelDistribution(token, distributionId) {
 export async function requestDistributionSlots(token, distributionId) {
   const data = await requestJson(`/distributions/${distributionId}/slots?page=1&pageSize=100`, { token, method: 'GET' })
   if (!Array.isArray(data?.slots) || !data?.summary) throw new Error('The server returned an unexpected slot-list response.')
+  for (let page = 2; page <= (data.pagination?.totalPages ?? 1); page += 1) {
+    const next = await requestJson(`/distributions/${distributionId}/slots?page=${page}&pageSize=100`, { token, method: 'GET' })
+    if (!Array.isArray(next?.slots)) throw new Error('The remaining time slots could not be loaded. Refresh and try again.')
+    data.slots.push(...next.slots)
+  }
   return data
 }
 
@@ -882,14 +989,22 @@ export async function generateDistributionSlots(token, distributionId, sessionsO
   return data
 }
 
+export async function updateDistributionSlotCapacity(token, distributionId, slotId, capacity) {
+  const data = await requestJson(`/distributions/${distributionId}/slots/${slotId}`, {
+    token, method: 'PATCH', body: { capacity },
+  })
+  if (!data?.slot) throw new Error('The server returned an unexpected slot response.')
+  return data.slot
+}
+
 export async function requestEligibleDistributionEnrollments(token, distributionId) {
   const data = await requestJson(`/distributions/${distributionId}/eligible-enrollments?page=1&pageSize=100`, { token, method: 'GET' })
   if (!Array.isArray(data?.enrollments) || !data?.pagination || !data?.summary) throw new Error('The server returned an unexpected eligible-enrollment response.')
   return data
 }
 
-export async function requestDistributionAllocations(token, distributionId) {
-  const data = await requestJson(`/distributions/${distributionId}/allocations?page=1&pageSize=100`, { token, method: 'GET' })
+export async function requestDistributionAllocations(token, distributionId, filters = {}) {
+  const data = await requestJson(`/distributions/${distributionId}/allocations${queryString({ page: 1, pageSize: 100, ...filters })}`, { token, method: 'GET' })
   if (!Array.isArray(data?.allocations) || !data?.summary) throw new Error('The server returned an unexpected allocation-list response.')
   return data
 }
@@ -908,6 +1023,28 @@ export async function requestDistributionSchedules(token, distributionId, filter
   const data = await requestJson(`/distributions/${distributionId}/schedules${queryString({ page: 1, pageSize: 100, ...filters })}`, { token, method: 'GET' })
   if (!Array.isArray(data?.schedules) || !data?.summary) throw new Error('The server returned an unexpected schedule-list response.')
   return data
+}
+
+export async function requestAllDistributionSchedules(token, distributionId) {
+  const schedules = []
+  const seen = new Set()
+  let total
+  for (let page = 1; ; page += 1) {
+    const data = await requestDistributionSchedules(token, distributionId, { page, pageSize: 100 })
+    const pagination = data.pagination
+    if (!pagination || pagination.page !== page || !Number.isInteger(pagination.total) || pagination.total < 0 || !Number.isInteger(pagination.totalPages) || pagination.totalPages < 0) throw new Error('The complete schedule list could not be verified. Reload schedules and try again.')
+    if (total !== undefined && pagination.total !== total) throw new Error('Assignments changed while loading. Reload schedules and try again.')
+    total = pagination.total
+    for (const schedule of data.schedules) {
+      if (!schedule.scheduleId || !schedule.beneficiary?.beneficiaryId || seen.has(schedule.scheduleId)) throw new Error('Assignments changed while loading. Reload schedules and try again.')
+      seen.add(schedule.scheduleId)
+      schedules.push(schedule)
+    }
+    if (page >= pagination.totalPages) break
+    if (!data.schedules.length) throw new Error('The schedule list is incomplete. Reload schedules and try again.')
+  }
+  if (schedules.length !== total) throw new Error('The schedule list is incomplete. Reload schedules and try again.')
+  return schedules
 }
 
 export async function generateDistributionSchedules(token, distributionId, idempotencyKey = crypto.randomUUID()) {
@@ -1166,14 +1303,20 @@ export async function openDistribution(token, distributionId) {
   return data.distribution
 }
 
+export async function closeDistribution(token, distributionId, notes) {
+  const data = await requestJson(`/distributions/${distributionId}/close`, { token, body: { notes } })
+  if (!data?.distribution) throw new Error('The server returned an unexpected distribution response.')
+  return data.distribution
+}
+
 export async function requestQrEligibleSchedules(token, distributionId) {
   const data = await requestJson(`/distributions/${distributionId}/qr-eligible-schedules?page=1&pageSize=100`, { token, method: 'GET' })
   if (!Array.isArray(data?.schedules) || !data?.summary) throw new Error('The server returned an unexpected QR-eligible response.')
   return data
 }
 
-export async function requestDistributionQrTokens(token, distributionId) {
-  const data = await requestJson(`/distributions/${distributionId}/qr-tokens?page=1&pageSize=100`, { token, method: 'GET' })
+export async function requestDistributionQrTokens(token, distributionId, filters = {}) {
+  const data = await requestJson(`/distributions/${distributionId}/qr-tokens${queryString({ page: 1, pageSize: 100, ...filters })}`, { token, method: 'GET' })
   if (!Array.isArray(data?.qrTokens) || !data?.summary) throw new Error('The server returned an unexpected QR-token response.')
   return data
 }
@@ -1182,6 +1325,12 @@ export async function generateDistributionQrTokens(token, distributionId) {
   const data = await requestJson(`/distributions/${distributionId}/qr-tokens/generate`, { token, body: {} })
   if (!Array.isArray(data?.qrTokens) || !data?.summary) throw new Error('The server returned an unexpected QR-token response.')
   return data
+}
+
+export async function reissueDistributionQrToken(token, distributionId, qrTokenId) {
+  const data = await requestJson(`/distributions/${distributionId}/qr-tokens/${qrTokenId}/reissue`, { token })
+  if (!data?.qrToken?.token || !data?.rawTokenReturnedOnce) throw new Error('The server returned an unexpected replacement QR response.')
+  return data.qrToken
 }
 
 export async function submitEnrollment(token, programId, beneficiaryId) {
@@ -1196,6 +1345,30 @@ export async function requestEnrollmentList(token, filters = {}) {
     throw new Error('The server returned an unexpected enrollment-list response.')
   }
   return data
+}
+
+async function beneficiaryRows(request, key, beneficiary, search = beneficiary.beneficiaryId) {
+  const rows = []
+  for (let page = 1, totalPages = 1; page <= totalPages; page += 1) {
+    const result = await request({ page, pageSize: 100, search })
+    rows.push(...result[key].filter((row) => (row.beneficiaryId ?? row.beneficiary?.beneficiaryId) === beneficiary.beneficiaryId))
+    totalPages = result.pagination?.totalPages ?? 1
+  }
+  return rows
+}
+
+export function requestBeneficiaryEnrollments(token, beneficiary) {
+  // shortcut: enrollment search only accepts names; use an exact beneficiary filter when the API adds one.
+  return beneficiaryRows((filters) => requestEnrollmentList(token, { ...filters, barangayId: beneficiary.barangayId }), 'enrollments', beneficiary, beneficiary.lastName.slice(0, 100))
+}
+
+export async function requestBeneficiaryEventProgress(token, distributionId, beneficiary) {
+  const [allocations, schedules, claims] = await Promise.all([
+    beneficiaryRows((filters) => requestDistributionAllocations(token, distributionId, filters), 'allocations', beneficiary),
+    beneficiaryRows((filters) => requestDistributionSchedules(token, distributionId, filters), 'schedules', beneficiary),
+    beneficiaryRows((filters) => requestDistributionClaims(token, distributionId, filters), 'claims', beneficiary),
+  ])
+  return { allocation: allocations[0] ?? null, schedule: schedules[0] ?? null, claim: claims[0] ?? null }
 }
 
 export async function requestEnrollment(token, enrollmentId) {
@@ -1259,6 +1432,8 @@ export function getStoredStaffSession() {
 
 export function clearStaffSession() {
   sessionStorage.removeItem(ASSISTANT_HISTORY_KEY)
+  sessionStorage.removeItem(PUSH_DRAFTS_KEY)
+  sessionStorage.removeItem(BIOMETRIC_FOLLOW_UP_KEY)
   sessionStorage.removeItem('garantiyaid.accessToken')
   sessionStorage.removeItem('garantiyaid.user')
   sessionStorage.removeItem('garantiyaid.totpSetupToken')
@@ -1281,12 +1456,15 @@ const dashboardNavigation = Object.freeze({
     overviewItem,
     { label: 'Beneficiaries', section: 'Service records', icon: 'beneficiaries', children: [
       { label: 'Beneficiary records', href: '/beneficiaries' },
+      { label: 'Burial referrals', href: '/burial-referrals' },
       { label: 'Enrollment review', href: '/enrollments' },
       { label: 'Biometric records', href: '/biometrics' },
     ] },
     { label: 'Assistance programs', icon: 'programs', href: '/programs' },
     { label: 'Distributions', icon: 'distributions', children: [
       { label: 'Distribution events', href: '/distributions/manage' },
+      { label: 'Queue and schedules', href: '/admin/schedules' },
+      { label: 'Verify QR claims', href: '/admin/verify-claims' },
       { label: 'Live monitoring', href: '/dswd/live-dashboard' },
       { label: 'Claims and receipts', href: '/claim-accountability' },
     ] },
@@ -1296,7 +1474,7 @@ const dashboardNavigation = Object.freeze({
       { label: 'Audit logs', href: '/audit-logs' },
     ] },
     { label: 'Notifications and help', icon: 'helpCases', children: [
-      { label: 'SMS delivery', href: '/notifications' },
+      { label: 'Notifications', href: '/notifications' },
       { label: 'Help cases', href: '/help-cases' },
     ] },
     { label: 'Administration', section: 'System management', icon: 'administration', children: [
@@ -1310,8 +1488,10 @@ const dashboardNavigation = Object.freeze({
       { label: 'Assistance programs', href: '/programs' },
       { label: 'Enrollment review', href: '/enrollments' },
       { label: 'Beneficiaries', href: '/beneficiaries' },
+      { label: 'Burial referrals', href: '/burial-referrals' },
     ] },
     { label: 'Identity & claims', icon: 'biometrics', children: [
+      { label: 'Verify QR claims', href: '/dswd/verify-claims' },
       { label: 'Biometric identity', href: '/biometrics' },
       { label: 'Claim accountability', href: '/claim-accountability' },
     ] },
@@ -1333,6 +1513,7 @@ const dashboardNavigation = Object.freeze({
     overviewItem,
     { label: 'Beneficiary services', section: 'Operations', icon: 'beneficiaries', children: [
       { label: 'Beneficiaries', href: '/beneficiaries' },
+      { label: 'Burial referrals', href: '/burial-referrals' },
       { label: 'Enrollments', href: '/enrollments' },
       { label: 'Biometric identity', href: '/biometrics' },
       { label: 'Assistance programs', href: '/programs' },
@@ -1340,7 +1521,7 @@ const dashboardNavigation = Object.freeze({
     { label: 'Distribution day', icon: 'queue', children: [
       { label: 'Queue & schedules', href: '/facilitator/queue' },
       { label: 'QR verification', href: '/facilitator/qr-verification' },
-      { label: 'Claim accountability', href: '/claim-accountability' },
+      { label: 'Releases & receipts', href: '/claim-accountability' },
     ] },
     { label: 'Notifications & support', section: 'Support', icon: 'helpCases', children: [
       { label: 'SMS delivery', href: '/notifications' },
@@ -1356,6 +1537,10 @@ export function getDashboardNavigation(role) {
 }
 
 export function getAuthErrorMessage(error) {
+  if (error.code === 'VALIDATION_ERROR' && Array.isArray(error.details?.fields)) {
+    const fields = error.details.fields.filter(item => typeof item.field === 'string' && typeof item.message === 'string')
+    if (fields.length) return fields.map(item => `${(item.field.replace(/([a-z])([A-Z])/g, '$1 $2').replaceAll('.', ' ').toLowerCase() || 'Request').replace(/^./, letter => letter.toUpperCase())}: ${item.message}`).join(' ')
+  }
   return error.code === 'API_UNREACHABLE' || error instanceof TypeError
     ? API_CONNECTION_ERROR
     : error.message

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
+import ReportEventPicker from '../components/dswd/ReportEventPicker.jsx'
+import { readReportScope, reportDateHelp, reportLocation, reportStatuses, reportTypes } from '../utils/reportScope.js'
 import { Icon } from '../components/ui/icon.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
@@ -9,24 +11,11 @@ import {
   requestAuditLogs,
   requestDistribution,
   requestDistributionCsv,
-  requestDistributionList,
   requestDistributionReport,
   requestFundUtilizationReport,
 } from '../auth/staffAuth.js'
 
 const authorizedRoles = new Set(['SYSTEM_ADMIN', 'DSWD_STAFF'])
-const reportTypes = [
-  ['SUMMARY', 'Distribution summary'],
-  ['CLAIMS', 'Claim status'],
-  ['SCHEDULES', 'Queue schedules'],
-  ['ANOMALIES', 'Anomaly review'],
-  ['FUNDS', 'Simulated fund utilization'],
-]
-const reportStatuses = {
-  CLAIMS: ['PENDING', 'VERIFIED', 'CLAIMED', 'REJECTED', 'VOIDED'],
-  SCHEDULES: ['SCHEDULED', 'CHECKED_IN', 'MISSED', 'CANCELLED'],
-  FUNDS: ['DRAFT', 'OPEN', 'CLOSED', 'CANCELLED'],
-}
 const numberFormatter = new Intl.NumberFormat('en-PH')
 const moneyFormatter = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' })
 const dateFormatter = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Manila' })
@@ -40,7 +29,7 @@ function OversightNavigation({ onNavigate, role }) {
 }
 
 function humanize(value = '') {
-  return value.toLowerCase().replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase())
+  return value.toLowerCase().replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase()).replace(/\bQr\b/g, 'QR')
 }
 
 function formatDate(value) {
@@ -83,137 +72,179 @@ function AccessDenied({ session, onLogout, onNavigate }) {
 }
 
 function ReportsPage({ session, onLogout, onNavigate, onSessionExpired }) {
-  const [distributions, setDistributions] = useState([])
-  const [reportType, setReportType] = useState('SUMMARY')
-  const [distributionId, setDistributionId] = useState(() => new URLSearchParams(window.location.search).get('distribution') || '')
-  const [status, setStatus] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [report, setReport] = useState(null)
-  const [error, setError] = useState('')
-  const [isLoadingDistributions, setIsLoadingDistributions] = useState(true)
+  const [scope, setScope] = useState(() => readReportScope(window.location.search))
+  const [eventResult, setEventResult] = useState(null)
+  const [eventRetry, setEventRetry] = useState(0)
+  const [snapshot, setSnapshot] = useState(null)
+  const [failure, setFailure] = useState(null)
+  const [fieldError, setFieldError] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
-  const [exportMessage, setExportMessage] = useState('')
-  const linkedDistributionId = useRef(new URLSearchParams(window.location.search).get('distribution') || '')
+  const [exportFeedback, setExportFeedback] = useState(null)
+  const requestSerial = useRef(0)
+  const scopeKey = reportLocation(scope)
+  const eventKey = `${scope.distributionId}/${eventRetry}`
+  const currentEvent = eventResult?.key === eventKey ? eventResult : null
+  const selected = currentEvent?.data
+  const busy = isGenerating || isExporting
+  const eventReady = !scope.distributionId || Boolean(selected)
+  const current = snapshot?.key === scopeKey ? snapshot : null
+  const currentFailure = failure?.key === scopeKey ? failure : null
+  const formRef = useRef(null)
 
   useEffect(() => {
+    window.history.replaceState(window.history.state, '', reportLocation(scope, window.location.search))
+  }, [scope])
+  useEffect(() => () => { requestSerial.current++ }, [])
+  useEffect(() => {
+    if (!scope.distributionId) return undefined
     let active = true
-    // ponytail: the latest 100 events fit the current capstone dataset; add server search when this ceiling is reached.
-    requestDistributionList(session.accessToken, { page: 1, pageSize: 100 })
-      .then(async (data) => {
-        if (!active) return
-        let available = data.distributions
-        const linkedId = linkedDistributionId.current
-        if (linkedId && !available.some((item) => item.distributionId === linkedId)) {
-          try { available = [await requestDistribution(session.accessToken, linkedId), ...available] }
-          catch (requestError) {
-            if (!active) return
-            if (isSessionExpiredError(requestError)) return onSessionExpired()
-            setError('The linked distribution could not be loaded. Choose another event.')
-          }
-        }
-        if (!active) return
-        setDistributions(available)
-        setDistributionId((current) => available.some((item) => item.distributionId === current) ? current : available[0]?.distributionId ?? '')
-      })
-      .catch((requestError) => {
-        if (!active) return
-        if (isSessionExpiredError(requestError)) return onSessionExpired()
-        setError(getAuthErrorMessage(requestError))
-      })
-      .finally(() => { if (active) setIsLoadingDistributions(false) })
+    requestDistribution(session.accessToken, scope.distributionId).then((data) => {
+      if (data.distributionId !== scope.distributionId) throw new Error('The returned event does not match your selection.')
+      if (active) setEventResult({ key: eventKey, data })
+    }).catch((issue) => {
+      if (!active) return
+      if (isSessionExpiredError(issue)) onSessionExpired()
+      else setEventResult({ key: eventKey, error: getAuthErrorMessage(issue) })
+    })
     return () => { active = false }
-  }, [onSessionExpired, session.accessToken])
+  }, [eventKey, onSessionExpired, scope.distributionId, session.accessToken])
+
+  function changeScope(changes) {
+    if (busy) return
+    setScope((previous) => ({ ...previous, ...changes }))
+    setFieldError('')
+    setFailure(null)
+    setExportFeedback(null)
+  }
 
   async function loadReport(page = 1) {
-    if (reportType !== 'FUNDS' && !distributionId) {
-      setError('Select a distribution event before generating this report.')
+    if (busy || !eventReady) return
+    if (scope.type !== 'FUNDS' && !scope.distributionId) {
+      setFieldError('Select a distribution event before generating this report.')
+      formRef.current?.elements.namedItem('report-distribution')?.focus()
       return
     }
-    if (dateFrom && dateTo && dateFrom > dateTo) {
-      setError('Date to must be the same as or later than Date from.')
+    if (scope.dateFrom && scope.dateTo && scope.dateFrom > scope.dateTo) {
+      setFieldError('Date to must be the same as or later than Date from.')
+      formRef.current?.elements.namedItem('report-date-to')?.focus()
       return
     }
-
-    setError('')
-    setExportMessage('')
-    setReport(null)
+    const serial = ++requestSerial.current
+    setFieldError('')
+    setFailure(null)
     setIsGenerating(true)
-    try {
-      const filters = { page, pageSize: 20, status, dateFrom, dateTo }
-      const generated = reportType === 'FUNDS'
-        ? await requestFundUtilizationReport(session.accessToken, { ...filters, distributionId })
-        : await requestDistributionReport(session.accessToken, distributionId, reportType, reportType === 'SUMMARY' ? {} : filters)
-      setReport(generated)
-    } catch (requestError) {
-      if (isSessionExpiredError(requestError)) return onSessionExpired()
-      setError(getAuthErrorMessage(requestError))
-    } finally {
-      setIsGenerating(false)
+    const fetchPage = (nextPage) => {
+      const filters = { page: nextPage, pageSize: 20, status: scope.status, dateFrom: scope.dateFrom, dateTo: scope.dateTo }
+      return scope.type === 'FUNDS'
+        ? requestFundUtilizationReport(session.accessToken, { ...filters, distributionId: scope.distributionId })
+        : requestDistributionReport(session.accessToken, scope.distributionId, scope.type, scope.type === 'SUMMARY' ? {} : filters)
     }
+    try {
+      let generated = await fetchPage(page)
+      const pages = generated.data.pagination
+      if (pages && page > Math.max(1, pages.totalPages)) generated = await fetchPage(Math.max(1, pages.totalPages))
+      if (generated.distributionId && generated.distributionId !== scope.distributionId) throw new Error('The returned report does not match the selected event. Try generating it again.')
+      if (serial === requestSerial.current) setSnapshot({ key: scopeKey, scope, event: selected, report: generated })
+    } catch (issue) {
+      if (serial !== requestSerial.current) return
+      if (isSessionExpiredError(issue)) onSessionExpired()
+      else setFailure({ key: scopeKey, page, message: getAuthErrorMessage(issue) })
+    } finally { if (serial === requestSerial.current) setIsGenerating(false) }
   }
 
   async function exportCsv() {
-    if (!distributionId) return
+    if (busy || !selected) return
+    const serial = ++requestSerial.current
     setIsExporting(true)
-    setExportMessage('')
+    setExportFeedback(null)
     try {
-      const exported = await requestDistributionCsv(session.accessToken, distributionId)
+      const exported = await requestDistributionCsv(session.accessToken, scope.distributionId)
+      if (serial !== requestSerial.current) return
       const url = URL.createObjectURL(new Blob([exported.csv], { type: 'text/csv;charset=utf-8' }))
       const link = document.createElement('a')
       link.href = url
       link.download = exported.filename
       link.click()
       URL.revokeObjectURL(url)
-      setExportMessage(`${exported.filename} downloaded. The export action was recorded in the audit log.`)
-    } catch (requestError) {
-      if (isSessionExpiredError(requestError)) return onSessionExpired()
-      setError(getAuthErrorMessage(requestError))
-    } finally {
-      setIsExporting(false)
-    }
+      setExportFeedback({ message: `Download started: ${exported.filename}. Export recorded in the audit log.` })
+    } catch (issue) {
+      if (serial !== requestSerial.current) return
+      if (isSessionExpiredError(issue)) onSessionExpired()
+      else setExportFeedback({ error: getAuthErrorMessage(issue) })
+    } finally { if (serial === requestSerial.current) setIsExporting(false) }
   }
 
-  const statusOptions = reportStatuses[reportType] ?? []
-  const filtersSupported = reportType !== 'SUMMARY'
-
   return (
-    <DashboardShell breadcrumbs={['Operations', 'Oversight', 'Reports']} currentPath="/reports" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Reports" user={session.user}>
-      <header className="ga-page-header border-b border-line pb-6">
-        <div><p className="ga-eyebrow">Authorized reporting</p><h1 className="ga-page-title mt-2">Operational reports</h1><p className="ga-page-copy">Choose a report and its coverage, then generate or export the current records.</p></div>
-      </header>
-
+    <DashboardShell breadcrumbs={['Operations', 'Reports & review', 'Reports']} currentPath="/reports" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Reports" user={session.user} showAssistant={false}>
+      <header className="ga-page-header border-b border-line pb-5"><h1 className="ga-page-title">Operational reports</h1><p className="ga-page-copy">Select the records to review, then generate a report for that coverage.</p></header>
       <OversightNavigation onNavigate={onNavigate} role={session.user.role} />
-      {session.user.role === 'SYSTEM_ADMIN' && distributionId && new URLSearchParams(window.location.search).has('distribution') && <a href={`/distributions/manage?event=${encodeURIComponent(distributionId)}`} onClick={(event) => { event.preventDefault(); onNavigate(`/distributions/manage?event=${encodeURIComponent(distributionId)}`) }} className="mt-4 inline-flex min-h-11 items-center gap-2 text-sm font-bold text-brand-blue hover:underline"><Icon name="arrowLeft" className="size-4" />Return to distribution event</a>}
+      {selected && <nav aria-label="Selected event review" className="mt-3 flex flex-wrap gap-x-5">{[
+        ...(session.user.role === 'SYSTEM_ADMIN' ? [['Return to event review', `/distributions/manage?event=${encodeURIComponent(scope.distributionId)}`]] : []),
+        [selected.deliveryMode === 'PHYSICAL_GOODS' ? 'Review physical release records' : 'Review reconciliation', selected.deliveryMode === 'PHYSICAL_GOODS' ? `/claim-accountability?distribution=${encodeURIComponent(scope.distributionId)}` : `/dswd/ledger?distribution=${encodeURIComponent(scope.distributionId)}`],
+      ].map(([label, href]) => <a key={href} href={href} onClick={(event) => { event.preventDefault(); onNavigate(href) }} className="ga-admin-link min-h-11">{label}</a>)}</nav>}
 
-      <section className="mt-6 rounded-xl border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy" aria-label="Report limitation"><strong className="text-ink">Prototype compliance review:</strong> Reports are not COA-certified. Simulated fund reports do not represent actual government disbursements.</section>
-
-      <form onSubmit={(event) => { event.preventDefault(); loadReport(1) }} className="ga-card mt-6 p-5 sm:p-6" aria-label="Report generator">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div><label htmlFor="report-type" className="ga-label">Report type</label><select id="report-type" value={reportType} disabled={isGenerating} onChange={(event) => { setReportType(event.target.value); setStatus(''); setReport(null) }} className="ga-input mt-2 cursor-pointer font-semibold">{reportTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
-          <div><label htmlFor="report-distribution" className="ga-label">Distribution event</label><select id="report-distribution" value={distributionId} required={reportType !== 'FUNDS'} onChange={(event) => { setDistributionId(event.target.value); setReport(null); setExportMessage('') }} disabled={isLoadingDistributions || isGenerating} className="ga-input mt-2 cursor-pointer font-semibold">{reportType === 'FUNDS' && <option value="">All distributions</option>}{distributions.map((distribution) => <option key={distribution.distributionId} value={distribution.distributionId}>{distribution.title} · {distribution.distributionDate}</option>)}</select></div>
-          {filtersSupported && <><div><label htmlFor="report-status" className="ga-label">Status</label><select id="report-status" value={status} onChange={(event) => { setStatus(event.target.value); setReport(null) }} disabled={statusOptions.length === 0 || isGenerating} className="ga-input mt-2 cursor-pointer font-semibold"><option value="">All statuses</option>{statusOptions.map((value) => <option key={value} value={value}>{humanize(value)}</option>)}</select></div><div className="grid grid-cols-2 gap-3"><div><label htmlFor="report-date-from" className="ga-label">Date from</label><input id="report-date-from" type="date" value={dateFrom} disabled={isGenerating} onChange={(event) => { setDateFrom(event.target.value); setReport(null) }} className="ga-input mt-2 px-2" /></div><div><label htmlFor="report-date-to" className="ga-label">Date to</label><input id="report-date-to" type="date" value={dateTo} min={dateFrom || undefined} disabled={isGenerating} onChange={(event) => { setDateTo(event.target.value); setReport(null) }} className="ga-input mt-2 px-2" /></div></div></>}
+      <form ref={formRef} noValidate onSubmit={(event) => { event.preventDefault(); loadReport(1) }} className="mt-5 border border-line bg-white p-5 sm:p-6" aria-label="Report generator">
+        <h2 className="text-lg font-bold text-ink">Report coverage</h2>
+        <div className="mt-4 grid items-start gap-5 lg:grid-cols-2">
+          <div><label htmlFor="report-type" className="ga-label">Report type</label><select id="report-type" value={scope.type} disabled={busy} onChange={(event) => changeScope({ type: event.target.value, status: '', ...(event.target.value === 'SUMMARY' ? { dateFrom: '', dateTo: '' } : {}) })} className="ga-input mt-2 cursor-pointer font-semibold">{reportTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><p className="mt-2 text-sm leading-6 text-muted-copy">{scope.type === 'SUMMARY' ? 'Overview of the whole selected event. Date and status filters do not apply.' : scope.type === 'FUNDS' ? 'Compare allocations and simulated credits for one event or all authorized distributions.' : 'Review recorded details within the selected event.'}</p></div>
+          <ReportEventPicker token={session.accessToken} value={scope.distributionId} selected={selected} allowAll={scope.type === 'FUNDS'} disabled={busy} onSelect={(distributionId) => changeScope({ distributionId })} onSessionExpired={onSessionExpired} />
         </div>
-        <div className="mt-5 flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:items-end sm:justify-between"><p className="text-sm leading-5 text-muted-copy">Only authorized operational fields are returned; government IDs, contact details, tokens, and biometric templates are excluded.</p><div className="flex shrink-0 flex-col gap-2 sm:flex-row"><button type="button" onClick={exportCsv} disabled={!distributionId || isExporting} className="ga-btn-secondary">{isExporting ? <LoadingLabel>Preparing CSV...</LoadingLabel> : 'Export selected event CSV'}</button><button type="submit" disabled={isGenerating || isLoadingDistributions || (reportType !== 'FUNDS' && !distributionId)} className="ga-btn-primary">{isGenerating ? <LoadingLabel>Generating report...</LoadingLabel> : 'Generate report'}</button></div></div>
+        {scope.distributionId && !currentEvent && <p role="status" className="mt-3 text-sm"><LoadingLabel>Checking selected event...</LoadingLabel></p>}
+        {currentEvent?.error && <div role="alert" className="mt-3 border-l-2 border-brand-amber bg-warning-soft p-3 text-sm leading-6"><p className="font-bold">Selected event could not be loaded</p><p>{currentEvent.error}</p><p className="mt-1">Retry or choose another event. Your selected event has not been replaced.</p><button type="button" disabled={busy} onClick={() => setEventRetry((value) => value + 1)} className="ga-admin-link min-h-11">Retry selected event</button></div>}
+        {selected && <div className="mt-3 border-y border-line bg-slate-50 px-4 py-3 text-sm leading-6"><p className="break-words font-bold text-ink">{selected.title}</p><p className="break-words text-copy">{selected.program?.programName || 'Program not recorded'} / {selected.barangay?.barangayName || 'Barangay not recorded'} / {selected.distributionDate}</p></div>}
+        {scope.type !== 'SUMMARY' && <div className="mt-5">
+          <div className="grid gap-4 sm:grid-cols-3">
+            {reportStatuses[scope.type] && <div><label htmlFor="report-status" className="ga-label">Status</label><select id="report-status" value={scope.status} disabled={busy} onChange={(event) => changeScope({ status: event.target.value })} className="ga-input mt-2"><option value="">All statuses</option>{reportStatuses[scope.type].map((status) => <option key={status} value={status}>{humanize(status)}</option>)}</select></div>}
+            <div><label htmlFor="report-date-from" className="ga-label">Date from</label><input id="report-date-from" type="date" value={scope.dateFrom} disabled={busy} onChange={(event) => changeScope({ dateFrom: event.target.value })} aria-describedby="report-date-help" className="ga-input mt-2" /></div>
+            <div><label htmlFor="report-date-to" className="ga-label">Date to</label><input id="report-date-to" type="date" value={scope.dateTo} disabled={busy} onChange={(event) => changeScope({ dateTo: event.target.value })} aria-invalid={Boolean(fieldError && scope.dateFrom && scope.dateTo && scope.dateFrom > scope.dateTo)} aria-describedby="report-date-help report-form-error" className="ga-input mt-2" /></div>
+          </div><p id="report-date-help" className="mt-2 text-xs leading-5 text-muted-copy">{reportDateHelp[scope.type]} Leave dates blank to include all dates.</p>
+        </div>}
+        {fieldError && <p id="report-form-error" role="alert" className="mt-4 text-sm font-semibold text-brand-red">{fieldError}</p>}
+        <div className="mt-5 flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm leading-6 text-muted-copy">{current ? 'Generate again to check for updated records.' : 'The report is generated only when you select Generate report.'}</p><button type="submit" disabled={busy || !eventReady} className="ga-btn-primary shrink-0">{isGenerating ? <LoadingLabel>Generating report...</LoadingLabel> : 'Generate report'}</button></div>
       </form>
 
-      <div aria-live="polite" aria-atomic="true">{exportMessage && <p className="mt-4 rounded-lg border border-emerald-200 bg-success-soft px-4 py-3 text-sm font-semibold text-brand-green">{exportMessage} <a href="/audit-logs?entity=REPORT" onClick={(event) => { event.preventDefault(); onNavigate('/audit-logs?entity=REPORT') }} className="inline-flex min-h-11 items-center underline underline-offset-2">Review export in audit logs</a></p>}</div>
-      {error && <section className="mt-5 rounded-xl border border-amber-200 bg-white p-5" role="alert"><h2 className="font-extrabold text-ink">Report request could not be completed</h2><p className="mt-2 text-sm leading-6 text-muted-copy">{error}</p></section>}
-      {isGenerating ? <ReportSkeleton /> : report ? <ReportResult report={report} type={reportType} onPage={loadReport} /> : !error && <section className="mt-6 rounded-xl border border-dashed border-line bg-white p-8 text-center"><span aria-hidden="true" className="mx-auto grid size-12 place-items-center rounded-full bg-info-soft font-black text-brand-blue">RP</span><h2 className="mt-4 text-xl font-extrabold text-ink">Choose a report to begin</h2><p className="mt-2 text-sm leading-6 text-muted-copy">Select the report scope, then generate a current read-only snapshot.</p></section>}
+      <details className="mt-4 border border-line bg-white p-4 sm:px-6">
+        <summary className="min-h-11 cursor-pointer py-2.5 text-sm font-bold text-brand-blue">Download full-event CSV</summary>
+        <div className="border-t border-line pt-4 text-sm leading-6">
+          {selected ? <><p className="font-bold text-ink">{selected.title}</p><p className="mt-1 text-muted-copy">{selected.program?.programName} / {selected.barangay?.barangayName}</p></> : <p>Choose one distribution event to download its CSV.</p>}
+          <p className="mt-3 text-copy">One row per allocated beneficiary, including schedule, claim, release, and simulated credit details. The download uses current event records.</p>
+          <p className="mt-2 font-semibold text-ink">Report type, date, and status filters do not apply to this CSV.</p>
+          <p className="mt-2 text-xs text-muted-copy">Government identifiers, contact details, and biometric templates are excluded.</p>
+          <button type="button" onClick={exportCsv} disabled={busy || !selected} className="ga-btn-secondary mt-4">{isExporting ? <LoadingLabel>Preparing CSV...</LoadingLabel> : 'Export selected event CSV'}</button>
+          {exportFeedback?.error && <div role="alert" className="mt-3 text-sm text-brand-red"><p>CSV download could not be prepared. {exportFeedback.error}</p><p className="mt-1">Select Export selected event CSV to retry.</p></div>}
+          {exportFeedback?.message && <div role="status" className="mt-3 text-sm text-copy"><p>{exportFeedback.message}</p><a href="/audit-logs?entity=REPORT" onClick={(event) => { event.preventDefault(); onNavigate('/audit-logs?entity=REPORT') }} className="ga-admin-link min-h-11">Review export in audit logs</a></div>}
+        </div>
+      </details>
+
+      {currentFailure && <section role="alert" className="mt-5 border-l-4 border-brand-amber bg-warning-soft p-4 text-sm leading-6"><h2 className="font-bold">{current ? 'Report could not be refreshed' : 'Report could not be generated'}</h2><p>{currentFailure.message}</p>{current && <p className="mt-2">Showing the last successful report below. It may not include the latest changes.</p>}<button type="button" disabled={busy || !eventReady} onClick={() => loadReport(currentFailure.page)} className="ga-btn-secondary mt-3">Retry report</button></section>}
+      {isGenerating && <p role="status" className="mt-5 text-sm"><LoadingLabel>{current ? 'Refreshing report. The previous result remains visible.' : 'Generating the selected report...'}</LoadingLabel></p>}
+      {current ? <ReportResult snapshot={current} onPage={loadReport} disabled={busy} /> : !isGenerating && !currentFailure && <section className="mt-5 border border-line bg-white p-5"><h2 className="font-bold text-ink">{snapshot ? 'Coverage changed' : 'No report generated yet'}</h2><p className="mt-2 text-sm leading-6 text-copy">{snapshot ? 'Generate a report for the selected coverage. The previous result is hidden because it uses different filters.' : 'Choose your report coverage above, then generate the records for review.'}</p></section>}
+      <p className="mt-5 border-t border-line pt-4 text-xs leading-5 text-muted-copy">Capstone prototype. Reports are not COA-certified; wallet amounts are simulated.</p>
     </DashboardShell>
   )
 }
 
-function ReportResult({ report, type, onPage }) {
-  const definition = reportDefinition(type, report.data)
+function ReportResult({ snapshot, onPage, disabled }) {
+  const { report, scope, event } = snapshot
+  const definition = reportDefinition(scope.type, report.data)
   return (
-    <section className="mt-6" aria-labelledby="report-result-heading">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.14em] text-brand-green">Generated report</p><h2 id="report-result-heading" className="mt-1 text-2xl font-extrabold text-ink">{reportLabel(type)}</h2></div><p className="text-xs font-semibold text-muted-copy">Generated {formatDate(report.generatedAt)} · {report.timeZone}</p></div>
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{definition.metrics.map(([label, value, tone = 'default']) => <article key={label} className="ga-card p-5"><p className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">{label}</p><p className={`mt-3 text-2xl font-black tracking-tight ${tone === 'success' ? 'text-brand-green' : tone === 'danger' ? 'text-brand-red' : tone === 'pending' ? 'text-brand-amber' : 'text-ink'}`}>{value}</p></article>)}</div>
-      {definition.notice && <p className="mt-4 rounded-lg border border-line bg-slate-50 px-4 py-3 text-xs leading-5 text-muted-copy">{definition.notice}</p>}
-      {definition.rows && <DataTable caption={`${reportLabel(type)} results`} columns={definition.columns} rows={definition.rows} empty="No records matched the selected report filters." />}
-      {definition.pagination && <Pagination pagination={definition.pagination} onPage={onPage} />}
+    <section className="mt-6 min-w-0" aria-labelledby="report-result-heading" aria-busy={disabled}>
+      <header className="border border-line border-t-4 border-t-brand-navy bg-white p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold text-muted-copy">Generated report</p><h2 id="report-result-heading" className="mt-1 text-xl font-bold text-ink">{reportLabel(scope.type)}</h2></div><p className="text-xs leading-5 text-muted-copy">Generated {formatDate(report.generatedAt)} / {report.timeZone}</p></div>
+        <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">{[
+          ['Event', event?.title || 'All authorized distributions'],
+          ['Program / barangay', event ? `${event.program?.programName || 'Not recorded'} / ${event.barangay?.barangayName || 'Not recorded'}` : 'All authorized programs and barangays'],
+          ['Date coverage', scope.type === 'SUMMARY' || (!scope.dateFrom && !scope.dateTo) ? 'All dates' : `${scope.dateFrom || 'Start of records'} to ${scope.dateTo || 'Latest records'}`],
+          ['Status coverage', scope.status ? humanize(scope.status) : 'All statuses'],
+        ].map(([label, value]) => <div key={label} className="min-w-0"><dt className="text-muted-copy">{label}</dt><dd className="mt-1 break-words font-semibold leading-6 text-ink">{value}</dd></div>)}</dl>
+        {reportDateHelp[scope.type] && <p className="mt-3 text-xs leading-5 text-muted-copy">{reportDateHelp[scope.type]}</p>}
+      </header>
+      <dl className={`ga-admin-summary mt-4 grid lg:grid-cols-4 ${scope.type === 'FUNDS' ? 'grid-cols-1 min-[400px]:grid-cols-2 max-[399px]:[&>div]:border-l-0 max-[399px]:[&>div+div]:border-t max-[399px]:[&>div+div]:border-line' : 'grid-cols-2'}`}>{definition.metrics.map(([label, value]) => <div key={label}><dt>{label}</dt><dd className="text-2xl font-semibold tabular-nums text-ink">{value}</dd></div>)}</dl>
+      {scope.status && ['CLAIMS', 'SCHEDULES'].includes(scope.type) && <p className="mt-3 text-xs leading-5 text-muted-copy">Status totals cover all statuses within the date range. Matching records below follow your selected status.</p>}
+      {definition.notice && <p className="mt-4 border-l-2 border-line pl-4 text-sm leading-6 text-copy">{definition.notice}</p>}
+      {definition.rows && <DataTable caption={`${reportLabel(scope.type)} results`} columns={definition.columns} rows={definition.rows} empty="No records matched the selected report filters." />}
+      {definition.pagination && <Pagination pagination={definition.pagination} onPage={onPage} disabled={disabled} />}
     </section>
   )
 }
@@ -222,18 +253,19 @@ function reportDefinition(type, data) {
   if (type === 'SUMMARY') return {
     metrics: [
       ['Allocated beneficiaries', numberFormatter.format(data.beneficiaries.allocatedCount)],
+      ...(data.physicalPackage ? [['Recorded handovers', data.physicalPackage.handoverCount == null ? 'Not recorded' : numberFormatter.format(data.physicalPackage.handoverCount)], ['Recorded package units', `${data.physicalPackage.recordedQuantity} ${data.physicalPackage.unit ?? 'known units'}`], ['Units on voided claims', numberFormatter.format(data.physicalPackage.voidedClaimQuantity)], ['Handovers without quantity', numberFormatter.format(data.physicalPackage.quantityNotRecordedCount)]] : []),
       ['Claim completion', `${data.beneficiaries.claimCompletionPercentage}%`, 'success'],
       ['Queue utilization', `${data.slots.capacityUtilizationPercentage}%`, 'pending'],
       ['Verification exceptions', numberFormatter.format(data.qrScans.duplicateCount + data.qrScans.invalidCount + data.biometrics.noMatchCount), 'danger'],
     ],
     notice: data.distribution.deliveryMode === 'PHYSICAL_GOODS'
-      ? `${data.distribution.title} · ${data.distribution.program.programName} · ${data.distribution.barangay.barangayName}. Physical assistance release; wallet credits are not required.`
+      ? `${data.distribution.title} · ${data.distribution.program.programName} · ${data.distribution.barangay.barangayName}. Physical assistance release; wallet credits are not required. Recorded handovers and quantities include voided claims; voiding does not record returned goods.`
       : `${data.distribution.title} · ${data.distribution.program.programName} · ${data.distribution.barangay.barangayName}. Simulated net credited: ${formatMoney(data.fundUtilization.netCreditedAmount)}; real funds moved: No.`,
   }
   if (type === 'CLAIMS') return {
     metrics: [['Matching claims', numberFormatter.format(data.summary.matchingClaimCount)], ['Claimed', numberFormatter.format(data.summary.statusCounts.CLAIMED ?? 0), 'success'], ['Verified', numberFormatter.format(data.summary.statusCounts.VERIFIED ?? 0)], ['Rejected or voided', numberFormatter.format((data.summary.statusCounts.REJECTED ?? 0) + (data.summary.statusCounts.VOIDED ?? 0)), 'danger']],
     rows: data.claims,
-    columns: [['Recorded', (row) => formatDate(row.recordedAt)], ['Beneficiary', (row) => row.beneficiaryName], ['Queue', (row) => row.queueNumber], ['Verification', (row) => humanize(row.verificationMethod)], ['Delivery', (row) => humanize(row.deliveryMode)], ['Released', (row) => row.releasedAt ? <><span className="font-semibold text-ink">{formatDate(row.releasedAt)}</span><span className="mt-1 block text-xs text-muted-copy">{row.releasedBy?.fullName ?? 'Staff not recorded'} · {row.releaseEvidenceReference ?? 'No evidence reference'}</span></> : 'Awaiting settlement'], ['Allocated', (row) => formatMoney(row.allocatedAmount)], ['Status', (row) => <StatusBadge value={row.claimStatus} />]],
+    columns: [['Recorded', (row) => formatDate(row.recordedAt)], ['Beneficiary', (row) => row.beneficiaryName], ['Queue', (row) => row.queueNumber], ['Verification', (row) => humanize(row.verificationMethod)], ['Delivery', (row) => humanize(row.deliveryMode)], ['Released', (row) => row.releasedAt ? <><span className="font-semibold text-ink">{formatDate(row.releasedAt)}</span><span className="mt-1 block text-xs text-muted-copy">{row.releasedBy?.fullName ?? 'Staff not recorded'} · {row.releaseEvidenceReference ?? 'No evidence reference'}</span></> : 'Not recorded'], ['Package handed over', (row) => row.releasedQuantity != null ? `${row.releasedPackageName}: ${row.releasedQuantity} ${row.releasedPackageUnit}` : row.deliveryMode === 'PHYSICAL_GOODS' ? 'Quantity not recorded' : 'Not applicable'], ['Allocated', (row) => formatMoney(row.allocatedAmount)], ['Status', (row) => <StatusBadge value={row.claimStatus} />]],
     pagination: data.pagination,
   }
   if (type === 'SCHEDULES') return {
@@ -278,9 +310,9 @@ function StatusBadge({ value }) {
   return <span className={`inline-flex whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-bold ${style}`}>{humanize(value)}</span>
 }
 
-function Pagination({ pagination, onPage }) {
+function Pagination({ pagination, onPage, disabled = false }) {
   const totalPages = Math.max(pagination.totalPages, 1)
-  return <div className="mt-4 flex items-center justify-between rounded-xl border border-line bg-white px-5 py-3"><p className="text-xs font-semibold text-muted-copy">Page {pagination.page} of {totalPages} · {numberFormatter.format(pagination.total)} records</p><div className="flex gap-2"><button type="button" disabled={pagination.page <= 1} onClick={() => onPage(pagination.page - 1)} className="min-h-11 cursor-pointer rounded-lg border border-line px-4 text-sm font-bold text-copy disabled:cursor-not-allowed disabled:opacity-50">Previous</button><button type="button" disabled={pagination.page >= totalPages} onClick={() => onPage(pagination.page + 1)} className="min-h-11 cursor-pointer rounded-lg border border-line px-4 text-sm font-bold text-copy disabled:cursor-not-allowed disabled:opacity-50">Next</button></div></div>
+  return <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-white px-5 py-3"><p className="text-xs font-semibold text-muted-copy">Page {pagination.page} of {totalPages} · {numberFormatter.format(pagination.total)} records</p><div className="flex gap-2"><button type="button" disabled={disabled || pagination.page <= 1} onClick={() => onPage(pagination.page - 1)} className="min-h-11 cursor-pointer rounded-lg border border-line px-4 text-sm font-bold text-copy disabled:cursor-not-allowed disabled:opacity-50">Previous</button><button type="button" disabled={disabled || pagination.page >= totalPages} onClick={() => onPage(pagination.page + 1)} className="min-h-11 cursor-pointer rounded-lg border border-line px-4 text-sm font-bold text-copy disabled:cursor-not-allowed disabled:opacity-50">Next</button></div></div>
 }
 
 function AuditLogsPage({ session, onLogout, onNavigate, onSessionExpired }) {

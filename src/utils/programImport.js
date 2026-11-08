@@ -12,7 +12,7 @@ const key = value => String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9]
 const aliases = {
   programName: ['programname', 'name', 'assistanceprogram'], programCode: ['programcode', 'code'],
   programType: ['programtype', 'type', 'category'], description: ['description', 'programdescription'],
-  grantAmount: ['grantamount', 'grant', 'amountperbeneficiary'], budgetAmount: ['budgetamount', 'budget', 'totalbudget'],
+  grantAmount: ['grantamount', 'grantamountphp', 'grant', 'amountperbeneficiary'], budgetAmount: ['budgetamount', 'budgetamountphp', 'budget', 'totalbudget'],
   applicationStartDate: ['applicationstartdate', 'startdate'], applicationEndDate: ['applicationenddate', 'enddate'],
   requiredDocumentTypes: ['requireddocuments', 'requireddocumenttypes', 'documents', 'documentrequirements'],
 }

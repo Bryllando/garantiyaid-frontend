@@ -4,14 +4,16 @@ import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Icon } from '../components/ui/icon.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
+import { verificationLabels } from '../utils/claimVerification.js'
 import {
   cancelDistributionSchedule,
   generateDistributionSchedules,
   getAuthErrorMessage,
   isSessionExpiredError,
   previewDistributionQrClaim,
+  requestDistribution,
   requestDistributionQueue,
-  requestDistributionList,
+  requestAllDistributions,
   requestDistributionSlots,
   requestOpenDistributions,
   reactivateDistributionSchedule,
@@ -19,6 +21,7 @@ import {
   verifyDistributionQrClaim,
 } from '../auth/staffAuth.js'
 import { connectFacilitatorQueueRealtime } from '../realtime/staffRealtime.js'
+import { queueNextAction } from '../utils/claimWorkflow.js'
 
 const dateFormatter = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeZone: 'Asia/Manila' })
 const timeFormatter = new Intl.DateTimeFormat('en-PH', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila' })
@@ -38,7 +41,7 @@ function beneficiaryName(beneficiary) {
 const humanize = (value = '') => value.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase())
 
 function StatusBadge({ status }) {
-  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${statusStyles[status] ?? statusStyles.CANCELLED}`}>{status.replace('_', ' ')}</span>
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${statusStyles[status] ?? statusStyles.CANCELLED}`}>{humanize(status)}</span>
 }
 
 function ClaimProgress({ claim }) {
@@ -47,22 +50,26 @@ function ClaimProgress({ claim }) {
   return <p className={`mt-1 text-xs font-semibold ${claim.claimStatus === 'CLAIMED' ? 'text-brand-green' : 'text-brand-blue'}`}>{label}</p>
 }
 
-function DistributionSelector({ distributions, selectedId, onChange }) {
+function DistributionSelector({ distributions, selectedId, onChange, disabled }) {
   return (
     <div>
       <label htmlFor="distribution-event" className="block text-sm font-bold text-ink">Distribution event</label>
-      <select
-        id="distribution-event"
-        value={selectedId}
-        onChange={(event) => onChange(event.target.value)}
-        className="ga-input mt-2 cursor-pointer font-semibold"
-      >
-        {distributions.map((distribution) => (
-          <option key={distribution.distributionId} value={distribution.distributionId}>
-            {distribution.title} · {humanize(distribution.status)} · {dateFormatter.format(new Date(distribution.distributionDate))}
-          </option>
-        ))}
-      </select>
+      <div className="relative mt-2">
+        <Icon name="calendar" className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-copy" />
+        <select
+          id="distribution-event"
+          value={selectedId}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+          className="ga-input cursor-pointer pl-11 font-semibold"
+        >
+          {distributions.map((distribution) => (
+            <option key={distribution.distributionId} value={distribution.distributionId}>
+              {distribution.title} · {humanize(distribution.status)} · {dateFormatter.format(new Date(distribution.distributionDate))}
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
   )
 }
@@ -84,11 +91,11 @@ function QueueSkeleton() {
 
 function AccessDenied({ session, onLogout, onNavigate }) {
   return (
-    <DashboardShell breadcrumbs={['Operations', 'Facilitator access']} currentPath={window.location.pathname} onLogout={onLogout} onNavigate={onNavigate} pageTitle="Facilitator operations" user={session.user}>
+    <DashboardShell breadcrumbs={['Operations', 'Staff access']} currentPath={window.location.pathname} onLogout={onLogout} onNavigate={onNavigate} pageTitle="Distribution operations" user={session.user}>
       <section className="ga-card mx-auto max-w-lg p-7 text-center">
         <span aria-hidden="true" className="mx-auto grid size-12 place-items-center rounded-full bg-warning-soft font-black text-brand-amber">!</span>
-        <h1 className="mt-4 text-2xl font-extrabold text-ink">Barangay Facilitator access required</h1>
-        <p className="mt-3 text-sm leading-6 text-muted-copy">Queue operations and QR claim verification are limited to assigned Barangay Facilitators.</p>
+        <h1 className="mt-4 text-2xl font-extrabold text-ink">Staff access required</h1>
+        <p className="mt-3 text-sm leading-6 text-muted-copy">This work area is unavailable for your role. Open your dashboard to continue with your assigned work.</p>
         <button type="button" onClick={() => onNavigate('/dashboard')} className="ga-btn-primary mt-6">Return to dashboard</button>
       </section>
     </DashboardShell>
@@ -97,7 +104,8 @@ function AccessDenied({ session, onLogout, onNavigate }) {
 
 function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSessionExpired }) {
   const [distributions, setDistributions] = useState([])
-  const [selectedId, setSelectedId] = useState('')
+  const [selectedId, setSelectedId] = useState(() => new URLSearchParams(window.location.search).get('distribution') || '')
+  const linkedDistribution = useRef(selectedId)
   const [distributionError, setDistributionError] = useState('')
   const [isLoadingDistributions, setIsLoadingDistributions] = useState(true)
   const [distributionReload, setDistributionReload] = useState(0)
@@ -110,9 +118,12 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
   const [scheduleAction, setScheduleAction] = useState(null)
   const [reschedule, setReschedule] = useState(null)
   const [isScheduleBusy, setIsScheduleBusy] = useState(false)
-  const [searchInput, setSearchInput] = useState('')
-  const [search, setSearch] = useState('')
-  const [status, setStatus] = useState('')
+  const [searchInput, setSearchInput] = useState(() => new URLSearchParams(window.location.search).get('search') || '')
+  const [search, setSearch] = useState(searchInput)
+  const [status, setStatus] = useState(() => {
+    const linkedStatus = new URLSearchParams(window.location.search).get('status')
+    return queueStatuses.includes(linkedStatus) ? linkedStatus : ''
+  })
   const [page, setPage] = useState(1)
   const [liveStatus, setLiveStatus] = useState('connecting')
   const [liveNotice, setLiveNotice] = useState('')
@@ -124,16 +135,22 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
   const [pendingAttempt, setPendingAttempt] = useState(null)
   const [isPreviewing, setIsPreviewing] = useState(false)
   const [isVerifying, setIsVerifying] = useState(false)
+  const qrRequestPending = useRef(false)
   const isFacilitator = session.user.role === 'BARANGAY_FACILITATOR'
+  const isAdmin = session.user.role === 'SYSTEM_ADMIN'
+  const isDswd = session.user.role === 'DSWD_STAFF'
+  const authorized = isAdmin || isFacilitator || (isDswd && view === 'qr')
   const selectedIdRef = useRef(selectedId)
   const selectedDistribution = distributions.find((distribution) => distribution.distributionId === selectedId)
-  const currentPath = view === 'queue' ? '/facilitator/queue' : '/facilitator/qr-verification'
-  const pageTitle = view === 'queue' ? 'Queue & schedules' : 'QR claim verification'
+  const queuePath = isAdmin ? '/admin/schedules' : '/facilitator/queue'
+  const qrPath = isAdmin ? '/admin/verify-claims' : isDswd ? '/dswd/verify-claims' : '/facilitator/qr-verification'
+  const currentPath = view === 'queue' ? queuePath : qrPath
+  const pageTitle = view === 'queue' ? 'Queue & schedules' : isAdmin || isDswd ? 'Verify QR claims' : 'QR claim verification'
 
   useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
 
   useEffect(() => {
-    if (!isFacilitator || view !== 'queue') return undefined
+    if (!authorized || view !== 'queue') return undefined
     let active = true
     let connectedOnce = false
     let queueTimer
@@ -173,23 +190,37 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
       clearTimeout(distributionTimer)
       disconnect()
     }
-  }, [isFacilitator, onSessionExpired, session.accessToken, view])
+  }, [authorized, onSessionExpired, session.accessToken, view])
 
   useEffect(() => {
+    if (!authorized) return undefined
     let active = true
     const request = view === 'qr'
       ? requestOpenDistributions(session.accessToken)
       : Promise.all([
-        requestDistributionList(session.accessToken, { page: 1, pageSize: 100, status: 'DRAFT' }),
-        requestDistributionList(session.accessToken, { page: 1, pageSize: 100, status: 'OPEN' }),
-      ]).then(([drafts, open]) => [...drafts.distributions, ...open.distributions])
+        requestAllDistributions(session.accessToken, { status: 'OPEN' }),
+        requestAllDistributions(session.accessToken, { status: 'DRAFT' }),
+      ]).then(([open, drafts]) => [...open, ...drafts])
     request
-      .then((items) => {
+      .then(async (items) => {
+        const linkedId = linkedDistribution.current
+        if (linkedId && !items.some((item) => item.distributionId === linkedId)) {
+          const linked = await requestDistribution(session.accessToken, linkedId)
+          items = [linked, ...items]
+        }
         if (!active) return
         const relevantItems = view === 'qr'
-          ? items.filter((item) => ['QR', 'QR_AND_BIOMETRIC'].includes(item.verificationRequirement))
-          : items
+          ? items.filter((item) => item.status === 'OPEN' && ['QR', 'QR_AND_BIOMETRIC', 'QR_OR_BIOMETRIC'].includes(item.verificationRequirement))
+          : items.filter((item) => ['DRAFT', 'OPEN'].includes(item.status))
+        if (linkedId && !relevantItems.some((item) => item.distributionId === linkedId)) {
+          throw new Error(view === 'qr' ? 'This event is not open for QR validation. Return to the event to check its status and verification method.' : 'This event is closed or cancelled. Its schedules can be viewed in the event record.')
+        }
+        linkedDistribution.current = ''
         setDistributionError('')
+        if (!relevantItems.some((item) => item.distributionId === selectedIdRef.current)) {
+          setQueue(null)
+          setPage(1)
+        }
         setDistributions(relevantItems)
         setSelectedId((current) => relevantItems.some((item) => item.distributionId === current) ? current : relevantItems[0]?.distributionId || '')
         if (relevantItems.length === 0) setIsLoadingQueue(false)
@@ -201,10 +232,23 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
       })
       .finally(() => { if (active) setIsLoadingDistributions(false) })
     return () => { active = false }
-  }, [distributionReload, onSessionExpired, session.accessToken, view])
+  }, [authorized, distributionReload, onSessionExpired, session.accessToken, view])
 
   useEffect(() => {
-    if (view !== 'queue' || !selectedId) return undefined
+    if (!selectedDistribution || distributionError) return
+    const url = new URL(window.location.href)
+    url.searchParams.set('distribution', selectedId)
+    if (view === 'queue') {
+      if (status) url.searchParams.set('status', status)
+      else url.searchParams.delete('status')
+      if (search) url.searchParams.set('search', search)
+      else url.searchParams.delete('search')
+    }
+    window.history.replaceState(window.history.state, '', url)
+  }, [distributionError, search, selectedDistribution, selectedId, status, view])
+
+  useEffect(() => {
+    if (!authorized || view !== 'queue' || !selectedDistribution) return undefined
     let active = true
     requestDistributionQueue(session.accessToken, selectedId, { page, search, status })
       .then((data) => {
@@ -212,7 +256,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
         const lastPage = Math.max(1, data.pagination.totalPages)
         if (page > lastPage) { setPage(lastPage); return }
         setQueueError('')
-        setQueue(data)
+        setQueue({ ...data, distributionId: selectedId })
       })
       .catch((error) => {
         if (!active) return
@@ -221,9 +265,10 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
       })
       .finally(() => { if (active) setIsLoadingQueue(false) })
     return () => { active = false }
-  }, [onSessionExpired, page, queueReload, search, selectedId, session.accessToken, status, view])
+  }, [authorized, onSessionExpired, page, queueReload, search, selectedDistribution, selectedId, session.accessToken, status, view])
 
   function selectDistribution(distributionId) {
+    selectedIdRef.current = distributionId
     setSelectedId(distributionId)
     setQueue(null)
     setQueueError('')
@@ -251,6 +296,22 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     setPage(1)
     setQueueError('')
     setIsLoadingQueue(true)
+  }
+
+  function clearQueueFilters() {
+    setSearchInput('')
+    setSearch('')
+    setStatus('')
+    setPage(1)
+    setQueueError('')
+    setIsLoadingQueue(true)
+    setQueueReload(count => count + 1)
+  }
+
+  function refreshQueueRecords() {
+    setIsLoadingQueue(true)
+    setQueueReload((count) => count + 1)
+    setDistributionReload((count) => count + 1)
   }
 
   async function generateSchedules() {
@@ -292,9 +353,11 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     setQueueError('')
     try {
       const data = await requestDistributionSlots(session.accessToken, selectedId)
-      const slots = data.slots.filter((slot) => slot.slotId !== schedule.slotId && slot.slotStatus === 'AVAILABLE')
+      const area = schedule.beneficiary.sitioPurok?.trim().toLocaleLowerCase('en-PH')
+      const slots = data.slots.filter((slot) => slot.slotId !== schedule.slotId && slot.slotStatus === 'AVAILABLE'
+        && (!slot.serviceAreas.length || (area && slot.serviceAreas.some((name) => name.trim().toLocaleLowerCase('en-PH') === area))))
       if (slots.length === 0) {
-        setQueueError('No other available session can receive this beneficiary. Ask the administrator to review slot capacity.')
+        setQueueError(isAdmin ? 'No other available time slot covers this beneficiary’s service area. Return to the event to review capacity.' : 'No other available time slot covers this beneficiary’s service area. Ask the administrator to review capacity.')
         return
       }
       setReschedule({ schedule, slots })
@@ -321,6 +384,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
   }
 
   async function verifyToken(token) {
+    if (qrRequestPending.current) return
     const submittedToken = token.trim()
     setVerificationResult(null)
 
@@ -330,6 +394,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     }
 
     const reusableAttempt = pendingAttempt?.distributionId === selectedId && pendingAttempt.qrToken === submittedToken
+    qrRequestPending.current = true
     const idempotencyKey = reusableAttempt ? pendingAttempt.idempotencyKey : crypto.randomUUID()
     setPendingAttempt({ distributionId: selectedId, qrToken: submittedToken, idempotencyKey })
     setVerificationError(null)
@@ -343,18 +408,21 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
       setQrToken('')
     } catch (error) {
       if (isSessionExpiredError(error)) return onSessionExpired()
-      setVerificationError({ message: getAuthErrorMessage(error), code: error.code })
-      if (!(error instanceof TypeError) && error.code !== 'QR_CLAIM_CONCURRENT_CHANGE') {
+      const retryable = error instanceof TypeError || ['API_UNREACHABLE', 'QR_CLAIM_CONCURRENT_CHANGE'].includes(error.code) || error.status >= 500
+      setVerificationError({ message: getAuthErrorMessage(error), code: error.code, claimId: error.details?.claimId, retryable })
+      if (!retryable) {
         setPendingAttempt(null)
         setQrPreview(null)
         setQrToken('')
       }
     } finally {
+      qrRequestPending.current = false
       setIsVerifying(false)
     }
   }
 
   async function previewToken(token) {
+    if (qrRequestPending.current) return
     const submittedToken = token.trim()
     setVerificationResult(null)
     setQrPreview(null)
@@ -363,6 +431,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
       return
     }
     setQrToken(submittedToken)
+    qrRequestPending.current = true
     setVerificationError(null)
     setPendingAttempt(null)
     setIsPreviewing(true)
@@ -372,8 +441,9 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     } catch (error) {
       if (isSessionExpiredError(error)) return onSessionExpired()
       setQrToken('')
-      setVerificationError({ message: getAuthErrorMessage(error), code: error.code })
+      setVerificationError({ message: getAuthErrorMessage(error), code: error.code, claimId: error.details?.claimId })
     } finally {
+      qrRequestPending.current = false
       setIsPreviewing(false)
     }
   }
@@ -383,23 +453,27 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     await previewToken(qrToken)
   }
 
-  if (!isFacilitator) return <AccessDenied session={session} onLogout={onLogout} onNavigate={onNavigate} />
+  if (!authorized) return <AccessDenied session={session} onLogout={onLogout} onNavigate={onNavigate} />
 
   return (
-    <DashboardShell breadcrumbs={['Operations', 'Barangay Facilitator', pageTitle]} currentPath={currentPath} onLogout={onLogout} onNavigate={onNavigate} pageTitle={pageTitle} user={session.user}>
-      <header className="ga-page-header flex flex-col gap-4 border-b border-line pb-6 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="ga-eyebrow">Assigned barangay operations</p>
+    <DashboardShell breadcrumbs={['Operations', 'Distributions', pageTitle]} currentPath={currentPath} onLogout={onLogout} onNavigate={onNavigate} pageTitle={pageTitle} showAssistant={isAdmin && view !== 'qr'} user={session.user}>
+      <header className="ga-page-header flex flex-col gap-4 border-b border-line pb-6 xl:flex-row xl:items-end xl:justify-between">
+        <div className="min-w-0 flex-1">
+          <p className="ga-eyebrow">{isAdmin ? 'Distribution administration' : isDswd ? 'DSWD claim review' : 'Assigned barangay operations'}</p>
           <h1 className="ga-page-title mt-2">{pageTitle}</h1>
           <p className="ga-page-copy">
-            {view === 'queue' ? 'Prepare draft schedules for your assigned barangay, then track the queue after the event opens.' : 'Review a beneficiary QR credential before recording check-in for the selected open event.'}
+            {view === 'queue' ? 'Find the beneficiary, check their session, and continue to verification or the claim record. Schedules can only be changed while the event is a draft.' : 'Check the beneficiary and event before confirming the QR claim. Assistance is released in a separate step.'}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {view === 'queue' && <span role="status" aria-label={liveStatus === 'connected' ? 'Live queue connected' : 'Live queue reconnecting'} className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-3 text-xs font-bold ${liveStatus === 'connected' ? 'border-emerald-200 bg-success-soft text-brand-green' : 'border-amber-200 bg-warning-soft text-brand-amber'}`}><span aria-hidden="true" className={`size-2 rounded-full ${liveStatus === 'connected' ? 'bg-brand-green' : 'bg-brand-amber'}`} />{liveStatus === 'connected' ? 'Queue live' : 'Reconnecting'}</span>}
-          <button type="button" onClick={() => onNavigate(view === 'queue' ? '/facilitator/qr-verification' : '/facilitator/queue')} className="ga-btn-primary shrink-0">
-            {view === 'queue' ? 'Open QR verification' : 'View beneficiary queue'}
-          </button>
+        <div className="flex flex-col items-start gap-3 xl:items-end">
+          <div className="flex flex-wrap items-center gap-2">
+            {view === 'queue' && <button type="button" onClick={refreshQueueRecords} disabled={isLoadingDistributions || isScheduleBusy || Boolean(scheduleAction) || Boolean(reschedule)} className="ga-btn-secondary"><Icon name="reset" className="size-4" />Refresh queue</button>}
+            {(isAdmin ? Boolean(selectedDistribution) : view === 'qr') && <button type="button" onClick={() => onNavigate(isDswd ? `/claim-accountability${selectedId ? `?distribution=${encodeURIComponent(selectedId)}` : ''}` : isAdmin ? `/distributions/manage${selectedId ? `?event=${encodeURIComponent(selectedId)}` : ''}` : `${queuePath}${selectedId ? `?distribution=${encodeURIComponent(selectedId)}` : ''}`)} className="ga-btn-secondary"><Icon name="arrowLeft" className="size-4" />
+              {isDswd ? 'View claims and receipts' : isAdmin ? 'Return to distribution event' : 'View beneficiary queue'}
+            </button>}
+            {view === 'queue' && selectedDistribution?.status === 'OPEN' && ['QR', 'QR_AND_BIOMETRIC', 'QR_OR_BIOMETRIC'].includes(selectedDistribution.verificationRequirement) && <button type="button" onClick={() => onNavigate(`${qrPath}?distribution=${encodeURIComponent(selectedId)}`)} className="ga-btn-primary"><Icon name="qr" className="size-4" />{isAdmin ? 'Verify QR claims' : 'Open QR verification'}</button>}
+          </div>
+          {view === 'queue' && <span role="status" className="text-xs leading-5 text-muted-copy">{liveStatus === 'connected' ? 'Live updates connected' : liveStatus === 'connecting' ? 'Connecting live updates…' : 'Live updates unavailable. Refresh to check the queue.'}</span>}
         </div>
       </header>
 
@@ -414,33 +488,42 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
           <button type="button" onClick={() => { setDistributionError(''); setIsLoadingDistributions(true); setDistributionReload((count) => count + 1) }} className="ga-btn-primary mt-4">Try again</button>
         </section>
       ) : distributions.length === 0 ? (
-        <section className="mt-7 rounded-xl border border-dashed border-line bg-white p-8 text-center" aria-labelledby="no-distributions-title">
-          <span aria-hidden="true" className="mx-auto grid size-12 place-items-center rounded-full bg-info-soft font-black text-brand-blue">0</span>
-          <h2 id="no-distributions-title" className="mt-4 text-xl font-extrabold text-ink">{view === 'queue' ? 'No distribution work assigned' : 'No open distribution event'}</h2>
-          <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-muted-copy">{view === 'queue' ? 'Draft planning and open queues appear here when an event is created for your assigned barangay.' : 'QR claim verification becomes available when an authorized distribution event for your assigned barangay is open.'}</p>
+        <section className="ga-card mt-7 flex items-start gap-4 p-5 sm:p-7" aria-labelledby="no-distributions-title">
+          <span className="grid size-11 shrink-0 place-items-center rounded-lg bg-info-soft text-brand-blue"><Icon name={view === 'queue' ? 'calendar' : 'qr'} /></span>
+          <div className="min-w-0">
+            <h2 id="no-distributions-title" className="text-lg font-semibold text-ink">{view === 'queue' ? isAdmin ? 'No draft or open distribution events' : 'No distribution work assigned' : 'No open distribution event'}</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-copy">{view === 'queue' ? isAdmin ? 'Prepare a distribution event, service sessions, and beneficiary allocations before building the queue. Draft and open events appear here.' : 'Draft and open events assigned to your barangay appear here. Ask your administrator to check the event and barangay assignment.' : isAdmin ? 'Open a distribution event configured for QR verification. Complete its sessions, allocations, and schedules before opening it.' : 'An administrator must open a QR-enabled event within your authorized area before you can check credentials.'}</p>
+            {isAdmin && <button type="button" onClick={() => onNavigate('/distributions/manage')} className="ga-btn-primary mt-4"><Icon name="distributions" className="size-4" />View distribution events</button>}
+          </div>
         </section>
       ) : (
         <>
           <section className="ga-card mt-7 grid gap-5 p-5 md:grid-cols-[minmax(0,1fr)_minmax(16rem,0.7fr)] md:items-end sm:p-6" aria-label="Selected distribution event">
-            <DistributionSelector distributions={distributions} selectedId={selectedId} onChange={selectDistribution} />
+            <DistributionSelector distributions={distributions} selectedId={selectedId} onChange={selectDistribution} disabled={isPreviewing || isVerifying || isScheduleBusy || Boolean(scheduleAction) || Boolean(reschedule)} />
             <dl className="grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-4 text-sm">
               <div><dt className="text-xs font-semibold text-muted-copy">Location</dt><dd className="mt-1 font-bold text-ink">{selectedDistribution?.location}</dd></div>
               <div><dt className="text-xs font-semibold text-muted-copy">Event time</dt><dd className="mt-1 font-bold text-ink">{selectedDistribution?.startTime}–{selectedDistribution?.endTime}</dd></div>
+              <div><dt className="text-xs font-semibold text-muted-copy">Assistance</dt><dd className="mt-1 font-semibold text-ink">{selectedDistribution?.deliveryMode === 'PHYSICAL_GOODS' ? 'Physical handover' : 'Simulated wallet credit'}</dd></div>
+              <div><dt className="text-xs font-semibold text-muted-copy">Required checks</dt><dd className="mt-1 font-semibold text-ink">{humanize(selectedDistribution?.verificationRequirement).replace('Biometric', 'Face').replace('And', '+').replace('Qr', 'QR')}</dd></div>
             </dl>
           </section>
 
           {view === 'queue' ? (
             <QueueView
-              queue={queue}
+              queue={queue?.distributionId === selectedId ? queue : null}
+              role={session.user.role}
+              onNavigate={onNavigate}
               distribution={selectedDistribution}
               queueError={queueError}
               isLoading={isLoadingQueue}
               isScheduleBusy={isScheduleBusy}
               page={page}
               searchInput={searchInput}
+              filtered={Boolean(search || status || searchInput)}
               setSearchInput={setSearchInput}
               status={status}
               onFilter={filterQueue}
+              onClear={clearQueueFilters}
               onStatusChange={changeQueueStatus}
               onGenerate={generateSchedules}
               onReschedule={beginReschedule}
@@ -451,6 +534,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
             />
           ) : (
             <QrVerificationView
+              role={session.user.role}
               distribution={selectedDistribution}
               qrToken={qrToken}
               setQrToken={(value) => { setQrToken(value); setQrPreview(null); setVerificationError(null); setVerificationResult(null); if (pendingAttempt?.qrToken !== value.trim()) setPendingAttempt(null) }}
@@ -486,13 +570,19 @@ function RescheduleDialog({ schedule, slots, onClose, onSave }) {
   const dialogRef = useRef(null)
   const [slotId, setSlotId] = useState(slots[0]?.slotId ?? '')
   const [isSaving, setIsSaving] = useState(false)
+  const [error, setError] = useState('')
+  const errorRef = useRef(null)
 
   useEffect(() => { dialogRef.current?.showModal() }, [])
 
   async function submit(event) {
     event.preventDefault()
     setIsSaving(true)
-    try { await onSave(slotId) } catch { /* The page keeps the dialog open and shows the API error. */ } finally { setIsSaving(false) }
+    setError('')
+    try { await onSave(slotId) } catch (requestError) {
+      setError(getAuthErrorMessage(requestError))
+      requestAnimationFrame(() => errorRef.current?.focus())
+    } finally { setIsSaving(false) }
   }
 
   return (
@@ -501,6 +591,7 @@ function RescheduleDialog({ schedule, slots, onClose, onSave }) {
         <div className="flex items-start justify-between gap-5"><div><p className="ga-eyebrow">Change session</p><h2 id="reschedule-title" className="mt-2 text-2xl font-extrabold">Move {beneficiaryName(schedule.beneficiary)}</h2><p className="mt-2 text-sm leading-6 text-muted-copy">Choose another available session in this distribution event. Capacity and service-area coverage are checked again before saving.</p></div><button type="button" disabled={isSaving} onClick={() => dialogRef.current?.close()} aria-label="Close reschedule dialog" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-copy hover:bg-slate-50"><Icon name="close" /></button></div>
         <label htmlFor="reschedule-slot" className="ga-label mt-6 block">Available session</label>
         <select id="reschedule-slot" required value={slotId} onChange={(event) => setSlotId(event.target.value)} className="ga-input mt-2 cursor-pointer">{slots.map((slot) => <option key={slot.slotId} value={slot.slotId}>{slot.sessionLabel} · {dateFormatter.format(new Date(slot.slotStart))} · {timeFormatter.format(new Date(slot.slotStart))}</option>)}</select>
+        {error && <p ref={errorRef} tabIndex={-1} role="alert" className="mt-4 rounded-lg border border-red-200 bg-danger-soft p-4 text-sm text-brand-red">{error}</p>}
         <div className="mt-6 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end"><button type="button" disabled={isSaving} onClick={() => dialogRef.current?.close()} className="ga-btn-secondary">Keep current session</button><button type="submit" disabled={isSaving || !slotId} className="ga-btn-primary">{isSaving ? <LoadingLabel>Moving...</LoadingLabel> : 'Move beneficiary'}</button></div>
       </form>
     </dialog>
@@ -517,7 +608,18 @@ function ScheduleActions({ schedule, busy, mobile = false, onReschedule, onSched
   )
 }
 
-function QueueView({ distribution, queue, queueError, isLoading, isScheduleBusy, page, searchInput, setSearchInput, status, onFilter, onGenerate, onReschedule, onScheduleAction, onStatusChange, onPageChange, onRetry, scheduleNotice }) {
+function QueueClaimAction({ schedule, distribution, role, onNavigate }) {
+  const action = queueNextAction(schedule, distribution, role)
+  if (!action) return <span className="text-xs text-muted-copy">{schedule.status === 'SCHEDULED' ? 'Awaiting authorized verification' : 'No claim action'}</span>
+  return <a href={action.href} className="ga-admin-link inline-flex min-h-11 items-center" onClick={(event) => {
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+    event.preventDefault()
+    onNavigate(action.href)
+  }}>{action.label}</a>
+}
+
+function QueueView({ distribution, queue, role, onNavigate, queueError, isLoading, isScheduleBusy, page, searchInput, filtered, setSearchInput, status, onFilter, onClear, onGenerate, onReschedule, onScheduleAction, onStatusChange, onPageChange, onRetry, scheduleNotice }) {
+  const searchRef = useRef(null)
   const counts = queue?.summary.countsByStatus ?? {}
   const isDraft = distribution?.status === 'DRAFT'
 
@@ -544,7 +646,7 @@ function QueueView({ distribution, queue, queueError, isLoading, isScheduleBusy,
         ].map(([label, value, tone]) => (
           <div key={label}>
             <dt>{label}</dt>
-            <dd className={`text-2xl font-semibold tabular-nums ${tone === 'success' ? 'text-brand-green' : tone === 'pending' ? 'text-brand-amber' : 'text-ink'}`}>{value}</dd>
+            <dd className={`text-2xl font-semibold tabular-nums ${tone === 'success' ? 'text-brand-green' : tone === 'pending' ? 'text-brand-amber' : 'text-ink'}`}>{queue && !queueError ? value : '—'}</dd>
           </div>
         ))}
       </dl>
@@ -552,28 +654,28 @@ function QueueView({ distribution, queue, queueError, isLoading, isScheduleBusy,
       <div className="ga-card mt-6 overflow-hidden">
         <div className="border-b border-line p-5 sm:p-6">
           <h2 id="queue-heading" className="text-xl font-extrabold text-ink">{isDraft ? 'Beneficiary schedules' : 'Beneficiary queue'}</h2>
-          <form onSubmit={onFilter} className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_13rem_auto]">
-            <div><label htmlFor="queue-search" className="sr-only">Search beneficiary or queue number</label><input id="queue-search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} maxLength="100" placeholder="Search name or queue number" className="ga-input" /></div>
-            <div><label htmlFor="queue-status" className="sr-only">Filter by queue status</label><select id="queue-status" value={status} onChange={(event) => onStatusChange(event.target.value)} className="ga-input cursor-pointer font-semibold">{queueStatuses.map((value) => <option key={value || 'ALL'} value={value}>{value ? value.replace('_', ' ') : 'All statuses'}</option>)}</select></div>
-            <button type="submit" className="ga-btn-primary">Search</button>
+          <form aria-label="Find beneficiary schedules" onSubmit={onFilter} className="mt-4 grid gap-4 sm:grid-cols-[minmax(0,1fr)_13rem] xl:grid-cols-[minmax(0,1fr)_13rem_auto]">
+            <div className="min-w-0"><label htmlFor="queue-search" className="ga-label">Search beneficiary or queue number</label><div className="relative mt-2"><Icon name="search" className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-copy" /><input ref={searchRef} id="queue-search" type="search" autoComplete="off" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} maxLength="100" placeholder="Name or queue number" className="ga-input pl-11" /></div></div>
+            <div className="min-w-0"><label htmlFor="queue-status" className="ga-label">Filter by queue status</label><select id="queue-status" value={status} onChange={(event) => onStatusChange(event.target.value)} className="ga-input mt-2 cursor-pointer font-semibold">{queueStatuses.map((value) => <option key={value || 'ALL'} value={value}>{value ? humanize(value) : 'All statuses'}</option>)}</select></div>
+            <div className="flex flex-wrap items-center gap-2 sm:col-span-2 xl:col-span-1 xl:self-end"><button type="submit" className="ga-btn-primary"><Icon name="search" className="size-4" />Search</button>{filtered && <button type="button" onClick={() => { onClear(); searchRef.current?.focus() }} className="ga-btn-secondary"><Icon name="close" className="size-4" />Clear filters</button>}</div>
           </form>
         </div>
 
         <div className="p-4 sm:p-6">
           {isLoading ? <QueueSkeleton /> : queueError ? (
             <div className="rounded-lg border border-amber-200 bg-warning-soft p-5" role="alert"><p className="font-bold text-ink">Unable to load schedules</p><p className="mt-2 text-sm text-muted-copy">{queueError}</p><button type="button" onClick={onRetry} className="ga-btn-primary mt-4">Try again</button></div>
-          ) : queue?.schedules.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-line bg-slate-50 p-8 text-center"><p className="font-extrabold text-ink">No schedules found</p><p className="mt-2 text-sm text-muted-copy">{isDraft ? 'Assign the remaining beneficiaries, or change the search and status filters.' : 'Try a different name, queue number, or status filter.'}</p></div>
+          ) : !queue ? <QueueSkeleton /> : queue.schedules.length === 0 ? (
+            <div className="flex items-start gap-3 rounded-lg border border-line bg-slate-50 p-5"><span className="grid size-10 shrink-0 place-items-center rounded-lg bg-white text-brand-blue"><Icon name={filtered ? 'search' : 'calendar'} /></span><div className="min-w-0"><h3 className="font-semibold text-ink">No schedules found</h3><p className="mt-2 text-sm leading-6 text-copy">{filtered ? 'Try another name or queue number, or clear the filters to see the full queue.' : isDraft ? 'Allocate approved beneficiaries and assign the remaining schedules before opening this event.' : 'No beneficiary schedules are available for this event. Ask your administrator to review the event records.'}</p></div></div>
           ) : (
             <>
               <div className="hidden overflow-x-auto md:block">
                 <table className="w-full border-collapse text-left text-sm">
                   <caption className="sr-only">Beneficiary distribution schedules</caption>
-                  <thead><tr className="border-b border-line text-xs uppercase tracking-[0.08em] text-muted-copy"><th scope="col" className="px-3 py-3">Queue</th><th scope="col" className="px-3 py-3">Beneficiary</th><th scope="col" className="px-3 py-3">Time slot</th><th scope="col" className="px-3 py-3">Status</th>{isDraft && <th scope="col" className="px-3 py-3 text-right">Action</th>}</tr></thead>
-                  <tbody className="divide-y divide-line">{queue.schedules.map((schedule) => <tr key={schedule.scheduleId}><td className="px-3 py-4"><p className="text-lg font-black text-brand-navy">#{schedule.queueNumber}</p><p className="mt-1 text-xs text-muted-copy">{schedule.assignmentMethod === 'AUTOMATED_RULES' || schedule.assignedByAi ? 'Automated rules' : 'Staff assigned'}</p></td><td className="px-3 py-4"><p className="font-bold text-ink">{beneficiaryName(schedule.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p><ClaimProgress claim={schedule.claim} /></td><td className="px-3 py-4"><p className="font-semibold text-ink">{schedule.slot.sessionLabel}</p><p className="mt-1 text-xs text-muted-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p><p className="mt-1 text-xs text-muted-copy">{schedule.slot.location}</p></td><td className="px-3 py-4"><StatusBadge status={schedule.status} /></td>{isDraft && <td className="px-3 py-4"><ScheduleActions schedule={schedule} busy={isScheduleBusy} onReschedule={onReschedule} onScheduleAction={onScheduleAction} /></td>}</tr>)}</tbody>
+                  <thead><tr className="border-b border-line text-xs uppercase tracking-[0.08em] text-muted-copy"><th scope="col" className="px-3 py-3">Queue</th><th scope="col" className="px-3 py-3">Beneficiary</th><th scope="col" className="px-3 py-3">Time slot</th><th scope="col" className="px-3 py-3">Status</th><th scope="col" className="px-3 py-3 text-right">{isDraft ? 'Schedule action' : 'Next step'}</th></tr></thead>
+                  <tbody className="divide-y divide-line">{queue.schedules.map((schedule) => <tr key={schedule.scheduleId}><td className="px-3 py-4"><p className="text-lg font-black text-brand-navy">#{schedule.queueNumber}</p><p className="mt-1 text-xs text-muted-copy">{schedule.assignmentMethod === 'AUTOMATED_RULES' || schedule.assignedByAi ? 'Automated rules' : 'Staff assigned'}</p></td><td className="px-3 py-4"><p className="font-bold text-ink">{beneficiaryName(schedule.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p><ClaimProgress claim={schedule.claim} /></td><td className="px-3 py-4"><p className="font-semibold text-ink">{schedule.slot.sessionLabel}</p><p className="mt-1 text-xs text-muted-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p><p className="mt-1 text-xs text-muted-copy">{schedule.slot.location}</p></td><td className="px-3 py-4"><StatusBadge status={schedule.status} /></td><td className="px-3 py-4 text-right">{isDraft ? <ScheduleActions schedule={schedule} busy={isScheduleBusy} onReschedule={onReschedule} onScheduleAction={onScheduleAction} /> : <QueueClaimAction schedule={schedule} distribution={distribution} role={role} onNavigate={onNavigate} />}</td></tr>)}</tbody>
                 </table>
               </div>
-              <ul className="space-y-3 md:hidden">{queue.schedules.map((schedule) => <li key={schedule.scheduleId} className="rounded-lg border border-line p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-lg font-black text-brand-navy">Queue #{schedule.queueNumber}</p><p className="mt-1 font-bold text-ink">{beneficiaryName(schedule.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p><ClaimProgress claim={schedule.claim} /></div><StatusBadge status={schedule.status} /></div><div className="mt-3 rounded-lg bg-slate-50 p-3"><p className="text-sm font-bold text-ink">{schedule.slot.sessionLabel}</p><p className="mt-1 text-xs text-muted-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p><p className="mt-1 text-xs text-muted-copy">{schedule.slot.location}</p></div>{isDraft && <ScheduleActions schedule={schedule} busy={isScheduleBusy} mobile onReschedule={onReschedule} onScheduleAction={onScheduleAction} />}</li>)}</ul>
+              <ul className="space-y-3 md:hidden">{queue.schedules.map((schedule) => <li key={schedule.scheduleId} className="rounded-lg border border-line p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-lg font-black text-brand-navy">Queue #{schedule.queueNumber}</p><p className="mt-1 font-bold text-ink">{beneficiaryName(schedule.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p><ClaimProgress claim={schedule.claim} /></div><StatusBadge status={schedule.status} /></div><div className="mt-3 rounded-lg bg-slate-50 p-3"><p className="text-sm font-bold text-ink">{schedule.slot.sessionLabel}</p><p className="mt-1 text-xs text-muted-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p><p className="mt-1 text-xs text-muted-copy">{schedule.slot.location}</p></div>{isDraft ? <ScheduleActions schedule={schedule} busy={isScheduleBusy} mobile onReschedule={onReschedule} onScheduleAction={onScheduleAction} /> : <div className="mt-3 border-t border-line pt-2"><QueueClaimAction schedule={schedule} distribution={distribution} role={role} onNavigate={onNavigate} /></div>}</li>)}</ul>
               <div className="mt-5 flex items-center justify-between border-t border-line pt-4"><p className="text-xs font-semibold text-muted-copy">Page {queue.pagination.page} of {Math.max(queue.pagination.totalPages, 1)}</p><div className="flex gap-2"><button type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)} className="min-h-11 cursor-pointer rounded-lg border border-line px-4 text-sm font-bold text-copy disabled:cursor-not-allowed disabled:opacity-50">Previous</button><button type="button" disabled={page >= queue.pagination.totalPages} onClick={() => onPageChange(page + 1)} className="min-h-11 cursor-pointer rounded-lg border border-line px-4 text-sm font-bold text-copy disabled:cursor-not-allowed disabled:opacity-50">Next</button></div></div>
             </>
           )}
@@ -689,11 +791,15 @@ function QrCameraDialog({ onClose, onDetected }) {
   )
 }
 
-function QrVerificationView({ distribution, qrToken, setQrToken, error, preview, result, isPreviewing, isVerifying, onSubmit, onCameraScan, onConfirm, onReset, onNavigate }) {
+function QrVerificationView({ role, distribution, qrToken, setQrToken, error, preview, result, isPreviewing, isVerifying, onSubmit, onCameraScan, onConfirm, onReset, onNavigate }) {
   const inputRef = useRef(null)
   const confirmRef = useRef(null)
+  const resultRef = useRef(null)
   const [cameraOpen, setCameraOpen] = useState(false)
   const duplicateError = ['QR_TOKEN_ALREADY_USED', 'DUPLICATE_CLAIM'].includes(error?.code)
+  const errorClaimHref = error?.claimId ? `/claim-accountability?${new URLSearchParams({ distribution: distribution.distributionId, claim: error.claimId })}` : ''
+  const isAdmin = role === 'SYSTEM_ADMIN'
+  const isFacilitator = role === 'BARANGAY_FACILITATOR'
   const needsBiometric = result?.nextRequiredVerification === 'BIOMETRIC'
   const claim = result?.claim
   const currentStep = result ? 3 : preview ? 2 : 1
@@ -701,21 +807,22 @@ function QrVerificationView({ distribution, qrToken, setQrToken, error, preview,
 
   useEffect(() => {
     if (cameraOpen || busy) return
-    if (preview) confirmRef.current?.focus()
+    if (result) resultRef.current?.focus()
+    else if (preview) confirmRef.current?.focus()
     else if (!result) inputRef.current?.focus({ preventScroll: true })
   }, [busy, cameraOpen, preview, result])
 
   return (
     <div className="mt-6">
       <ol aria-label="QR verification progress" className="ga-card grid grid-cols-3 overflow-hidden">
-        {['Scan credential', 'Review identity', 'Complete check-in'].map((label, index) => {
+        {[isAdmin ? 'Enter credential' : 'Scan credential', 'Review identity', 'Record verification'].map((label, index) => {
           const step = index + 1
           const complete = currentStep > step
           const active = currentStep === step
           return (
             <li key={label} aria-current={active ? 'step' : undefined} className={`flex min-w-0 items-center gap-2 border-r border-line px-3 py-3 last:border-r-0 sm:gap-3 sm:px-5 ${active ? 'bg-info-soft text-brand-blue' : 'bg-white text-muted-copy'}`}>
               <span aria-hidden="true" className={`grid size-7 shrink-0 place-items-center rounded-full text-xs font-black ${complete ? 'bg-brand-green text-white' : active ? 'bg-brand-blue text-white' : 'border border-line bg-slate-50'}`}>{complete ? <Icon name="check" className="size-4" strokeWidth={2.5} /> : step}</span>
-              <span className="text-xs font-bold sm:text-sm"><span className="sm:hidden">{['Scan', 'Review', 'Complete'][index]}</span><span className="hidden sm:inline">{label}</span></span>
+              <span className="text-xs font-bold sm:text-sm"><span className="sm:hidden">{[isAdmin ? 'Enter' : 'Scan', 'Review', 'Record'][index]}</span><span className="hidden sm:inline">{label}</span></span>
             </li>
           )
         })}
@@ -724,23 +831,27 @@ function QrVerificationView({ distribution, qrToken, setQrToken, error, preview,
       <div className="mt-5 grid items-start gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">
         <section className="ga-card overflow-hidden" aria-labelledby="verification-form-heading">
           <header className="border-b border-line p-5 sm:p-7">
-            <div className="flex items-start gap-4">
-              <span aria-hidden="true" className="grid size-12 shrink-0 place-items-center rounded-xl bg-info-soft text-brand-blue"><Icon name="qr" className="size-6" strokeWidth={2} /></span>
-              <div>
-                <p className="ga-eyebrow">Secure claim check-in</p>
-                <h2 id="verification-form-heading" className="mt-1 text-2xl font-bold text-ink">Scan first. Confirm after review.</h2>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-copy">The QR credential stays hidden. Scanning only opens the beneficiary details; no claim or queue record changes until you confirm.</p>
-              </div>
+            <div>
+              <h2 id="verification-form-heading" className="mt-1 text-2xl font-bold text-ink">{isAdmin ? 'Check a QR claim' : 'Review a beneficiary credential'}</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-copy">Reviewing a credential shows the beneficiary details. Confirm only after matching the person and their assigned event.</p>
             </div>
           </header>
 
           <div className="p-5 sm:p-7">
             <dl className="grid gap-4 rounded-xl border border-line bg-slate-50 p-4 text-sm sm:grid-cols-2">
-              <div><dt className="text-xs font-semibold text-muted-copy">Selected event</dt><dd className="mt-1 font-bold text-ink">{distribution.title}</dd></div>
-              <div><dt className="text-xs font-semibold text-muted-copy">Required verification</dt><dd className="mt-1 font-bold text-ink">{humanize(distribution.verificationRequirement)}</dd></div>
+              <div><dt className="text-xs font-semibold text-muted-copy">Allowed verification</dt><dd className="mt-1 font-bold text-ink">{verificationLabels[distribution.verificationRequirement]}</dd></div>
+              <div><dt className="text-xs font-semibold text-muted-copy">Release handled by</dt><dd className="mt-1 font-bold text-ink">{distribution.deliveryMode === 'PHYSICAL_GOODS' ? 'Barangay Facilitator' : 'DSWD Staff'}</dd></div>
             </dl>
 
+            {distribution.verificationRequirement === 'QR_OR_BIOMETRIC' && <div className="mt-4 border-l-2 border-brand-blue bg-info-soft p-4 text-sm leading-6"><p>QR or live face match is enough for this event. A printed QR works without a phone.</p>{!isAdmin && !result && <button type="button" disabled={busy} onClick={() => onNavigate(`/biometrics?view=verify&distribution=${encodeURIComponent(distribution.distributionId)}${preview?.beneficiary ? `&beneficiary=${encodeURIComponent(preview.beneficiary.beneficiaryId)}` : ''}`)} className="ga-btn-secondary mt-3"><Icon name="biometrics" className="size-4" />Use face match instead</button>}</div>}
+
             <form onSubmit={onSubmit} className="mt-6" aria-busy={busy}>
+              {isAdmin ? <>
+                <label htmlFor="admin-qr-credential" className="ga-label">QR credential</label>
+                <div className="relative mt-2"><Icon name="qr" className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-copy" /><input ref={inputRef} id="admin-qr-credential" type="password" autoComplete="off" spellCheck="false" maxLength="512" required placeholder="Paste the full QR credential" value={qrToken} onChange={(event) => setQrToken(event.target.value)} disabled={busy || Boolean(preview) || Boolean(result)} aria-describedby={`admin-qr-hint${error ? ' qr-token-error' : ''}`} aria-invalid={Boolean(error)} className="ga-input pl-11" /></div>
+                <p id="admin-qr-hint" className="mt-2 text-sm leading-6 text-muted-copy">Paste the full backup credential printed on the beneficiary’s QR card. A claim reference or beneficiary number will not work.</p>
+                {!preview && !result && <button type="submit" disabled={busy || !qrToken.trim()} className="ga-btn-primary mt-4">{isPreviewing ? <LoadingLabel>Checking credential...</LoadingLabel> : 'Review QR claim'}</button>}
+              </> : <>
               <button type="button" disabled={busy || Boolean(preview) || Boolean(result)} onClick={() => setCameraOpen(true)} className="ga-btn-primary w-full py-3.5 text-base"><Icon name="camera" className="size-5" /> Scan with this device’s camera</button>
 
               <div className="my-5 flex items-center gap-3 text-xs font-bold uppercase tracking-[0.1em] text-muted-copy"><span className="h-px flex-1 bg-line" /><span>or use a USB 2D QR scanner</span><span className="h-px flex-1 bg-line" /></div>
@@ -754,28 +865,30 @@ function QrVerificationView({ distribution, qrToken, setQrToken, error, preview,
               </div>
 
               {qrToken && !preview && !result && <button type="submit" disabled={busy} className="ga-btn-secondary mt-3 w-full">{isPreviewing ? <LoadingLabel>Checking credential...</LoadingLabel> : 'Review detected QR'}</button>}
+              </>}
 
-              {error && <div id="qr-token-error" role="alert" className={`mt-4 rounded-lg border p-4 ${duplicateError ? 'border-red-200 bg-danger-soft' : 'border-amber-200 bg-warning-soft'}`}><p className={`font-bold ${duplicateError ? 'text-brand-red' : 'text-brand-amber'}`}>{duplicateError ? 'Possible duplicate claim' : 'Credential not accepted'}</p><p className="mt-1 text-sm leading-6 text-copy">{error.message}</p><p className="mt-2 text-xs text-muted-copy">Confirm the selected event, then scan the beneficiary’s current credential again. Ask the System Administrator to reissue damaged or expired credentials.</p></div>}
+              {error && <div id="qr-token-error" role="alert" className={`mt-4 rounded-lg border p-4 ${duplicateError ? 'border-red-200 bg-danger-soft' : 'border-amber-200 bg-warning-soft'}`}><p className={`font-bold ${duplicateError ? 'text-brand-red' : 'text-brand-amber'}`}>{duplicateError ? 'Possible duplicate claim' : error.retryable ? 'Verification not confirmed' : 'Credential not accepted'}</p><p className="mt-1 text-sm leading-6 text-copy">{error.message}</p><p className="mt-2 text-xs text-muted-copy">{error.retryable ? 'Retry the confirmation using the review shown here. The same confirmation will be reused.' : duplicateError ? 'Open the existing claim to check completed verification, release, and any review hold. Do not scan again to create another claim.' : 'Check the selected event and use the beneficiary’s current QR credential. Used or expired credentials cannot be accepted.'}</p>{errorClaimHref && <a href={errorClaimHref} onClick={(event) => { event.preventDefault(); onNavigate(errorClaimHref) }} className="ga-admin-link mt-3 inline-flex min-h-11 items-center">Review existing claim</a>}</div>}
             </form>
 
-            <details className="mt-5 rounded-xl border border-line bg-slate-50 p-4 text-sm">
+            {!isAdmin && <details className="mt-5 rounded-xl border border-line bg-slate-50 p-4 text-sm">
               <summary className="cursor-pointer font-bold text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">Having trouble scanning?</summary>
               <ul className="mt-3 space-y-2 leading-6 text-muted-copy"><li>Increase screen brightness or flatten the printed QR card.</li><li>Use the camera or an authorized USB handheld scanner.</li><li>For a damaged or expired credential, ask the System Administrator to reissue it.</li></ul>
-            </details>
+            </details>}
           </div>
         </section>
 
         <aside className="space-y-6" aria-label="Verification review and result">
           {result ? (
-            <section role="status" aria-live="polite" className={`rounded-xl border p-6 shadow-sm ${result.verificationComplete ? 'border-emerald-200 bg-success-soft' : 'border-amber-200 bg-warning-soft'}`}>
+            <section ref={resultRef} tabIndex={-1} aria-label="QR validation result" className={`rounded-xl border p-6 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue ${result.verificationComplete ? 'border-emerald-200 bg-success-soft' : 'border-amber-200 bg-warning-soft'}`}>
               <span aria-hidden="true" className={`grid size-12 place-items-center rounded-full text-white ${result.verificationComplete ? 'bg-brand-green' : 'bg-brand-amber'}`}><Icon name={result.verificationComplete ? 'check' : 'info'} className="size-6" strokeWidth={2.5} /></span>
               <p className="mt-4 text-xs font-bold uppercase tracking-[0.1em] text-muted-copy">Verification recorded</p>
               <h2 className="mt-1 text-xl font-bold text-ink">{result.verificationComplete ? 'Claim verification complete' : 'QR accepted — biometric required'}</h2>
-              <p className="mt-2 text-sm leading-6 text-copy">{result.verificationComplete ? 'The QR verification and current check-in status are recorded. The claim is ready for the next authorized operation.' : 'The beneficiary is checked in. Continue to the live identity check to finalize this claim.'}</p>
+              <p className="mt-2 text-sm leading-6 text-copy">{result.verificationComplete ? distribution.deliveryMode === 'PHYSICAL_GOODS' ? 'Next: the assigned Barangay Facilitator records the physical handover. This verification does not mark assistance as received.' : 'Next: DSWD records the simulated wallet credit. This verification does not credit the beneficiary’s wallet.' : 'Next: DSWD or the assigned Barangay Facilitator completes the live face check. The claim remains pending until all identity checks pass.'}</p>
               <dl className="mt-5 space-y-3 border-t border-current/10 pt-4 text-sm"><div className="flex justify-between gap-4"><dt className="text-muted-copy">Beneficiary</dt><dd className="text-right font-bold text-ink">{beneficiaryName(claim?.beneficiary) || 'Verified beneficiary'}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-copy">Queue number</dt><dd className="font-bold tabular-nums text-ink">{claim?.schedule?.queueNumber ? `#${claim.schedule.queueNumber}` : 'Recorded'}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-copy">Claim status</dt><dd className="font-bold text-ink">{humanize(claim?.claimStatus)}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-copy">Claim reference</dt><dd className="max-w-48 truncate font-mono text-xs font-bold text-ink" title={claim?.claimId}>{claim?.claimId}</dd></div></dl>
-              {needsBiometric
+              {needsBiometric && !isAdmin
                 ? <button type="button" onClick={() => onNavigate(`/biometrics?view=verify&distribution=${encodeURIComponent(claim.distributionId)}&beneficiary=${encodeURIComponent(claim.beneficiaryId)}`)} className="ga-btn-primary mt-5 w-full">Continue to biometric <Icon name="arrowRight" /></button>
-                : <button type="button" onClick={onReset} className="ga-btn-primary mt-5 w-full"><Icon name="qr" /> Scan next beneficiary</button>}
+                : <button type="button" onClick={() => onNavigate(`/claim-accountability?distribution=${encodeURIComponent(distribution.distributionId)}&claim=${encodeURIComponent(claim.claimId)}`)} className="ga-btn-primary mt-5 w-full">{isFacilitator && result.verificationComplete && distribution.deliveryMode === 'PHYSICAL_GOODS' ? 'Continue to physical handover' : 'View claim record'}<Icon name="arrowRight" /></button>}
+              <button type="button" onClick={onReset} className="ga-btn-secondary mt-3 w-full">{isAdmin ? 'Check another QR claim' : 'Scan next beneficiary'}</button>
             </section>
           ) : preview ? (
             <section role="status" aria-live="polite" className="rounded-xl border border-blue-200 bg-white p-6 shadow-sm">
@@ -789,13 +902,13 @@ function QrVerificationView({ distribution, qrToken, setQrToken, error, preview,
                 <div className="flex justify-between gap-4 py-3"><dt className="text-muted-copy">Next requirement</dt><dd className="text-right font-bold text-ink">{preview.nextRequiredVerification ? humanize(preview.nextRequiredVerification) : 'None'}</dd></div>
               </dl>
               <p className="mt-4 flex gap-3 rounded-lg border border-emerald-200 bg-success-soft p-4 text-sm leading-6 text-copy"><Icon name="info" className="mt-0.5 size-5 shrink-0 text-brand-green" /><span>No queue or claim record has changed yet. Confirmation is required.</span></p>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2"><button type="button" disabled={isVerifying} onClick={onReset} className="ga-btn-secondary">Scan a different QR</button><button ref={confirmRef} type="button" disabled={isVerifying} onClick={onConfirm} className="ga-btn-primary">{isVerifying ? <LoadingLabel>Recording check-in...</LoadingLabel> : <><Icon name="check" /> {preview.checksInBeneficiary ? 'Confirm check-in' : 'Confirm QR verification'}</>}</button></div>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2"><button type="button" disabled={isVerifying} onClick={onReset} className="ga-btn-secondary">Use a different QR</button><button ref={confirmRef} type="button" disabled={isVerifying} onClick={onConfirm} className="ga-btn-primary">{isVerifying ? <LoadingLabel>Recording verification...</LoadingLabel> : <><Icon name="check" /> {isAdmin ? 'Confirm QR validation' : preview.checksInBeneficiary ? 'Confirm check-in' : 'Confirm QR verification'}</>}</button></div>
             </section>
           ) : (
-            <section className="rounded-xl border border-dashed border-line bg-white p-7 text-center"><span aria-hidden="true" className="mx-auto grid size-12 place-items-center rounded-full bg-info-soft text-brand-blue"><Icon name="qr" className="size-6" /></span><h2 className="mt-4 font-bold text-ink">Ready for a credential</h2><p className="mt-2 text-sm leading-6 text-muted-copy">Scan with the camera or USB scanner. Beneficiary details will appear here for review before check-in.</p></section>
+            <section className="rounded-xl border border-dashed border-line bg-white p-7 text-center"><span aria-hidden="true" className="mx-auto grid size-12 place-items-center rounded-full bg-info-soft text-brand-blue"><Icon name="qr" className="size-6" /></span><h2 className="mt-4 font-bold text-ink">Beneficiary review</h2><p className="mt-2 text-sm leading-6 text-muted-copy">{isAdmin ? 'Enter a QR credential to see the beneficiary, queue number, and remaining checks here.' : 'Scan with the camera or USB scanner. Beneficiary details will appear here for review before check-in.'}</p></section>
           )}
 
-          <section className="ga-card p-5"><h2 className="font-bold text-ink">Field checklist</h2><ol className="mt-4 space-y-3 text-sm leading-6 text-copy"><li className="flex gap-3"><span className="font-bold text-brand-blue">01</span><span>Confirm the selected distribution event.</span></li><li className="flex gap-3"><span className="font-bold text-brand-blue">02</span><span>Scan the beneficiary’s current QR credential.</span></li><li className="flex gap-3"><span className="font-bold text-brand-blue">03</span><span>Match the displayed identity before confirming check-in.</span></li></ol></section>
+          <section className="border-t border-line p-5"><h2 className="font-bold text-ink">Before confirming</h2><ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-copy"><li>Check the event, beneficiary name, and queue number.</li><li>Use the beneficiary’s current credential.</li><li>Complete any remaining identity check before release.</li></ul></section>
         </aside>
         {cameraOpen && <QrCameraDialog onDetected={onCameraScan} onClose={() => setCameraOpen(false)} />}
       </div>

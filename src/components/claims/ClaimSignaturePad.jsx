@@ -36,7 +36,7 @@ function typedSignatureImage(name) {
 
 const normalizedName = (value) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-PH')
 
-export default function ClaimSignaturePad({ beneficiaryName, busy, onSubmit }) {
+export default function ClaimSignaturePad({ beneficiaryName, busy, retrying = false, onSubmit }) {
   const canvasRef = useRef(null)
   const drawingRef = useRef(false)
   const pointsRef = useRef(0)
@@ -58,6 +58,7 @@ export default function ClaimSignaturePad({ beneficiaryName, busy, onSubmit }) {
   }
 
   function startDrawing(event) {
+    if (busy || retrying) return
     const canvas = canvasRef.current
     event.preventDefault()
     canvas.setPointerCapture(event.pointerId)
@@ -88,6 +89,8 @@ export default function ClaimSignaturePad({ beneficiaryName, busy, onSubmit }) {
 
   async function submit(event) {
     event.preventDefault()
+    if (busy) return
+    if (retrying) return onSubmit()
     setError('')
     if (!attestation) return setError('Confirm that the beneficiary signed in your presence.')
     if (method === 'DRAWN' && pointCount < 8) return setError('Ask the beneficiary to provide a complete signature, then try again.')
@@ -108,11 +111,12 @@ export default function ClaimSignaturePad({ beneficiaryName, busy, onSubmit }) {
   return (
     <section className="mt-6 overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-sm" aria-labelledby="signature-heading">
       <div className="flex flex-col gap-4 border-b border-blue-100 bg-info-soft p-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-3"><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-brand-blue text-white"><Icon name="pen" /></span><div><p className="ga-eyebrow">Final identity step</p><h3 id="signature-heading" className="mt-1 text-xl font-extrabold text-ink">Collect beneficiary signature</h3><p className="mt-1 text-sm leading-6 text-copy">Face matched successfully. The claim remains pending until this acknowledgment is secured.</p></div></div>
+        <div className="flex items-start gap-3"><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-brand-blue text-white"><Icon name="pen" /></span><div><p className="ga-eyebrow">Final identity step</p><h3 id="signature-heading" className="mt-1 text-xl font-extrabold text-ink">Collect beneficiary signature</h3><p className="mt-1 text-sm leading-6 text-copy">{retrying ? 'Face verification is recorded. Check whether the signature was saved before continuing.' : 'Face matched successfully. The claim remains pending until this acknowledgment is secured.'}</p></div></div>
         <span className="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-bold text-brand-green"><Icon name="security" />Face verified</span>
       </div>
 
       <form onSubmit={submit} className="p-5 sm:p-6" aria-busy={busy}>
+        <fieldset disabled={busy || retrying} className="min-w-0">
         <div className="rounded-xl border border-line bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">Beneficiary</p><p className="mt-1 text-lg font-extrabold text-ink">{beneficiaryName}</p></div>
 
         <fieldset className="mt-5"><legend className="ga-label">Signature method</legend><div className="mt-2 grid gap-3 sm:grid-cols-2">{[
@@ -124,8 +128,10 @@ export default function ClaimSignaturePad({ beneficiaryName, busy, onSubmit }) {
 
         <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-slate-50 p-4"><input type="checkbox" checked={attestation} onChange={(event) => { setAttestation(event.target.checked); setError('') }} className="mt-1 size-5 shrink-0 accent-brand-blue" /><span><span className="block font-bold text-ink">I confirm this acknowledgment was made by the beneficiary in my presence.</span><span className="mt-1 block text-xs leading-5 text-muted-copy">Your staff account, timestamp, device context, and evidence hash will be recorded in the audit trail.</span></span></label>
 
+        </fieldset>
         {error && <p role="alert" className="mt-4 rounded-lg border border-amber-200 bg-warning-soft p-3 text-sm font-semibold leading-6 text-copy">{error}</p>}
-        <button type="submit" disabled={busy || !attestation} className="ga-btn-primary mt-5 w-full">{busy ? <LoadingLabel>Encrypting and securing signature...</LoadingLabel> : <><Icon name="security" />Secure signature and verify claim</>}</button>
+        {retrying && <p className="mt-4 text-sm leading-6 text-copy">The submitted signature is kept for this retry. Confirm the saved result before collecting another signature.</p>}
+        <button type="submit" disabled={busy || (!retrying && !attestation)} className="ga-btn-primary mt-5 w-full">{busy ? <LoadingLabel>Checking signature confirmation...</LoadingLabel> : retrying ? 'Retry signature confirmation' : <><Icon name="security" />Secure signature and verify claim</>}</button>
         <p className="mt-3 text-center text-xs leading-5 text-muted-copy">The signature image is encrypted at rest and is not returned in API responses.</p>
       </form>
     </section>

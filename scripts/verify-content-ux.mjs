@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from '@playwright/test'
 import { createServer } from 'vite'
 
-const vite = await createServer({ server: { host: '127.0.0.1', port: 0 } })
+const vite = await createServer({ cacheDir: 'node_modules/.vite-verify/content-ux', server: { host: '127.0.0.1', port: 0 } })
 await vite.listen()
 const origin = `http://127.0.0.1:${vite.httpServer.address().port}`
 const browser = await chromium.launch({ headless: true, channel: 'chrome' })

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
+import PushNotificationWorkspace from '../components/notifications/PushNotificationWorkspace.jsx'
 import { Icon } from '../components/ui/icon.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import { LoadingLabel, Spinner } from '../components/ui/spinner.jsx'
@@ -28,7 +29,7 @@ const humanize = (value) => value ? value.toLowerCase().replaceAll('_', ' ').rep
 const deliveryStatusLabel = (status) => status === 'PENDING' ? 'Queued' : humanize(status)
 const formatDateTime = (value) => value ? dateTimeFormatter.format(new Date(value)) : 'Not recorded'
 const deliveryTime = (notification) => notification.sentAt || notification.failedAt || notification.scheduledFor
-const deliveryTimeLabel = (notification) => notification.sentAt ? 'Delivered' : notification.failedAt ? 'Failed' : 'Scheduled'
+const deliveryTimeLabel = (notification) => notification.sentAt ? 'Sent' : notification.failedAt ? 'Failed' : 'Scheduled'
 
 function StatusBadge({ status }) {
   const style = status === 'SENT' ? 'ga-status-success' : status === 'FAILED' ? 'ga-status-danger' : status === 'PENDING' ? 'ga-status-warning' : 'border-blue-200 bg-info-soft text-brand-blue'
@@ -45,9 +46,9 @@ function LoadingHistory() {
   return <div className="space-y-4 p-5" role="status" aria-label="Loading notification history">{Array.from({ length: 6 }, (_, index) => <div key={index} className="flex items-center gap-4"><Skeleton className="size-10 rounded-full" /><div className="flex-1"><Skeleton className="h-4 w-52 max-w-full" /><Skeleton className="mt-2 h-3 w-72 max-w-full" /></div><Skeleton className="hidden h-8 w-20 sm:block" /></div>)}</div>
 }
 
-function ReminderDialog({ distributions, onClose, onQueue }) {
+function ReminderDialog({ distributions, initialDistributionId, onClose, onQueue }) {
   const dialogRef = useRef(null)
-  const [distributionId, setDistributionId] = useState(distributions[0]?.distributionId ?? '')
+  const [distributionId, setDistributionId] = useState(initialDistributionId || distributions[0]?.distributionId || '')
   const [sendAt, setSendAt] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const selected = distributions.find((distribution) => distribution.distributionId === distributionId)
@@ -79,10 +80,10 @@ function ReminderDialog({ distributions, onClose, onQueue }) {
   </dialog>
 }
 
-function ScheduleNoticeDialog({ distributions, token, onClose, onQueued, onSessionExpired }) {
+function ScheduleNoticeDialog({ distributions, initialDistributionId, token, onClose, onQueued, onSessionExpired }) {
   const dialogRef = useRef(null)
   const keyRef = useRef('')
-  const [distributionId, setDistributionId] = useState(distributions[0]?.distributionId ?? '')
+  const [distributionId, setDistributionId] = useState(initialDistributionId || distributions[0]?.distributionId || '')
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [schedules, setSchedules] = useState([])
@@ -178,7 +179,26 @@ function NotificationActions({ canRetry, isRetrying, notification, onOpen, onRet
   return <div className="flex flex-wrap gap-2"><button type="button" onClick={() => onOpen(notification)} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">View details</button>{notification.status === 'FAILED' && canRetry && <button type="button" disabled={isRetrying} onClick={() => onRetry(notification)} className="inline-flex min-h-11 items-center justify-center rounded-lg px-3 text-sm font-bold text-brand-red hover:bg-danger-soft focus-visible:outline-2 focus-visible:outline-brand-red disabled:opacity-50">{isRetrying ? <LoadingLabel>Retrying...</LoadingLabel> : 'Retry'}</button>}</div>
 }
 
-function NotificationManagementPage({ session, onLogout, onNavigate, onSessionExpired }) {
+function NotificationChannels({ channel, distributionId, onNavigate }) {
+  return <nav aria-label="Notification channels" className="my-5 flex gap-2 border-b border-line">{[['sms', 'SMS delivery'], ['push', 'Push notifications']].map(([value, label]) => {
+    const href = `/notifications?channel=${value}${distributionId ? `&distribution=${encodeURIComponent(distributionId)}` : ''}`
+    return <a key={value} href={href} aria-current={channel === value ? 'page' : undefined} onClick={(event) => { event.preventDefault(); onNavigate(href) }} className={`min-h-11 border-b-2 px-4 py-3 text-sm font-bold focus-visible:outline-2 focus-visible:outline-brand-blue ${channel === value ? 'border-brand-blue text-brand-blue' : 'border-transparent text-muted-copy hover:border-line hover:text-ink'}`}>{label}</a>
+  })}</nav>
+}
+
+function NotificationManagementPage(props) {
+  const { session, onLogout, onNavigate, onSessionExpired } = props
+  const query = new URLSearchParams(window.location.search)
+  const [pushDistributionId, setPushDistributionId] = useState(query.get('distribution') || '')
+  if (session.user.role !== 'SYSTEM_ADMIN' || query.get('channel') !== 'push') return <SmsNotificationWorkspace {...props} />
+  return <DashboardShell breadcrumbs={['Operations', 'Notifications', 'Push notifications']} currentPath="/notifications" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Notifications" showAssistant={false} user={session.user}>
+    <header className="ga-page-header border-b border-line pb-6"><p className="ga-eyebrow">Beneficiary communications</p><h1 className="ga-page-title">Push notifications</h1><p className="ga-page-copy">Prepare event notices for beneficiaries, review the recipients, and keep drafts for follow-up.</p></header>
+    <NotificationChannels channel="push" distributionId={pushDistributionId} onNavigate={onNavigate} />
+    <PushNotificationWorkspace session={session} onNavigate={onNavigate} onSessionExpired={onSessionExpired} onDistributionChange={setPushDistributionId} />
+  </DashboardShell>
+}
+
+function SmsNotificationWorkspace({ session, onLogout, onNavigate, onSessionExpired }) {
   const authorized = ['SYSTEM_ADMIN', 'DSWD_STAFF', 'BARANGAY_FACILITATOR'].includes(session.user.role)
   const canRetry = ['SYSTEM_ADMIN', 'DSWD_STAFF'].includes(session.user.role)
   const [draft, setDraft] = useState(() => ({ ...emptyFilters, distributionId: new URLSearchParams(window.location.search).get('distribution') || '' }))
@@ -273,10 +293,12 @@ function NotificationManagementPage({ session, onLogout, onNavigate, onSessionEx
 
   return <DashboardShell breadcrumbs={['Operations', 'Notifications', 'Delivery monitoring']} currentPath="/notifications" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Notifications" user={session.user}>
     <header className="ga-page-header flex flex-col gap-5 border-b border-line pb-6 lg:flex-row lg:items-end lg:justify-between"><div><p className="ga-eyebrow">Beneficiary communications</p><h1 className="ga-page-title">{session.user.role === 'SYSTEM_ADMIN' ? 'SMS delivery' : 'SMS notifications and delivery monitoring'}</h1><p className="ga-page-copy">Review schedule messages before queueing them, then follow queued, sent, and failed records within your authorized service scope.</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => setComposerOpen(true)} disabled={distributions.length === 0} className="ga-btn-secondary">Queue reminders</button><button type="button" onClick={() => setScheduleComposerOpen(true)} disabled={distributions.length === 0} className="ga-btn-primary">Queue schedule message</button></div></header>
+    {session.user.role === 'SYSTEM_ADMIN' && <NotificationChannels channel="sms" distributionId={filters.distributionId} onNavigate={onNavigate} />}
     {session.user.role === 'SYSTEM_ADMIN' && filters.distributionId && <a href={`/distributions/manage?event=${encodeURIComponent(filters.distributionId)}`} onClick={(event) => { event.preventDefault(); onNavigate(`/distributions/manage?event=${encodeURIComponent(filters.distributionId)}`) }} className="mt-4 inline-flex min-h-11 items-center gap-2 text-sm font-bold text-brand-blue hover:underline"><Icon name="arrowLeft" className="size-4" />Return to distribution event</a>}
 
     <section className="mt-6 flex flex-col gap-3 rounded-xl border border-blue-200 bg-info-soft p-4 sm:flex-row sm:items-center sm:justify-between" aria-label="Delivery channel status"><p className="text-sm leading-6 text-copy"><strong className="text-ink">Simulated SMS:</strong> Delivery records and retries demonstrate the workflow; no real messages are sent.</p><div className="flex flex-wrap gap-2 text-xs font-bold" role="status" aria-live="polite" aria-atomic="true"><span className="rounded-full border border-blue-200 bg-white px-3 py-2 text-brand-blue">{queueHealth ? `Queue ${queueHealth.status}` : <LoadingLabel>Checking queue...</LoadingLabel>}</span><span className="rounded-full border border-blue-200 bg-white px-3 py-2 text-brand-blue">{realtimeStatus !== 'connected' && <Spinner aria-hidden="true" className="mr-1 inline size-3" />}Live updates {realtimeStatus === 'connected' ? 'connected' : realtimeStatus === 'connecting' ? 'connecting' : 'reconnecting'}</span></div></section>
 
+    <p className="mt-3 text-sm leading-6 text-muted-copy">{session.user.role === 'SYSTEM_ADMIN' ? 'Use the Push notifications tab to prepare app notification drafts. Push delivery is not available yet.' : 'Push delivery is not available. This workspace records simulated SMS only.'}</p>
     <section className="mt-6 grid grid-cols-2 gap-3 xl:grid-cols-4" aria-label="Notification delivery summary"><MetricCard label="Total records" value={summary?.total ?? '—'} description="Within the selected scope" /><MetricCard label="Sent" value={counts.SENT ?? 0} tone="success" description="Completed simulated deliveries" /><MetricCard label="Queued" value={counts.PENDING ?? 0} tone="warning" description={`${(queueHealth?.counts?.waiting ?? 0) + (queueHealth?.counts?.delayed ?? 0)} waiting or delayed jobs`} /><MetricCard label="Failed" value={counts.FAILED ?? 0} tone="danger" description={canRetry ? 'Eligible for authorized retry' : 'Contact DSWD for retry'} /></section>
 
     <details className="ga-card mt-5 overflow-hidden" aria-label="Notification history filters">
@@ -287,8 +309,8 @@ function NotificationManagementPage({ session, onLogout, onNavigate, onSessionEx
     <section className="ga-card mt-5 overflow-hidden" aria-labelledby="history-heading" aria-busy={isLoading}><div className="flex flex-col gap-3 border-b border-line p-5 sm:flex-row sm:items-center sm:justify-between"><div><h2 id="history-heading" className="ga-section-heading">Delivery history</h2><p className="mt-1 text-sm text-muted-copy">{history ? `${history.pagination.total} matching ${history.pagination.total === 1 ? 'record' : 'records'}` : 'Loading authorized records'}</p></div><div className="flex flex-wrap items-center gap-2">{history && <span className="w-fit rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-copy">Page {history.pagination.page}</span>}<button type="button" onClick={refresh} disabled={isLoading} className="ga-btn-secondary min-h-10 px-3 text-sm">{isLoading ? <LoadingLabel>Refreshing...</LoadingLabel> : 'Refresh history'}</button></div></div>
       {isLoading ? <LoadingHistory /> : error ? <div className="p-7" role="alert"><h3 className="font-extrabold">Notification history could not be loaded</h3><p className="mt-2 text-sm text-muted-copy">{error}</p><button type="button" onClick={refresh} className="ga-btn-primary mt-4">Try again</button></div> : !history?.notifications.length ? <div className="p-10 text-center"><span aria-hidden="true" className="mx-auto grid size-12 place-items-center rounded-full bg-info-soft font-black text-brand-blue">0</span><h3 className="mt-4 font-extrabold">No notification records found</h3><p className="mt-2 text-sm text-muted-copy">Adjust the filters or queue distribution reminders to create the first records in this scope.</p></div> : <><div className="hidden overflow-x-auto lg:block"><table className="w-full min-w-[900px] text-left text-sm"><caption className="sr-only">Role-scoped simulated SMS delivery history</caption><thead className="bg-slate-50 text-xs uppercase tracking-[0.08em] text-muted-copy"><tr><th scope="col" className="px-5 py-3">Message</th><th scope="col" className="px-5 py-3">Recipient</th><th scope="col" className="px-5 py-3">Distribution and queue</th><th scope="col" className="px-5 py-3">Delivery timing</th><th scope="col" className="px-5 py-3">Status</th><th scope="col" className="px-5 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-line">{history.notifications.map((notification) => <tr key={notification.notificationId} className="transition-colors hover:bg-slate-50"><td className="px-5 py-4"><p className="font-bold text-ink">{humanize(notification.notificationType)}</p><p className="mt-1 text-xs text-muted-copy">{notification.channel} · {notification.providerMode}</p></td><td className="px-5 py-4 font-mono text-xs font-bold text-copy">{notification.recipientMasked || 'No contact'}</td><td className="px-5 py-4"><p className="font-semibold text-ink">{notification.distribution?.title || 'Distribution record'}</p><p className="mt-1 text-xs text-muted-copy">{notification.schedule?.queueNumber ? `Queue #${notification.schedule.queueNumber}` : 'No queue assignment'}</p></td><td className="whitespace-nowrap px-5 py-4"><p className="text-xs font-semibold text-copy">{formatDateTime(deliveryTime(notification))}</p><p className="mt-1 text-xs text-muted-copy">{deliveryTimeLabel(notification)}</p></td><td className="px-5 py-4"><StatusBadge status={notification.status} />{notification.status === 'FAILED' && <p className="mt-2 text-xs font-semibold text-brand-red">{humanize(notification.lastErrorCode)}</p>}</td><td className="px-5 py-4"><div className="flex justify-end"><NotificationActions canRetry={canRetry} isRetrying={retryingId === notification.notificationId} notification={notification} onOpen={setDetail} onRetry={retry} /></div></td></tr>)}</tbody></table></div><div className="divide-y divide-line lg:hidden">{history.notifications.map((notification) => <article key={notification.notificationId} className="p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-extrabold text-ink">{humanize(notification.notificationType)}</h3><p className="mt-1 font-mono text-xs font-bold text-muted-copy">{notification.recipientMasked || 'No contact number'}</p></div><StatusBadge status={notification.status} /></div><dl className="mt-4 grid gap-3 border-y border-line py-4 text-sm sm:grid-cols-2"><div><dt className="text-xs text-muted-copy">Distribution</dt><dd className="mt-1 font-bold">{notification.distribution?.title || 'Distribution record'}</dd></div><div><dt className="text-xs text-muted-copy">{deliveryTimeLabel(notification)} time</dt><dd className="mt-1 font-semibold">{formatDateTime(deliveryTime(notification))}</dd></div></dl><div className="mt-3"><NotificationActions canRetry={canRetry} isRetrying={retryingId === notification.notificationId} notification={notification} onOpen={setDetail} onRetry={retry} /></div></article>)}</div>{history.pagination.totalPages > 1 && <div className="flex flex-col gap-3 border-t border-line px-5 py-4 text-sm sm:flex-row sm:items-center sm:justify-between"><span>Page {page} of {history.pagination.totalPages}</span><div className="flex gap-2"><button type="button" disabled={page <= 1} onClick={() => { setIsLoading(true); setPage((value) => value - 1) }} className="ga-btn-secondary min-h-11 px-4 text-sm">Previous</button><button type="button" disabled={page >= history.pagination.totalPages} onClick={() => { setIsLoading(true); setPage((value) => value + 1) }} className="ga-btn-secondary min-h-11 px-4 text-sm">Next</button></div></div>}</>}
     </section>
-    {composerOpen && <ReminderDialog distributions={distributions} onClose={() => setComposerOpen(false)} onQueue={queueReminders} />}
-    {scheduleComposerOpen && <ScheduleNoticeDialog distributions={distributions} token={session.accessToken} onSessionExpired={onSessionExpired} onClose={() => setScheduleComposerOpen(false)} onQueued={(result) => { toast.success(`${result.queuedCount} schedule message queued for simulated delivery.`); setReload((value) => value + 1) }} />}
+    {composerOpen && <ReminderDialog distributions={distributions} initialDistributionId={filters.distributionId} onClose={() => setComposerOpen(false)} onQueue={queueReminders} />}
+    {scheduleComposerOpen && <ScheduleNoticeDialog distributions={distributions} initialDistributionId={filters.distributionId} token={session.accessToken} onSessionExpired={onSessionExpired} onClose={() => setScheduleComposerOpen(false)} onQueued={(result) => { toast.success(`${result.queuedCount} schedule message queued for simulated delivery.`); setReload((value) => value + 1) }} />}
     {detail && <NotificationDetailDialog notification={detail} canRetry={canRetry} isRetrying={retryingId === detail.notificationId} onClose={() => setDetail(null)} onRetry={retry} />}
   </DashboardShell>
 }
