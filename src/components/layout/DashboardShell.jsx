@@ -349,7 +349,7 @@ function DashboardShellFrame({ breadcrumbs, children, currentPath, onLogout, onN
 
             <div className="min-w-0 flex-1">
               <p className="ga-staff-greeting text-sm leading-6 text-copy sm:text-base">
-                <span lang="fil" className="block sm:inline">{dayPeriod.greeting}, </span>
+                <span lang="en" className="block sm:inline">{dayPeriod.greeting}, </span>
                 <strong className="break-words font-semibold uppercase text-ink">{user?.fullName ?? 'Staff'}</strong>
                 <span role="img" aria-label={`${dayPeriod.label} in Philippine time`} title={`${dayPeriod.label} · Philippine time`} className="ml-2 inline-block align-text-bottom">
                   <Icon name={dayPeriod.icon} className={`size-5 ${dayPeriod.color}`} />

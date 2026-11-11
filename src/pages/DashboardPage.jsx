@@ -24,7 +24,7 @@ const moduleDescriptions = {
   Ledger: 'Review simulated fund utilization and transaction records.',
   'Queue & schedules': 'Find a scheduled beneficiary and continue their required claim checks.',
   'QR verification': 'Validate single-use claim references at distribution sites.',
-  Notifications: 'Monitor simulated SMS delivery and follow up on failed reminders.',
+  Notifications: 'Monitor SMS processing and follow up on failed reminders.',
   'Biometric identity': 'Record consent, enroll a face profile, and verify claims.',
   'Claim accountability': 'Issue claim receipts, file disputes, and record independent review decisions.',
   'Releases & receipts': 'Record a verified physical handover, issue a receipt, or refer a concern.',

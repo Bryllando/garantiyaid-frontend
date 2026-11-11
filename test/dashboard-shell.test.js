@@ -5,6 +5,27 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { createServer } from 'vite'
 import { getPhilippineDayPeriod } from '../src/components/layout/philippine-day-period.js'
 
+test('Philippine greetings cover all 24 hours, early mornings and exact timezone boundaries', () => {
+  for (let hour = 0; hour < 24; hour++) {
+    const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+    const icon = hour < 12 ? 'sunrise' : hour < 17 ? 'sun' : 'moon'
+    for (const minutes of ['00:00', '30:00', '59:59']) {
+      const date = new Date(`2026-11-10T${String(hour).padStart(2, '0')}:${minutes}+08:00`)
+      const period = getPhilippineDayPeriod(date)
+      assert.equal(period.greeting, greeting, date.toISOString())
+      assert.equal(period.icon, icon, date.toISOString())
+    }
+  }
+  for (const [utc, greeting] of [
+    ['2026-11-09T15:59:59Z', 'Good evening'],
+    ['2026-11-09T16:00:00Z', 'Good morning'],
+    ['2026-11-10T03:59:59Z', 'Good morning'],
+    ['2026-11-10T04:00:00Z', 'Good afternoon'],
+    ['2026-11-10T08:59:59Z', 'Good afternoon'],
+    ['2026-11-10T09:00:00Z', 'Good evening'],
+  ]) assert.equal(getPhilippineDayPeriod(new Date(utc)).greeting, greeting)
+})
+
 test('staff shell renders authorized navigation, nested page selection, and safe account details', async (t) => {
   const vite = await createServer({ cacheDir: 'node_modules/.vite-verify/dashboard-shell', server: { middlewareMode: true }, appType: 'custom' })
   try {
@@ -17,13 +38,10 @@ test('staff shell renders authorized navigation, nested page selection, and safe
     }, createElement('h1', null, 'Existing page content')))
     t.mock.timers.enable({ apis: ['Date'] })
     const periods = [
-      ['00:00:00', '03:59:59', 'Midnight', 'moonStars'],
-      ['04:00:00', '06:59:59', 'Sunrise', 'sunrise'],
-      ['07:00:00', '11:59:59', 'Morning', 'sun'],
-      ['12:00:00', '12:59:59', 'Noon', 'sunHigh'],
-      ['13:00:00', '17:59:59', 'Afternoon', 'sunLow'],
-      ['18:00:00', '18:59:59', 'Evening', 'sunset'],
-      ['19:00:00', '23:59:59', 'Night', 'moon'],
+      ['00:00:00', '04:59:59', 'Morning', 'sunrise'],
+      ['05:00:00', '11:59:59', 'Morning', 'sunrise'],
+      ['12:00:00', '16:59:59', 'Afternoon', 'sun'],
+      ['17:00:00', '23:59:59', 'Evening', 'moon'],
     ]
     for (const [start, end, label, icon] of periods) {
       for (const time of [start, end]) {
@@ -39,7 +57,7 @@ test('staff shell renders authorized navigation, nested page selection, and safe
         }
       }
     }
-    assert.equal(getPhilippineDayPeriod(new Date('2026-09-07T16:00:00Z')).label, 'Midnight')
+    assert.equal(getPhilippineDayPeriod(new Date('2026-09-07T16:00:00Z')).label, 'Morning')
     t.mock.timers.reset()
 
     for (const role of ['SYSTEM_ADMIN', 'DSWD_STAFF', 'BARANGAY_FACILITATOR']) {
@@ -65,7 +83,8 @@ test('staff shell renders authorized navigation, nested page selection, and safe
       assert.doesNotMatch(header, /Open account menu|Sign out securely|<details/)
       assert.match(header, /aria-label="Open assistant conversation"/)
       assert.match(header, /GarantiyAid-AI-logo/)
-      assert.match(header, /Magandang (umaga|tanghali|hapon|gabi),/)
+      assert.match(header, /Good (morning|afternoon|evening),/)
+      assert.match(header, /lang="en"/)
       assert.match(header, /Maria &lt;Admin&gt; Santos/)
       assert.doesNotMatch(header, /aria-label="Breadcrumb"/)
       assert.match(header, /<time[^>]*>[\s\S]*?(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), [A-Z][a-z]+ \d{1,2}, \d{4}/)

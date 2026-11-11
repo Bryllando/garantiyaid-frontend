@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./admin.css";
+@import "./components/assistant/process-diagram.css";
 
 @theme {
   --color-brand-navy: #06264d;

@@ -5,9 +5,9 @@ import { chromium, expect } from '@playwright/test'
 import { createServer } from 'vite'
 import { getPhilippineDayPeriod } from '../src/components/layout/philippine-day-period.js'
 
-for (const [hour, expected] of [[0, 'gabi'], [3, 'gabi'], [4, 'umaga'], [7, 'umaga'], [11, 'umaga'], [12, 'tanghali'], [13, 'hapon'], [17, 'hapon'], [18, 'gabi'], [19, 'gabi'], [23, 'gabi']]) {
+for (const [hour, expected] of [[0, 'morning'], [2, 'morning'], [4, 'morning'], [5, 'morning'], [11, 'morning'], [12, 'afternoon'], [16, 'afternoon'], [17, 'evening'], [23, 'evening']]) {
   const date = new Date(`2026-10-30T${String(hour).padStart(2, '0')}:00:00+08:00`)
-  assert.equal(getPhilippineDayPeriod(date).greeting, `Magandang ${expected}`)
+  assert.equal(getPhilippineDayPeriod(date).greeting, `Good ${expected}`)
 }
 
 // Exercise the real app with local response fixtures; no staff account or live data is used.
@@ -68,22 +68,25 @@ try {
     assert.equal(await sidebar.locator('a[href="/facilitator/queue"]').count(), role === 'BARANGAY_FACILITATOR' ? 1 : 0)
     assert.equal(await sidebar.evaluate((element) => getComputedStyle(element).backgroundColor), 'rgb(6, 38, 77)')
     const greeting = page.locator('.ga-staff-greeting')
-    await expect(greeting).toContainText('Magandang hapon,')
-    if (role === 'SYSTEM_ADMIN') {
+    await expect(greeting).toContainText('Good afternoon,')
+    const mountedGreeting = await greeting.elementHandle()
+    {
       for (const [time, text, period] of [
-        ['2026-10-30T11:59:59+08:00', 'umaga', 'Morning'],
-        ['2026-10-30T12:00:00+08:00', 'tanghali', 'Noon'],
-        ['2026-10-30T13:00:00+08:00', 'hapon', 'Afternoon'],
-        ['2026-10-30T18:00:00+08:00', 'gabi', 'Evening'],
-        ['2026-10-30T19:00:00+08:00', 'gabi', 'Night'],
-        ['2026-10-31T00:00:00+08:00', 'gabi', 'Midnight'],
-        ['2026-10-31T04:00:00+08:00', 'umaga', 'Sunrise'],
-        ['2026-10-31T13:45:00+08:00', 'hapon', 'Afternoon'],
+        ['2026-10-30T11:59:59+08:00', 'morning', 'Morning'],
+        ['2026-10-30T12:00:00+08:00', 'afternoon', 'Afternoon'],
+        ['2026-10-30T16:59:59+08:00', 'afternoon', 'Afternoon'],
+        ['2026-10-30T17:00:00+08:00', 'evening', 'Evening'],
+        ['2026-10-30T23:59:59+08:00', 'evening', 'Evening'],
+        ['2026-10-31T00:00:00+08:00', 'morning', 'Morning'],
+        ['2026-10-31T02:30:00+08:00', 'morning', 'Morning'],
+        ['2026-10-31T13:45:00+08:00', 'afternoon', 'Afternoon'],
       ]) {
         clockTime = time
         await page.clock.setFixedTime(new Date(time))
-        await expect(greeting).toContainText(`Magandang ${text},`)
+        await expect(page.locator('.ga-staff-header time')).toHaveAttribute('datetime', new Date(time).toISOString())
+        await expect(greeting).toContainText(`Good ${text},`)
         await expect(greeting.getByRole('img', { name: `${period} in Philippine time`, exact: true })).toBeVisible()
+        assert.ok(await mountedGreeting.evaluate(element => element.isConnected), 'greeting updates without a page refresh or header remount')
       }
     }
     await expect(page.locator('.ga-staff-greeting strong')).toHaveText('Alexandra Maria De Los Santos')
@@ -171,6 +174,7 @@ try {
     await nav.getByRole('button', { name: 'Collapse navigation', exact: true }).click()
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(page.locator('.ga-staff-header time')).toBeVisible()
+    await expect(page.locator('.ga-staff-header time span').first()).toContainText(/\d{1,2}:\d{2}:\d{2} [AP]M PHT/)
     await page.locator('.ga-staff-header').screenshot({ path: `${output}/${name}-greeting-mobile.png`, animations: 'disabled' })
     await expect(sidebar).toHaveJSProperty('inert', true)
     const open = page.getByRole('button', { name: 'Open navigation', exact: true })

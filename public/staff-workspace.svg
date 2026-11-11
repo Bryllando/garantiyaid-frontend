@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="244" viewBox="0 0 400 244" fill="none">
+  <path d="M24 224H376" stroke="#527497" stroke-width="1.5"/>
+  <path d="M35 99H101L119 115H325V214H35V99Z" fill="#164574" stroke="#527FA9" stroke-width="1.5" stroke-linejoin="round"/>
+  <rect x="54" y="25" width="258" height="176" rx="10" fill="#FFFFFF" stroke="#B9CCE0" stroke-width="1.5"/>
+  <path d="M64 25H302A10 10 0 0 1 312 35V67H54V35A10 10 0 0 1 64 25Z" fill="#EEF6FF"/>
+  <path d="M54 67H312" stroke="#DBE4EE"/>
+  <text x="72" y="51" fill="#06264D" font-family="Segoe UI,Arial,sans-serif" font-size="14" font-weight="600">Beneficiary record</text>
+  <g stroke="#0A5CA8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="276" y="39" width="19" height="14" rx="2"/>
+    <circle cx="282" cy="44" r="2"/>
+    <path d="M279 50C279 46 285 46 285 50M289 43H292M289 47H292"/>
+  </g>
+  <circle cx="101" cy="110" r="27" fill="#EEF6FF"/>
+  <g stroke="#0A5CA8" stroke-width="2" stroke-linecap="round">
+    <circle cx="101" cy="104" r="8"/>
+    <path d="M87 124C89 110 113 110 115 124"/>
+  </g>
+  <rect x="144" y="92" width="119" height="7" rx="3.5" fill="#40516A"/>
+  <rect x="144" y="110" width="94" height="5" rx="2.5" fill="#B9CCE0"/>
+  <rect x="144" y="125" width="112" height="5" rx="2.5" fill="#B9CCE0"/>
+  <path d="M74 151H292" stroke="#DBE4EE"/>
+  <rect x="74" y="167" width="70" height="5" rx="2.5" fill="#B9CCE0"/>
+  <rect x="160" y="167" width="61" height="5" rx="2.5" fill="#B9CCE0"/>
+  <rect x="259" y="123" width="108" height="101" rx="9" fill="#FFFFFF" stroke="#B9CCE0" stroke-width="1.5"/>
+  <path d="M268 123H358A9 9 0 0 1 367 132V151H259V132A9 9 0 0 1 268 123Z" fill="#0A5CA8"/>
+  <path d="M280 117V131M346 117V131" stroke="#B9CCE0" stroke-width="3" stroke-linecap="round"/>
+  <g fill="#DBE4EE">
+    <rect x="275" y="164" width="10" height="9" rx="2"/>
+    <rect x="295" y="164" width="10" height="9" rx="2"/>
+    <rect x="315" y="164" width="10" height="9" rx="2"/>
+    <rect x="335" y="164" width="10" height="9" rx="2"/>
+    <rect x="275" y="182" width="10" height="9" rx="2"/>
+    <rect x="315" y="182" width="10" height="9" rx="2"/>
+    <rect x="335" y="182" width="10" height="9" rx="2"/>
+    <rect x="275" y="200" width="10" height="9" rx="2"/>
+    <rect x="295" y="200" width="10" height="9" rx="2"/>
+    <rect x="315" y="200" width="10" height="9" rx="2"/>
+  </g>
+  <rect x="293" y="180" width="14" height="13" rx="3" fill="#0A5CA8"/>
+  <path d="M297 186L300 189L304 184" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M78 170L101 179V194C101 211 89 222 78 227C67 222 55 211 55 194V179L78 170Z" fill="#FFF3CF" stroke="#E4BC56" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M67 196L75 204L90 188" stroke="#936813" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

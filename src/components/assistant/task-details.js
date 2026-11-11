@@ -23,6 +23,8 @@ export const taskFields = {
   ],
 }
 
+export const reminderContextFields = [field('program', 'Event program', ['Which program?', 'Anong programa?', 'Unsang programa?']), field('barangay', 'Event barangay', ['Which barangay?', 'Anong barangay?', 'Unsang barangay?']), { ...date, key: 'eventDate', label: 'Event date (PHT)' }, { ...start, key: 'eventTime', label: 'Event start time (PHT)' }]
+
 export const detailCopy = {
   cancelled: ['Pending details cleared. No event or reminder was changed.', 'Na-clear ang mga detalye. Walang event o reminder na binago.', 'Na-clear ang mga detalye. Walay event o reminder nga giusab.'],
   complete: ['Your details are collected. Review the summary below. Nothing has been submitted; these preferences still need an official preview.', 'Kumpleto na ang mga detalye. Suriin ang buod sa ibaba. Wala pang naisumite; kailangan pa ang opisyal na preview.', 'Nakolekta na ang mga detalye. Ribyuha ang summary sa ubos. Wala pay gisumite; kinahanglan pa ang opisyal nga preview.'],
@@ -30,14 +32,15 @@ export const detailCopy = {
 }
 export const translated = (copy, language) => copy[{ en: 0, fil: 1, ceb: 2 }[language] ?? 0]
 export const fieldsForTask = (task) => taskFields[task.kind].filter((item) => task.kind !== 'reminder' || task.values.deliveryMode === 'scheduled' || !['date', 'startTime'].includes(item.key))
-export const nextTaskField = (task) => fieldsForTask(task).find((item) => !task.values[item.key])
+export const nextTaskField = (task) => fieldsForTask(task).find((item) => !task.values[item.key] || item.key === 'distribution' && task.kind === 'reminder' && task.eventUnresolved)
 export const isTaskCancellation = (text) => /^(?:(?:please|palihog)\s+)?(?:cancel(?: this| the| my)?(?: pending)?(?: task| draft| request)?|stop|never\s?mind|ayaw na|kanselahin|kanselaha)[.!\s]*$/i.test(text)
-  || /^(?:do not|don['’]?t|ayaw|huwag|wag|dili|hindi)\s+(?:create|send|queue|make|himo|buhat|ipadala|gumawa)\b/i.test(text.trim())
+  || /^(?:do not|don['’]?t|ayaw|huwag|wag|dili|hindi)\s+(?:sa\s+|muna\s+)?(?:create|send|queue|make|himo|buhat|ipadala|gumawa)\b/i.test(text.trim())
 export const isTaskQuestion = (text) => !/^(?:change\s+)?(?:venue|program|barangay|title|date|start|end|slots|delivery|verification|event|area|message|timing)\s*:/i.test(text.trim())
-  && /\?|^(how|what|why|when|where|explain|show|check|unsa|ngano|asa|paano|ano|bakit|ipaliwanag)\b/i.test(text.trim())
+  && /\?|^(how|what|why|when|where|explain|show|check|unsa|unsaon|ngano|nganong|asa|paano|ano|bakit|ipaliwanag)\b/i.test(text.trim())
 
 export function manilaDate(now = new Date()) {
-  return new Date(now.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now).map(part => [part.type, part.value]))
+  return `${parts.year}-${parts.month}-${parts.day}`
 }
 
 function parseTime(value) {
@@ -54,7 +57,8 @@ function parseTime(value) {
 }
 
 export function setTaskValue(task, key, input, now = new Date()) {
-  const definition = taskFields[task.kind].find((item) => item.key === key)
+  const contextField = task.kind === 'reminder' && reminderContextFields.find(item => item.key === key)
+  const definition = taskFields[task.kind].find((item) => item.key === key) || contextField
   if (!definition) return { task, error: 'Choose a field from the task summary.' }
   let value = input.trim()
   let error = ''
@@ -83,8 +87,9 @@ export function setTaskValue(task, key, input, now = new Date()) {
   if (error) return { task, error }
   const values = { ...task.values, [key]: value }
   if (['program', 'barangay', 'distribution'].includes(key)) delete values[`${key}Id`]
+  if (task.kind === 'reminder' && ['program', 'barangay', 'eventDate', 'eventTime'].includes(key) && task.values[key] !== value) { delete values.distribution; delete values.distributionId }
   if (task.kind === 'reminder' && key === 'deliveryMode' && value === 'now') { delete values.date; delete values.startTime }
-  return { task: { ...task, values }, error: '' }
+  return { task: { ...task, values, ...(task.kind === 'reminder' && key === 'distribution' ? { eventQuery: '' } : {}) }, error: '' }
 }
 
 export function taskTimingIssue(task) {
@@ -99,7 +104,8 @@ export function taskTimingIssue(task) {
 
 // ponytail: accept labelled details and explicit dates/times; do not guess names
 // or ambiguous prose. The focused field editor is the fallback, not another model.
-export function collectTaskDetails(task, text, { key, initial = false, now = new Date() } = {}) {
+export function collectTaskDetails(task, text, { key, initial = false, replace = false, now = new Date() } = {}) {
+  if (task.kind === 'reminder') return collectReminderDetails(task, text, { key, initial, replace, now })
   let result = { task, error: '' }
   let extracted = false
   const assign = (fieldKey, value) => {
@@ -125,6 +131,57 @@ export function collectTaskDetails(task, text, { key, initial = false, now = new
   }
   if (!extracted && !initial && key && !isTaskQuestion(text) && !/^(yes|no|ok|okay|approve|confirm|continue|sige|oo)[.!\s]*$/i.test(text)) assign(key, text)
   if (!extracted && !initial && !result.error) result.error = 'Please answer the current question or use the field editor below. Nothing has been submitted.'
+  return result
+}
+
+function collectReminderDetails(task, text, { key, initial, replace, now }) {
+  const clean = text.trim().replace(/[.!]+$/, '')
+  if (isTaskCancellation(clean)) return { task, error: 'Cancel the pending task before continuing. Nothing has been queued.' }
+  if (/\b(push|mobile notification|app notification)\b/i.test(clean)) return { task, error: 'Mobile push delivery is unavailable. No notification was sent. Choose SMS to continue with this reminder.' }
+  if (/^(?:kanang event nga atong gihisgutan|that event|the event we discussed|same event|iyon ding event)[.!\s]*$/i.test(text)) return { task, error: task.values.distributionId ? '' : 'Choose one exact existing event first. No event has been confirmed yet.' }
+  let result = { task, error: '' }, extracted = false
+  const explicitChange = replace || /^(?:change|instead|ilisan|palitan)\b/i.test(clean)
+  const assign = (name, value) => {
+    const next = setTaskValue(result.task, name, value, now)
+    const previous = task.values[name]
+    const sameName = previous && ['program', 'barangay', 'distribution', 'serviceArea'].includes(name) && next.task.values[name]?.normalize('NFKC').toLowerCase() === previous.normalize('NFKC').toLowerCase()
+    if (sameName) { extracted = true; return }
+    if (previous && next.task.values[name] !== previous && !explicitChange) {
+      result.error ||= `${name}: already set to ${previous}. Use Edit or "change ${name}: ..." to replace it.`
+    } else result = { task: next.task, error: result.error || next.error }
+    extracted = true
+  }
+  const aliases = { program: 'program', barangay: 'barangay', event: 'distribution', area: 'serviceArea', message: 'messageTemplate', timing: 'deliveryMode', date: 'date', start: 'startTime', 'event date': 'eventDate', 'event time': 'eventTime' }
+  const labelled = [...clean.matchAll(/(?:^|[;\n])\s*(?:change\s+)?(program|barangay|event date|event time|event|area|message|timing|date|start)\s*:\s*([^;\n]+)/gi)]
+  for (const match of labelled) assign(aliases[match[1].toLowerCase()], match[2])
+  if (!labelled.length) {
+    if (replace && key) return setTaskValue(task, key, clean, now)
+    if (key === 'deliveryMode' && /^(?:now|karon|ngayon)$/i.test(clean)) return setTaskValue(task, key, 'now', now)
+    if (/^(?:sms(?: only| lang| lamang)?|text only)$/i.test(clean)) { extracted = true; result.task = { ...task, values: { ...task.values, channel: 'SMS' } } }
+    // A distribution time is a lookup constraint; only explicit queue/send timing changes delivery time.
+    const queueTiming = /^(?:schedule (?:an? )?(?:sms|reminder)|(?:queue|send|ipadala|i-queue).{0,15}(?:sms|reminder).{0,15}(?:at|on|tomorrow|today|ugma|bukas))\b/i.test(clean) || ['date', 'startTime'].includes(key)
+    const shortTiming = /^(?:(?:karon|today|ngayon|ugma|tomorrow|bukas|\d{4}-\d{2}-\d{2})[,\s]*(?:(?:at|sa)\s*)?)?(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}:\d{2}|noon|midnight)?$/i.test(clean)
+    if (key === 'messageTemplate' && !initial && !extracted && !isTaskQuestion(clean) && !/^(?:yes|no|ok|okay|approve|confirm|continue|sige|oo)$/i.test(clean) && !shortTiming && !/^(?:sa|in|barangay)\s+/i.test(clean) && !queueTiming) return setTaskValue(task, key, text.trim(), now)
+    const dates = clean.match(/\b(?:\d{4}-\d{2}-\d{2}|tomorrow|today|ugma|karon|bukas|ngayon)\b/gi) || []
+    const times = clean.match(/\b(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}:\d{2}|noon|midnight)\b/gi) || []
+    if (dates.length > 1 || times.length > 1 || /\bor\b/i.test(clean) && (dates.length || times.length)) return { task, error: 'Choose one date and time in Philippine time. Nothing has changed.' }
+    if (dates.length) assign(queueTiming ? 'date' : 'eventDate', dates[0])
+    if (times.length) assign(queueTiming ? 'startTime' : 'eventTime', times[0])
+    if (queueTiming && (dates.length || times.length)) assign('deliveryMode', 'scheduled')
+    else if (/^(now|queue now|ipadala karon|ngayon)$/i.test(clean)) assign('deliveryMode', 'now')
+    const request = clean.replace(/^(?:(?:hello|hi|palihog|please|paki)[,\s]+)*/i, '')
+    // shortcut: named program/area patterns are conservative; other names use the existing exact field editor.
+    const named = request.match(/^(?:pahinumdomi|pahinumdumi|pahibaloa|paalalahanan|abisuhan|send reminders?|remind|notify|i-notify)[\s\S]*?(?:\bsa|\bfor|\bng)\s+(?:the\s+)?(.+?)\s+(?:sa|in|at)\s+(?:barangay\s+)?(.+?)(?:\s+distribution)?$/i)
+    if (named) {
+      const place = named[2].replace(/\s+(?:(?:today|tomorrow|karon|ugma|ngayon|bukas|\d{4}-\d{2}-\d{2})\b|(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)\b)[\s\S]*$/i, '')
+      assign('program', named[1]); assign('barangay', place)
+    }
+    else if (/^(?:sa|in|barangay)\s+[^;\n]+$/i.test(clean) && !dates.length && !times.length) assign('barangay', clean.replace(/^(?:sa|in|barangay)\s+(?:barangay\s+)?/i, ''))
+    if (!extracted && !initial && key && !isTaskQuestion(clean) && !/^(?:yes|no|ok|okay|approve|confirm|continue|sige|oo)[.!\s]*$/i.test(clean)) assign(key, clean)
+  }
+  if (result.error) return { task, error: result.error }
+  if (!extracted && !initial) return { task, error: 'Please answer the current question or use Edit. Nothing has been submitted.' }
+  if (initial && clean && !result.task.values.distributionId) result.task = { ...result.task, eventQuery: clean }
   return result
 }
 

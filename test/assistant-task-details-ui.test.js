@@ -10,6 +10,15 @@ test('task summary renders labelled fields, editable values, progress, and an ho
   try {
     const { default: Summary } = await vite.ssrLoadModule('/src/components/assistant/AssistantTaskDetails.jsx')
     const render = (task, extra = {}) => renderToStaticMarkup(createElement(Summary, { task, language: 'en', ...extra }))
+    for (const [kind, title, label] of [['distributionDraft', 'Prepare a distribution draft', 'Program'], ['reminder', 'Prepare a reminder', 'Distribution event']]) {
+      const initial = render({ kind, values: {} }, { onCancel: () => {} })
+      assert.ok(initial.includes(title))
+      assert.match(initial, /aria-label="Task stages"/)
+      assert.match(initial, /aria-current="step"/)
+      assert.match(initial, new RegExp(`<label for="ai-task-detail"[^>]*>${label}`))
+      assert.match(initial, /0 of (10|4) details/)
+      assert.doesNotMatch(initial, /Match records and preview/)
+    }
     const partial = render({ kind: 'distributionDraft', values: { program: 'Example <Program>', date: '2026-09-09', startTime: '09:00' } })
     assert.match(partial, /Example &lt;Program&gt;/)
     assert.match(partial, /Wednesday, September 9, 2026/)
@@ -23,9 +32,10 @@ test('task summary renders labelled fields, editable values, progress, and an ho
     assert.match(editing, /value="Existing choice"/)
     assert.match(editing, /aria-invalid="true"/)
     assert.match(editing, /role="alert"/)
-    const complete = render({ kind: 'reminder', values: { distribution: 'Example Event', serviceArea: 'Purok 2', messageTemplate: 'Bring your QR credential.', deliveryMode: 'now' } })
+    const complete = render({ kind: 'reminder', values: { distribution: 'Example Event', serviceArea: 'Purok 2', messageTemplate: 'Bring your QR credential.', deliveryMode: 'now' } }, { onChatToggle: () => {}, chatOpen: false })
     assert.match(complete, /Details collected/)
     assert.match(complete, /Nothing has been created or queued/)
+    assert.match(complete, /Use chat instead/)
     assert.doesNotMatch(complete, /<form|Confirm and|type="submit"/)
   } finally { await vite.close() }
 })

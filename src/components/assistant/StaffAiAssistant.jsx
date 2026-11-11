@@ -12,10 +12,10 @@ import {
 import AssistantDistributionScheduler from './AssistantDistributionScheduler.jsx'
 import { Icon } from '../ui/icon.jsx'
 import { LoadingLabel } from '../ui/spinner.jsx'
-import { messageIntent, routingReplies } from './staff-message-intent.js'
+import { conversationIntent, guidanceTarget, messageIntent, routingReplies } from './staff-message-intent.js'
 import AssistantTaskDetails from './AssistantTaskDetails.jsx'
 import { collectTaskDetails, detailCopy, isTaskCancellation, isTaskQuestion, nextTaskField, setTaskValue, taskReply, translated } from './task-details.js'
-import { allPages, formatPreviewTime, reminderFormFromTask, reminderRequest, resolveServiceArea, UNRESOLVED_AREA } from './task-preview.js'
+import { allPages, formatPreviewTime, reminderEventMatches, selectReminderEvent, reminderFormFromTask, reminderRequest, resolveServiceArea, UNRESOLVED_AREA } from './task-preview.js'
 import { confirmationSnapshot, uncertainConfirmation, retryConfirmationMessage, pendingConfirmation } from './confirmation-state.js'
 import { useAssistantHistory } from './use-assistant-history.js'
 import AssistantHistory, { HistorySaveStatus } from './AssistantHistory.jsx'
@@ -114,6 +114,8 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
   const [chatNotice, setChatNotice] = useState('')
   const [result, setResult] = useState(null)
   const [pendingTask, setPendingTask] = useState(null)
+  const [eventChoices, setEventChoices] = useState([])
+  const [taskChatOpen, setTaskChatOpen] = useState(false)
   const [editingDetail, setEditingDetail] = useState('')
   const [detailError, setDetailError] = useState('')
   const [guidedReminder, setGuidedReminder] = useState(false)
@@ -133,6 +135,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
   const lookupRunRef = useRef(0)
   const experience = roleExperience[user?.role] ?? roleExperience.BARANGAY_FACILITATOR
   const selectedDistribution = distributions.find((row) => row.distributionId === form.distributionId)
+  const guidanceLink = guidanceTarget(lastIntent, user?.role)
   const taskInProgress = Boolean(pendingTask || recovery || !['home', 'success'].includes(view))
   const conversationLocked = Boolean(busy || feedbackBusy || taskInProgress || history.working || !history.ready)
   const previousTaskRef = useRef(false)
@@ -299,7 +302,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
     })
     observer.observe(input)
     return () => { observer.disconnect(); cancelAnimationFrame(frame) }
-  }, [active, chatInput, view, historyOpen])
+  }, [active, chatInput, view, historyOpen, pendingTask, taskChatOpen])
 
   useEffect(() => {
     if (active && historyOpen) historyRef.current?.querySelector('input')?.focus()
@@ -311,7 +314,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
     function restoreReadingPosition() {
       if (!content.clientHeight) return
       const position = readingPositionRef.current
-      content.scrollTop = position.following ? (messages.length ? content.scrollHeight : 0) : position.top
+      content.scrollTop = position.following ? (messages.length && !(pendingTask && messages.length === 1) ? content.scrollHeight : 0) : position.top
       setShowLatest(!position.following && content.scrollHeight - content.scrollTop - content.clientHeight >= 48)
     }
     restoreReadingPosition()
@@ -323,7 +326,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
     observer.observe(content)
     observer.observe(readingRef.current)
     return () => { observer.disconnect(); cancelAnimationFrame(frame) }
-  }, [active, historyOpen, messages, streamingText, view])
+  }, [active, historyOpen, messages, pendingTask, streamingText, view])
 
   function rememberReadingPosition() {
     const content = contentRef.current
@@ -380,6 +383,8 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
     setRestoredTask(Boolean(selected.unfinished))
     setCopyStatus(null)
     setLastIntent('GUIDANCE')
+    setPendingTask(null)
+    setEventChoices([])
     resetWorkflow()
     setHistoryOpen(false)
     requestAnimationFrame(() => inputRef.current?.focus())
@@ -536,26 +541,57 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
     setMessages((current) => [...current, { role: 'assistant', content, local: true }])
   }
 
-  function keepTaskDetails(update) {
-    setPendingTask(update.task)
+  async function keepTaskDetails(update) {
+    const resolvingEvent = !update.error && update.task.kind === 'reminder' && (!update.task.values.distributionId || update.task.eventUnresolved) && (update.task.eventQuery || update.task.values.distribution || update.task.values.program || update.task.values.barangay)
+    setEventChoices([])
+    setPendingTask(resolvingEvent ? { ...update.task, eventUnresolved: true } : update.task)
     setDetailError(update.error)
     if (!update.error) setEditingDetail('')
+    if (resolvingEvent) {
+      const rows = await loadDistributions()
+      if (!rows) { setDetailError('Unable to check authorized events. Retry before continuing.'); return }
+      const matches = reminderEventMatches(update.task.values, rows, update.task.eventQuery)
+      if (matches.length === 1) update.task = selectReminderEvent(update.task, matches[0])
+      else {
+        update.task = { ...update.task, eventUnresolved: true }
+        setEventChoices(matches)
+        update.error = matches.length ? 'Several events match. Choose the exact event below before continuing.' : 'No authorized draft or open event matches these details. Check the program, barangay and event date/time. I have not created or rescheduled an event.'
+      }
+      setPendingTask(update.task)
+      setDetailError(update.error)
+    }
     taskMessage(update.error || taskReply(update.task, language))
   }
 
+  function chooseReminderEvent(row) {
+    const task = selectReminderEvent(pendingTask, row)
+    setPendingTask(task)
+    setEventChoices([])
+    setDetailError('')
+    taskMessage(`Event selected: ${formatEvent(row)}. ${taskReply(task, language)}`)
+  }
+
   function beginTask(kind, content = '') {
-    if (!history.ready || history.working) return
+    if (!history.ready || history.working || busy || feedbackBusy || recovery || submittingRef.current) return
     if (pendingTask) return taskMessage(translated(detailCopy.switch, language))
     if (kind === 'distributionDraft' && user?.role !== 'SYSTEM_ADMIN') return
+    resetWorkflow()
+    setEditingDetail('')
+    setDetailError('')
     setRestoredTask(false)
     setLastIntent(kind === 'reminder' ? 'PREPARE_AREA_REMINDER' : 'CREATE_DISTRIBUTION_DRAFT')
     setFeedbackStatus('')
     setError('')
+    setTaskChatOpen(Boolean(content))
     keepTaskDetails(collectTaskDetails({ kind, values: {} }, content, { initial: true }))
   }
 
   function cancelTask() {
+    lookupRunRef.current += 1
     setPendingTask(null)
+    setEventChoices([])
+    setPreview(null)
+    setReviewed(false)
     setEditingDetail('')
     setDetailError('')
     taskMessage(translated(detailCopy.cancelled, language))
@@ -608,9 +644,9 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
     if (!history.ready || history.working || !content || busy || chatRequestRef.current) return
     readingPositionRef.current.following = true
     setShowLatest(false)
-    const classifiedIntent = messageIntent(content, user?.role)
-    const guidanceDuringTask = pendingTask && isTaskQuestion(content)
-    const intent = guidanceDuringTask && !['greeting', 'schedule', 'delivery', 'beneficiary', 'help'].includes(classifiedIntent) ? 'help' : classifiedIntent
+    const classifiedIntent = conversationIntent(content, user?.role, pendingTask)
+    const guidanceDuringTask = pendingTask && (isTaskQuestion(content) || ['mobile', 'concern', 'unsupported', 'identity', 'release', 'enrollment', 'document_requirements', 'schedule', 'delivery', 'beneficiary'].includes(classifiedIntent))
+    const intent = guidanceDuringTask && ['reminder', 'distributionDraft'].includes(classifiedIntent) ? 'help' : classifiedIntent
     setMessages((current) => [...current, { role: 'user', content, local: Boolean(pendingTask || ['reminder', 'distributionDraft'].includes(intent)) }])
     setLastIntent(intent.replace(/([A-Z])/g, '_$1').toUpperCase())
     setFeedbackStatus('')
@@ -621,7 +657,9 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
       if (isTaskCancellation(content)) return cancelTask()
       if (intent === 'cancel') return taskMessage(routingReplies.cancel[language])
       if (['reminder', 'distributionDraft'].includes(intent) && intent !== pendingTask.kind) return taskMessage(translated(detailCopy.switch, language))
-      if (!guidanceDuringTask) return keepTaskDetails(collectTaskDetails(pendingTask, content, { key: editingDetail || nextTaskField(pendingTask)?.key, initial: intent === pendingTask.kind }))
+      const choice = content.match(/^(?:event\s*|option\s*)?(\d+)$/i)
+      if (choice && eventChoices[Number(choice[1]) - 1]) return chooseReminderEvent(eventChoices[Number(choice[1]) - 1])
+      if (!guidanceDuringTask) return keepTaskDetails(collectTaskDetails(pendingTask, content, { key: editingDetail || nextTaskField(pendingTask)?.key, initial: messageIntent(content, user?.role) === pendingTask.kind, replace: Boolean(editingDetail) }))
     }
     if (routingReplies[intent]) {
       setMessages((current) => [...current, { role: 'assistant', content: routingReplies[intent][language] }])
@@ -696,12 +734,26 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
     setChatNotice('')
   }
 
+  const currentTaskPrompts = pendingTask ? Object.keys(LANGUAGE_LABELS).map(locale => taskReply(pendingTask, locale)) : []
+  const visibleMessages = messages.filter((message, index) => !(pendingTask && index === messages.length - 1 && message.local && message.role === 'assistant' && currentTaskPrompts.includes(message.content)))
+
   const languageControl = <>
     <label htmlFor="staff-ai-language" className="sr-only">Assistant language</label>
     <select id="staff-ai-language" value={language} disabled={!history.ready || history.working || Boolean(busy)} onChange={(event) => setLanguage(event.target.value)} className="ga-assistant-language">
       {Object.entries(LANGUAGE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
     </select>
   </>
+
+  const taskShortcuts = <div className="ga-assistant-suggestions grid gap-3 sm:grid-cols-2" role="group" aria-label="Assistant tasks">
+    {user?.role === 'SYSTEM_ADMIN' && <button type="button" disabled={conversationLocked} onClick={() => beginTask('distributionDraft')} className="ga-assistant-suggestion"><Icon name="calendar" /><span><strong>Prepare a distribution draft</strong><small>Collect the details, then review before saving.</small></span><Icon name="chevronRight" className="size-4" /></button>}
+    <button type="button" disabled={conversationLocked} onClick={() => beginTask('reminder')} className="ga-assistant-suggestion"><Icon name="smsDelivery" /><span><strong>Prepare a reminder</strong><small>Choose an event, then review who receives the SMS.</small></span><Icon name="chevronRight" className="size-4" /></button>
+  </div>
+
+  const nextTaskShortcuts = <section aria-label="Start another task" className="mt-6 border-t border-line pt-5">
+    <h3 className="text-sm font-semibold text-ink">{language === 'en' ? 'Start another task' : language === 'fil' ? 'Magsimula ng panibagong gawain' : 'Sugdi ang laing buluhaton'}</h3>
+    <p className="mb-3 mt-1 text-sm leading-6 text-muted-copy">{language === 'en' ? 'Continue in this conversation. Each task starts with fresh details.' : language === 'fil' ? 'Magpatuloy sa usapang ito. Bagong detalye ang gagamitin sa bawat gawain.' : 'Padayon dinhi sa conversation. Bag-ong detalye ang gamiton sa matag buluhaton.'}</p>
+    {taskShortcuts}
+  </section>
 
   return (
     <>
@@ -714,7 +766,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
           <p className="ga-assistant-role">{STAFF_ROLE_LABELS[user?.role] ?? 'Authorized staff'}</p></div>
         </div>
         <div className="ga-assistant-toolbar">
-          {view !== 'home' && languageControl}
+          {(view !== 'home' || pendingTask && !taskChatOpen) && languageControl}
           <button type="button" onClick={startConversation} disabled={conversationLocked} aria-label="New chat" title={conversationLocked ? 'Finish or cancel the current task before starting a new conversation.' : 'New chat'} className="ga-assistant-tool"><Icon name="pen" /><span className="ga-assistant-tool-label">New chat</span></button>
           <button ref={historyButtonRef} type="button" onClick={() => historyOpen ? closeHistory() : setHistoryOpen(true)} aria-label="History" title="Conversation history" aria-controls="staff-assistant-history" aria-expanded={historyOpen} className="ga-assistant-tool"><Icon name="clock" /><span className="ga-assistant-tool-label">History</span></button>
           <button type="button" onClick={resizeConversation} aria-label={compact ? 'Expand conversation' : 'Use compact window'} title={compact ? 'Expand conversation' : 'Use compact window'} className="ga-assistant-tool ga-assistant-icon-tool"><Icon name={compact ? 'expand' : 'compact'} /></button>
@@ -724,25 +776,23 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
 
       <div className="ga-assistant-body">
         <div className="ga-assistant-main">
-          <div ref={contentRef} onScroll={rememberReadingPosition} data-assistant-content data-empty={messages.length === 0 && view === 'home'} className="ga-assistant-content">
+          <div ref={contentRef} onScroll={rememberReadingPosition} data-assistant-content data-empty={messages.length === 0 && !pendingTask && view === 'home'} className="ga-assistant-content">
             <div ref={readingRef} className="ga-assistant-reading">
-              {messages.length === 0 && view === 'home' && <div className="ga-assistant-welcome">
+              {messages.length === 0 && !pendingTask && view === 'home' && <div className="ga-assistant-welcome">
                 <span className="ga-assistant-welcome-mark"><img src="/GarantiyAid-AI-logo.svg" alt="" width="48" height="48" /></span>
                 <h2 className="mt-5 text-2xl font-semibold text-ink">{language === 'en' ? 'How can I help with your work?' : language === 'fil' ? 'Paano ako makatutulong sa iyong gawain?' : 'Unsa akong ikatabang sa imong trabaho?'}</h2>
                 <p className="mt-3 max-w-2xl text-base leading-7 text-copy">{experience.greeting[language]}</p>
-                <div className="ga-assistant-suggestions mt-6 grid gap-3 sm:grid-cols-2">
-                  {user?.role === 'SYSTEM_ADMIN' && <button type="button" onClick={() => beginTask('distributionDraft')} className="ga-assistant-suggestion"><Icon name="calendar" /><span><strong>Prepare a distribution draft</strong><small>Provide the program, place, and schedule.</small></span><Icon name="chevronRight" className="size-4" /></button>}
-                  <button type="button" onClick={() => beginTask('reminder')} className="ga-assistant-suggestion"><Icon name="smsDelivery" /><span><strong>Prepare a reminder</strong><small>Choose the event, recipients, and message.</small></span><Icon name="chevronRight" className="size-4" /></button>
-                </div>
+                <div className="mt-6">{taskShortcuts}</div>
               </div>}
 
               {(restoredTask || conversation.unfinished && !taskInProgress) && !recovery && <p role="status" className="mb-6 border-l-2 border-brand-blue bg-info-soft p-3 text-sm leading-6 text-copy">Your conversation was restored. The unfinished task needs to be prepared again. Check the official records before submitting a new request.</p>}
               <div className="space-y-7" aria-label="Conversation">
-                {messages.map((message, index) => (
+                {visibleMessages.map((message, index) => (
                   <article key={`${activeId}-${index}`} className={message.role === 'user' ? 'ga-assistant-user-message' : 'ga-assistant-reply'} aria-label={message.role === 'user' ? 'Your message' : 'Assistant reply'}>
                     {message.role === 'user' ? <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{message.content}</p> : <>
                       <p className="ga-assistant-reply-author"><img src="/GarantiyAid-AI-logo.svg" alt="" width="22" height="22" />GarantiyAid</p>
                       <Suspense fallback={<p className="whitespace-pre-wrap break-words">{message.content}</p>}><AssistantMessage content={message.content} /></Suspense>
+                      {index === messages.length - 1 && !pendingTask && view === 'home' && guidanceLink && <button type="button" onClick={() => navigate(guidanceLink.path)} className="ga-btn-secondary mt-3">Open {guidanceLink.label}<Icon name="arrowRight" className="size-4" /></button>}
                       <div className="ga-assistant-reply-actions">
                         <button type="button" onClick={() => copyReply(message.content, index)} className="ga-assistant-copy" aria-label={`Copy reply ${index + 1}`} title={copyStatus?.index === index && copyStatus.copied ? 'Copied' : 'Copy reply'}><Icon name={copyStatus?.index === index && copyStatus.copied ? 'check' : 'copy'} className="size-4" /></button>
                         {index === messages.length - 1 && !pendingTask && view === 'home' && <AssistantFeedback busy={feedbackBusy || Boolean(busy)} status={feedbackStatus} onRate={submitFeedback} />}
@@ -757,10 +807,14 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
                   <p role="status" className="mt-2 text-sm text-muted-copy"><LoadingLabel>{streamingText ? 'Writing reply...' : chatStatus === 'retrying' ? 'Still working on your answer...' : 'Preparing your answer...'}</LoadingLabel></p>
                 </div>}
               </div>
-              <p role="status" className="sr-only">{active && busy !== 'chat' && messages.at(-1)?.role === 'assistant' ? messages.at(-1).content : ''}</p>
+              <p role="status" className="sr-only">{active && !pendingTask && busy !== 'chat' && messages.at(-1)?.role === 'assistant' ? messages.at(-1).content : ''}</p>
+              {view === 'home' && messages.length > 0 && !pendingTask && !recovery && nextTaskShortcuts}
               {view === 'home' && chatNotice && <p role="status" className="mt-4 text-sm text-muted-copy">{chatNotice}</p>}
               {view === 'home' && error && <p role="alert" className="mt-4 border-l-2 border-brand-red bg-danger-soft p-3 text-sm text-brand-red">{error}</p>}
-              {view === 'home' && pendingTask && <div className="mt-6"><AssistantTaskDetails task={pendingTask} editing={editingDetail} onEdit={(key) => { setEditingDetail(key); setDetailError('') }} onSave={(key, value) => keepTaskDetails(setTaskValue(pendingTask, key, value))} onCancel={cancelTask} onPreview={previewTask} language={language} error={detailError} busy={Boolean(busy)} /></div>}
+              {view === 'home' && pendingTask && <div className={visibleMessages.length ? 'mt-6' : ''}>
+                {eventChoices.length > 0 && <section aria-label="Matching distribution events" className="mb-4 rounded-xl border border-line bg-white p-4"><h3 className="font-semibold text-ink">Choose one existing event</h3><ol className="mt-2 space-y-2">{eventChoices.map((row, index) => <li key={row.distributionId}><button type="button" disabled={Boolean(busy)} onClick={() => chooseReminderEvent(row)} className="ga-btn-secondary min-h-11 w-full whitespace-normal text-left">{index + 1}. {formatEvent(row)} · {row.startTime}–{row.endTime} PHT · {row.status}</button></li>)}</ol></section>}
+                <AssistantTaskDetails task={pendingTask} editing={editingDetail} onEdit={(key) => { setEditingDetail(key); setDetailError('') }} onSave={(key, value) => keepTaskDetails(setTaskValue(pendingTask, key, value))} onCancel={cancelTask} onPreview={previewTask} chatOpen={taskChatOpen} onChatToggle={() => { setTaskChatOpen(!taskChatOpen); requestAnimationFrame(() => (taskChatOpen ? document.getElementById('ai-task-detail') : inputRef.current)?.focus()) }} language={language} error={detailError} busy={Boolean(busy)} />
+              </div>}
               {view !== 'home' && <div data-assistant-task className="ga-assistant-task">
             {view === 'scheduler' && user?.role === 'SYSTEM_ADMIN' && (
               <AssistantDistributionScheduler
@@ -852,10 +906,21 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
                   <div className="rounded-xl border border-emerald-200 bg-success-soft p-4"><dt className="text-xs font-bold text-brand-green">Recipients</dt><dd className="mt-1 text-2xl font-bold tabular-nums text-ink">{preview.recipientCount}</dd></div>
                   <div className="rounded-xl border border-amber-200 bg-warning-soft p-4"><dt className="text-xs font-bold text-brand-amber">Excluded</dt><dd className="mt-1 text-2xl font-bold tabular-nums text-ink">{preview.excludedCount}</dd></div>
                 </dl>
-                {preview.checkedAt && <p className="text-xs text-muted-copy">Checked {formatPreviewTime(preview.checkedAt)}</p>}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  {preview.checkedAt && <p className="text-xs text-muted-copy">Checked {formatPreviewTime(preview.checkedAt)}</p>}
+                  <button type="button" onClick={handlePreview} disabled={Boolean(busy) || uncertain} className="ga-btn-secondary">{busy === 'preview' ? <LoadingLabel>Checking recipients...</LoadingLabel> : 'Recheck recipients'}</button>
+                </div>
+                <p className="flex items-start gap-2 text-sm leading-6 text-copy"><Icon name="info" className="mt-1 size-4 shrink-0" />{preview.simulatedSmsOnly === false ? 'Real SMS via SimGate. Confirming submits messages using the gateway SIM.' : 'SMS delivery is currently simulated. No real SMS will be sent.'}</p>
 
                 {preview.excludedCount > 0 && <div className="rounded-xl border border-line bg-white p-4 text-sm text-copy"><p className="font-bold text-ink">Excluded safely</p><p className="mt-2">Invalid or missing contact: {preview.excluded.invalidContactCount}</p><p className="mt-1">Already claimed: {preview.excluded.completedClaimCount}</p></div>}
 
+                {preview.recipientCount === 0 ? (
+                  <section aria-labelledby="ai-empty-recipients-title" className="rounded-xl border border-line bg-white p-5">
+                    <div className="flex items-start gap-3"><span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-lg bg-info-soft text-brand-blue"><Icon name="calendar" className="size-5" /></span><div><h4 id="ai-empty-recipients-title" className="font-bold text-ink">No recipients ready</h4><p className="mt-2 text-sm leading-6 text-copy">{preview.excludedCount > 0 ? 'The scheduled beneficiaries were excluded for the reasons above. Correct their contact details or review their claim status before checking again.' : 'A saved beneficiary is not automatically scheduled. This reminder needs an active beneficiary with a scheduled appointment in the selected area and a valid mobile number.'}</p></div></div>
+                    {preview.excludedCount === 0 && <p className="mt-4 text-sm leading-6 text-copy">Ask the administrator to complete <strong>Sessions → Allocate → Schedule</strong> for this event. If another area has the appointments, choose it under <strong>Edit reminder</strong>. Return here and recheck recipients after the schedule is saved.</p>}
+                    <button type="button" disabled={Boolean(busy) || uncertain} onClick={() => navigate(user?.role === 'SYSTEM_ADMIN' ? `/distributions/manage?event=${encodeURIComponent(preview.distributionId)}&stage=queue` : user?.role === 'BARANGAY_FACILITATOR' ? '/facilitator/queue' : '/admin/schedules')} className="ga-btn-secondary mt-4">{user?.role === 'SYSTEM_ADMIN' ? 'Review event setup' : 'Review queue and schedules'}<Icon name="arrowRight" className="size-4" /></button>
+                  </section>
+                ) : <>
                 <section aria-labelledby="ai-message-preview-title">
                   <h4 id="ai-message-preview-title" className="text-sm font-bold text-ink">Personalized message sample</h4>
                   <div className="mt-2 rounded-2xl rounded-tl-md border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-ink">{preview.recipients[0]?.message || 'No eligible recipient message is available.'}</div>
@@ -865,17 +930,19 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
                   <div className="flex items-center justify-between gap-3"><h4 id="ai-recipient-preview-title" className="text-sm font-bold text-ink">Recipient preview</h4><span className="text-xs text-muted-copy">First {Math.min(5, preview.recipientCount)}</span></div>
                   <ul className="mt-2 divide-y divide-line overflow-hidden rounded-xl border border-line bg-white">
                     {preview.recipients.slice(0, 5).map((recipient) => <li key={recipient.scheduleId} className="flex items-start gap-3 p-3"><span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-full bg-brand-navy text-xs font-bold text-white">{recipient.beneficiaryName?.[0] || 'B'}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold text-ink">{recipient.beneficiaryName}</span><span className="mt-0.5 block text-xs text-muted-copy">{recipient.serviceArea || 'No Sitio/Purok'} · {recipient.recipientMasked}</span><span className="mt-0.5 block text-xs text-muted-copy">Queue #{recipient.queueNumber} · {formatSchedule(recipient.slotStart)}</span></span></li>)}
-                    {preview.recipientCount === 0 && <li className="p-5 text-center text-sm text-muted-copy">No eligible recipients matched this reminder.</li>}
                   </ul>
                 </section>
+                </>}
 
                 <div className="rounded-xl border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-copy"><p className="flex items-start gap-2 font-bold text-brand-amber"><Icon name="info" className="mt-0.5 size-4 shrink-0" />SMS is a notice, not claim authorization.</p><p className="mt-1">The official schedule, QR credential, and identity verification still control claiming.</p></div>
 
-                <p className="rounded-xl border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy">This approval covers the displayed recipients, message, and queue timing. It expires {formatPreviewTime(preview.approvalExpiresAt)}. SMS delivery is currently simulated.</p>
+                {preview.recipientCount > 0 && <>
+                <p className="rounded-xl border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy">This approval covers the displayed recipients, message, and queue timing. It expires {formatPreviewTime(preview.approvalExpiresAt)}.</p>
                 <label className="flex min-h-12 cursor-pointer items-start gap-3 rounded-xl border border-line bg-white p-4 text-sm leading-6 text-copy"><input type="checkbox" checked={reviewed} disabled={Boolean(busy) || uncertain} onChange={(event) => setReviewed(event.target.checked)} className="mt-1 size-5 shrink-0 accent-brand-blue" /><span>I reviewed the recipients, message, delivery time, and official-event details.</span></label>
+                </>}
 
                 {error && <div role="alert" className="rounded-xl border border-red-200 bg-danger-soft p-4 text-sm font-semibold text-brand-red">{error}</div>}
-                <button type="button" onClick={confirmReminder} disabled={!reviewed || preview.recipientCount === 0 || Boolean(busy)} className="ga-btn-primary w-full">{busy === 'confirm' ? <LoadingLabel>Confirming reminders...</LoadingLabel> : uncertain ? 'Retry same confirmation' : `Confirm and queue ${preview.recipientCount} reminder${preview.recipientCount === 1 ? '' : 's'}`}</button>
+                {preview.recipientCount > 0 && <button type="button" onClick={confirmReminder} disabled={!reviewed || Boolean(busy)} className="ga-btn-primary w-full">{busy === 'confirm' ? <LoadingLabel>Confirming reminders...</LoadingLabel> : uncertain ? 'Retry same confirmation' : `Confirm and queue ${preview.recipientCount} reminder${preview.recipientCount === 1 ? '' : 's'}`}</button>}
               </div>
             )}
 
@@ -900,19 +967,20 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
                 <p className="mt-5 text-xs font-bold uppercase tracking-[0.1em] text-brand-green">{result.kind === 'distribution' ? 'Draft created' : 'Reminder approved'}</p>
                 <h3 className="mt-2 text-2xl font-bold text-ink">{result.kind === 'distribution' ? result.distribution.title : `${result.queuedCount} reminder${result.queuedCount === 1 ? '' : 's'} queued`}</h3>
                 <p className="mt-2 break-all text-xs text-muted-copy">Reference: {result.kind === 'distribution' ? result.distribution.distributionId : result.approvalId}</p>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-copy">{result.kind === 'distribution' ? 'The event remains a draft. Review it in Distribution setup before allocating beneficiaries, generating schedules, sending notices, or opening field operations.' : 'The existing notification worker will process the approved records. Current environment: simulated SMS only, so no real phone received a text.'}</p>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-copy">{result.kind === 'distribution' ? 'The event remains a draft. Review it in Distribution setup before allocating beneficiaries, generating schedules, sending notices, or opening field operations.' : 'The existing notification worker will process the approved records. Open SMS delivery to review the mode and processing result; recipient delivery is not confirmed by queueing.'}</p>
                 <div className="mt-5 text-left"><AssistantFeedback busy={feedbackBusy} status={feedbackStatus} onRate={submitFeedback} /></div>
                 <div className="mt-6 grid gap-3">
                   <button type="button" onClick={() => navigate(result.kind === 'distribution' ? '/distributions/manage' : '/notifications')} className="ga-btn-primary w-full">{result.kind === 'distribution' ? 'Review distribution draft' : 'Review delivery records'}</button>
                   <button type="button" onClick={resetWorkflow} className="ga-btn-secondary w-full">Back to assistant</button>
                 </div>
+                {nextTaskShortcuts}
               </div>
             )}
               </div>}
             </div>
           </div>
 
-          {view === 'home' && <div className="ga-assistant-composer">
+          {view === 'home' && (!pendingTask || taskChatOpen) && <div className="ga-assistant-composer">
             {showLatest && <button type="button" onClick={jumpToLatest} className="ga-assistant-latest"><Icon name="chevronDown" className="size-4" />Jump to latest</button>}
             <form onSubmit={sendChat} className="ga-assistant-reading">
               <label htmlFor="garantiyaid-ai-message" className="sr-only">Message Staff Assistant</label>

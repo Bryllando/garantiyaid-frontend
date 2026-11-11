@@ -13,6 +13,8 @@ export function distributionSetupState({
   capacity = 0,
   activeAllocations = 0,
   scheduled = 0,
+  cancelledSchedules = 0,
+  schedulableAllocations,
 } = {}) {
   const sessionsComplete = slotCount > 0
   const allocationsComplete = activeAllocations > 0
@@ -24,6 +26,8 @@ export function distributionSetupState({
   const readyToOpen = packageComplete && isDraft && sessionsComplete && capacityComplete && allocationsComplete && queueComplete
   const remainingCapacity = Math.max(0, capacity - activeAllocations)
   const unscheduled = Math.max(0, activeAllocations - scheduled)
+  const newScheduleCount = Math.min(unscheduled, Math.max(0, schedulableAllocations ?? unscheduled - cancelledSchedules))
+  const cancelledScheduleCount = Math.max(0, unscheduled - newScheduleCount)
   const occupancyPercent = capacity > 0 ? Math.min(100, Math.round(activeAllocations / capacity * 100)) : 0
 
   let recommendedStage = 'launch'
@@ -39,7 +43,9 @@ export function distributionSetupState({
     nextAction = 'Allocate at least one approved beneficiary.'
   } else if (isDraft && !queueComplete) {
     recommendedStage = 'queue'
-    nextAction = `Schedule ${unscheduled} remaining ${unscheduled === 1 ? 'beneficiary' : 'beneficiaries'}.`
+    nextAction = newScheduleCount > 0
+      ? `Schedule ${newScheduleCount} remaining ${newScheduleCount === 1 ? 'beneficiary' : 'beneficiaries'}.${cancelledScheduleCount ? ' Review cancelled schedules separately.' : ''}`
+      : 'Review and reactivate cancelled schedules to complete the queue.'
   } else if (isDraft && !packageComplete) {
     nextAction = 'Edit the assistance package, unit and quantity before opening.'
   } else if (readyToOpen) {
@@ -63,6 +69,8 @@ export function distributionSetupState({
     capacityComplete,
     remainingCapacity,
     unscheduled,
+    newScheduleCount,
+    cancelledScheduleCount,
     occupancyPercent,
     recommendedStage,
     nextAction,

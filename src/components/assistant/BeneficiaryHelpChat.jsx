@@ -3,6 +3,8 @@ import { animate } from 'animejs'
 import { createPublicChatbotSession, submitPublicChatbotMessage } from '../../auth/staffAuth.js'
 import { Icon } from '../ui/icon.jsx'
 import { Spinner } from '../ui/spinner.jsx'
+import AssistantProcessDiagram from './AssistantProcessDiagram.js'
+import { processDiagramForAnswer } from './process-templates.js'
 
 const COPY = {
   en: {
@@ -145,12 +147,15 @@ function BeneficiaryHelpChat() {
               <p className="max-w-[85%] rounded-2xl rounded-tl-md border border-line bg-white px-4 py-3 text-sm leading-6 text-copy shadow-sm">{copy.welcome}</p>
             </div>
 
-            {messages.map((message) => (
+            {messages.map((message) => {
+              const diagram = message.senderType === 'BOT' ? processDiagramForAnswer(message.messageText) : null
+              return (
               <div key={message.messageId} className={`mt-3 flex ${message.senderType === 'USER' ? 'justify-end' : 'items-start gap-3'}`}>
                 {message.senderType !== 'USER' && <img src="/GarantiyAid-AI-logo.svg" alt="" width="64" height="64" className="mt-1 size-8 shrink-0" />}
-                <p className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 ${message.senderType === 'USER' ? 'rounded-br-md bg-brand-blue text-white' : 'rounded-tl-md border border-line bg-white text-copy shadow-sm'}`}>{message.messageText}</p>
+                <div className={`min-w-0 max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 ${message.senderType === 'USER' ? 'rounded-br-md bg-brand-blue text-white' : 'rounded-tl-md border border-line bg-white text-copy shadow-sm'}`}><p className="whitespace-pre-wrap">{diagram?.body ?? message.messageText}</p>{diagram && <AssistantProcessDiagram {...diagram} />}</div>
               </div>
-            ))}
+              )
+            })}
 
             {messages.length === 0 && <div className="mt-5 grid gap-2"><p className="text-xs font-bold uppercase tracking-[0.1em] text-muted-copy">Suggested questions</p>{copy.prompts.map((prompt) => <button key={prompt} type="button" onClick={() => void send(null, prompt)} className="min-h-12 rounded-xl border border-line bg-white px-4 text-left text-sm font-bold text-brand-blue hover:border-blue-200 hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue">{prompt}</button>)}</div>}
             {notice && <p role="status" className="mt-4 rounded-xl border border-blue-200 bg-info-soft p-3 text-sm font-semibold text-copy">{notice}</p>}

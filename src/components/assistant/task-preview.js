@@ -29,14 +29,45 @@ export function distributionFormFromTask(values, programs, barangays) {
 }
 
 export const UNRESOLVED_AREA = '__choose_area__'
+const phrase = (value) => normalized(value).replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+const mentioned = (text, value) => Boolean(value && ` ${phrase(text)} `.includes(` ${phrase(value)} `))
+
+export function reminderEventMatches(values, distributions, query = '') {
+  const rows = distributions.filter(row => ['DRAFT', 'OPEN'].includes(row.status))
+  const programMentioned = row => [row.program?.programName, row.program?.programCode].some(value => mentioned(query, value))
+  const barangayMentioned = row => mentioned(query, row.barangay?.barangayName)
+  const queryProgram = rows.some(programMentioned)
+  const queryBarangay = rows.some(barangayMentioned)
+  const hasName = values.distributionId || values.distribution || values.program || values.barangay
+  return rows.filter(row => {
+    const programs = [row.program?.programName, row.program?.programCode]
+    const inferredProgram = programs.some(value => mentioned(query, value))
+    const inferredBarangay = mentioned(query, row.barangay?.barangayName)
+    if (!hasName && !(inferredProgram && inferredBarangay) && !mentioned(query, row.title)) return false
+    if (values.distributionId && row.distributionId !== values.distributionId) return false
+    if (!values.distributionId && values.distribution && ![row.distributionId, row.title].some(value => normalized(value) === normalized(values.distribution))) return false
+    if (values.program && !programs.some(value => normalized(value) === normalized(values.program))) return false
+    if (values.barangay && normalized(row.barangay?.barangayName) !== normalized(values.barangay)) return false
+    if (!values.distributionId && !values.program && queryProgram && !inferredProgram) return false
+    if (!values.distributionId && !values.barangay && queryBarangay && !inferredBarangay) return false
+    if (values.eventDate && row.distributionDate !== values.eventDate) return false
+    if (values.eventTime && row.startTime !== values.eventTime) return false
+    return true
+  })
+}
+
+export function selectReminderEvent(task, row) {
+  return { ...task, eventUnresolved: false, values: { ...task.values, distribution: row.title, distributionId: row.distributionId, program: row.program?.programCode || row.program?.programName || task.values.program, barangay: row.barangay?.barangayName || task.values.barangay, eventDate: row.distributionDate || task.values.eventDate, eventTime: row.startTime || task.values.eventTime } }
+}
 export function resolveServiceArea(text, areas) {
   if (/^(all|all scheduled service areas|all service areas|lahat|tanan)$/i.test(text.trim())) return ''
   return uniqueMatch(areas.map((area) => ({ area })), text, ['area'])?.area || UNRESOLVED_AREA
 }
 
 export function reminderFormFromTask(values, distributions) {
+  const candidates = reminderEventMatches(values, distributions)
   return {
-    distributionId: uniqueMatch(distributions, values.distributionId || values.distribution, ['distributionId', 'title'])?.distributionId || '',
+    distributionId: candidates.length === 1 ? candidates[0].distributionId : '',
     serviceArea: UNRESOLVED_AREA,
     messageTemplate: values.messageTemplate,
     deliveryMode: values.deliveryMode,

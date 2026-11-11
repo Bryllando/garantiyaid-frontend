@@ -629,9 +629,9 @@ function QueueView({ distribution, queue, role, onNavigate, queueError, isLoadin
         <div className="ga-card mb-5 flex flex-col gap-5 border-l-4 border-l-brand-blue p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
           <div className="flex items-start gap-4">
             <span aria-hidden="true" className="grid size-11 shrink-0 place-items-center rounded-xl bg-info-soft text-brand-blue"><Icon name="queue" /></span>
-            <div><p className="ga-eyebrow">Schedule planning</p><h2 className="mt-1 text-lg font-extrabold text-ink">Assign beneficiaries within approved capacity</h2><p className="mt-1 max-w-3xl text-sm leading-6 text-muted-copy">Automated assignment uses the earliest available session that covers the beneficiary’s service area. You can cancel or reactivate an individual schedule below.</p></div>
+            <div><p className="ga-eyebrow">Schedule planning</p><h2 className="mt-1 text-lg font-extrabold text-ink">Assign beneficiaries within approved capacity</h2><p className="mt-1 max-w-3xl text-sm leading-6 text-muted-copy">Automated assignment creates first-time appointments in the earliest available session. To return a cancelled beneficiary to the queue, choose Reactivate on their existing schedule below.</p></div>
           </div>
-          <button type="button" disabled={isScheduleBusy} onClick={onGenerate} className="ga-btn-primary shrink-0">{isScheduleBusy ? <LoadingLabel>Assigning...</LoadingLabel> : 'Assign remaining'}</button>
+          {queue?.summary?.schedulableAllocationCount !== 0 && <button type="button" disabled={isScheduleBusy} onClick={onGenerate} className="ga-btn-primary shrink-0">{isScheduleBusy ? <LoadingLabel>Assigning...</LoadingLabel> : 'Assign remaining'}</button>}
         </div>
       )}
 

@@ -34,6 +34,7 @@ const compactPhilippineTime = new Intl.DateTimeFormat('en-PH', {
   timeZone: 'Asia/Manila',
   hour: 'numeric',
   minute: '2-digit',
+  second: '2-digit',
   hour12: true,
 })
 const notificationTime = new Intl.DateTimeFormat('en-PH', {

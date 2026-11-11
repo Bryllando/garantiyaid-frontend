@@ -36,6 +36,10 @@
 .ga-assistant-reply-actions, .ga-assistant-feedback { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem; }
 .ga-assistant-reply-actions { margin-top: .5rem; }
 .ga-assistant-task { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--color-line); }
+.ga-assistant-task-progress { appearance: none; overflow: hidden; border: 0; border-radius: 999px; background: var(--color-line); }
+.ga-assistant-task-progress::-webkit-progress-bar { background: var(--color-line); }
+.ga-assistant-task-progress::-webkit-progress-value { border-radius: 999px; background: var(--color-brand-blue); }
+.ga-assistant-task-progress::-moz-progress-bar { border-radius: 999px; background: var(--color-brand-blue); }
 .ga-assistant-composer { position: relative; flex-shrink: 0; padding: .75rem 1.5rem 1rem; padding-bottom: max(1rem, env(safe-area-inset-bottom)); background: var(--assistant-canvas); }
 .ga-assistant-composer-options { display: flex; align-items: center; gap: .75rem; margin-top: .375rem; color: var(--color-muted-copy); font-size: .75rem; }
 .ga-assistant-composer-options .ga-assistant-language { max-width: 7rem; padding-inline: .375rem; font-size: .8125rem; }
@@ -139,6 +143,7 @@
   .ga-assistant-workspace[data-compact='true'] .ga-assistant-composer { padding: .5rem 1rem .75rem; }
   .ga-assistant-welcome h2, .ga-assistant-workspace[data-compact='true'] .ga-assistant-welcome h2 { font-size: 1.375rem; }
   .ga-assistant-toolbar { gap: .25rem; }
+  .ga-assistant-toolbar .ga-assistant-language { max-width: 6.25rem; padding-inline: .25rem; font-size: .8125rem; }
   .ga-assistant-tool-label { display: none; }
 }
 @media (max-width: 359px) { .ga-assistant-identity > img { display: none; } }

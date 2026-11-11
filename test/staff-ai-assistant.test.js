@@ -35,7 +35,8 @@ test('assistant reminder requires a server preview and explicit confirmation', (
   assert.match(source, /expectedPreviewHash: preview\.previewHash/)
   assert.match(source, /type="checkbox" checked=\{reviewed\}/)
   assert.match(source, /SMS is a notice, not claim authorization/)
-  assert.match(source, /Current environment: simulated SMS only/)
+  assert.match(source, /preview\.simulatedSmsOnly === false/)
+  assert.match(source, /recipient delivery is not confirmed by queueing/)
 })
 
 test('Admin AI scheduler creates only a reviewed distribution draft', () => {

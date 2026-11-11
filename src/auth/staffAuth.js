@@ -627,6 +627,18 @@ export async function requestBeneficiary(token, beneficiaryId) {
   return data.beneficiary
 }
 
+export async function requestMobileAccounts(token, filters = {}) {
+  const data = await requestJson(`/mobile-account-requests${queryString(filters)}`, { token, method: 'GET' })
+  if (!Array.isArray(data?.accounts) || !data?.pagination) throw new Error('The server returned an unexpected mobile-account response.')
+  return data
+}
+
+export async function reviewMobileAccount(token, accountId, decision) {
+  const data = await requestJson(`/mobile-account-requests/${encodeURIComponent(accountId)}/decision`, { token, body: decision })
+  if (!data?.account) throw new Error('The server returned an unexpected mobile-account review response.')
+  return data.account
+}
+
 export async function createBeneficiary(token, beneficiary) {
   const data = await requestJson('/beneficiaries', { token, body: beneficiary })
   if (!data?.beneficiary) throw new Error('The server returned an unexpected beneficiary response.')

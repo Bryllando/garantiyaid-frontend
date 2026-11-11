@@ -1,6 +1,8 @@
-import { createElement, memo } from 'react'
+import { createElement, Fragment, memo } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import AssistantProcessDiagram from './AssistantProcessDiagram.js'
+import { processDiagramForAnswer } from './process-templates.js'
 
 const plugins = [remarkGfm]
 const allowedElements = ['p', 'br', 'strong', 'em', 'del', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'pre', 'code']
@@ -19,7 +21,10 @@ const components = {
 
 // Only document formatting is rendered; generated HTML, images and interactive elements are excluded.
 export default memo(function AssistantMessage({ content }) {
-  return createElement('div', { className: 'ga-assistant-markdown' },
-    createElement(Markdown, { remarkPlugins: plugins, components, allowedElements, unwrapDisallowed: true, skipHtml: true }, content),
+  const diagram = processDiagramForAnswer(content)
+  return createElement(Fragment, null,
+    createElement('div', { className: 'ga-assistant-markdown' },
+      createElement(Markdown, { remarkPlugins: plugins, components, allowedElements, unwrapDisallowed: true, skipHtml: true }, diagram?.body ?? content)),
+    diagram && createElement(AssistantProcessDiagram, diagram),
   )
 })

@@ -35,7 +35,7 @@ test('lookup includes later pages and fails on incomplete or failed responses', 
 
 test('reminder mapping preserves text/timing and cannot broaden an unmatched area', () => {
   const values = { distribution: 'Example event', serviceArea: 'Purok 3', messageTemplate: 'Bring your QR credential.', deliveryMode: 'scheduled', date: '2026-10-09', startTime: '09:00' }
-  const form = reminderFormFromTask(values, [{ distributionId: 'event-1', title: 'Example event' }])
+  const form = reminderFormFromTask(values, [{ distributionId: 'event-1', title: 'Example event', status: 'OPEN' }])
   assert.equal(form.distributionId, 'event-1')
   assert.equal(form.messageTemplate, values.messageTemplate)
   assert.equal(form.sendAt, '2026-10-09T09:00')

@@ -28,6 +28,26 @@ test('opened and cancelled events remain reviewable without reopening setup acti
   assert.match(cancelled.nextAction, /cancelled/i)
 })
 
+test('cancelled appointments require review instead of generating duplicate schedules', () => {
+  const event = { slotCount: 6, capacity: 12, activeAllocations: 2, scheduled: 1, cancelledSchedules: 1 }
+  for (const values of [event, { ...event, schedulableAllocations: 0 }]) {
+    const state = distributionSetupState(values)
+    assert.equal(state.unscheduled, 1)
+    assert.equal(state.newScheduleCount, 0)
+    assert.equal(state.cancelledScheduleCount, 1)
+    assert.equal(state.recommendedStage, 'queue')
+    assert.equal(state.readyToOpen, false)
+    assert.match(state.nextAction, /reactivate cancelled schedules/)
+  }
+  const mixed = distributionSetupState({ ...event, activeAllocations: 4, schedulableAllocations: 2 })
+  assert.equal(mixed.newScheduleCount, 2)
+  assert.equal(mixed.cancelledScheduleCount, 1)
+  assert.match(mixed.nextAction, /Schedule 2 remaining/)
+  const inactiveCancellation = distributionSetupState({ ...event, cancelledSchedules: 10, schedulableAllocations: 1 })
+  assert.equal(inactiveCancellation.newScheduleCount, 1, 'The server counts only active allocations without any schedule')
+  assert.equal(inactiveCancellation.cancelledScheduleCount, 0)
+})
+
 test('readiness remains reviewable before setup and capacity cannot be bypassed', () => {
   assert.equal(distributionSetupState().stages.find((stage) => stage.key === 'launch').available, true)
   const overCapacity = distributionSetupState({ slotCount: 2, capacity: 5, activeAllocations: 6, scheduled: 6 })
