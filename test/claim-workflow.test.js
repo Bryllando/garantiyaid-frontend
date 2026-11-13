@@ -1,9 +1,22 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { claimChecks, claimWorkflow, disputeLedgerHref, disputeReturnHref, disputeReviewState } from '../src/utils/claimWorkflow.js'
+import { eventVerificationLabel, manualVerificationAllowed } from '../src/utils/claimVerification.js'
 
 const event = { distributionId: 'event/1', status: 'OPEN', deliveryMode: 'PHYSICAL_GOODS', verificationRequirement: 'QR' }
 const claim = { claimId: 'claim-1', beneficiaryId: 'person-1', claimStatus: 'VERIFIED', qrVerified: true }
+
+test('manual alternatives disclose the permitted workflow and keep acknowledgment pending', () => {
+  const configured = { ...event, manualVerificationBasis: 'Approved office review instructions' }
+  assert.equal(manualVerificationAllowed(configured), true)
+  assert.match(eventVerificationLabel(configured), /QR code OR manual staff verification/)
+  assert.equal(manualVerificationAllowed({ ...configured, verificationRequirement: 'QR_AND_BIOMETRIC' }), false)
+  const pending = { ...claim, verificationMethod: 'MANUAL', claimStatus: 'PENDING', manualVerification: { confirmed: true, verifiedById: 'staff', evidenceReference: 'TEST-ID-01' }, signatureVerified: false }
+  assert.equal(claimChecks(pending, configured).some((check) => check.key === 'SIGNATURE' && check.required && !check.complete), true)
+  assert.equal(claimWorkflow(pending, configured, 'BARANGAY_FACILITATOR').canRelease, false)
+  assert.match(claimWorkflow(pending, configured, 'BARANGAY_FACILITATOR').href, /^\/manual-verification\?/)
+  assert.equal(claimWorkflow({ ...pending, manualVerification: null }, configured, 'BARANGAY_FACILITATOR').href, undefined)
+})
 
 test('alternative methods never show an unused method as a remaining requirement', () => {
   const flexible = { ...event, verificationRequirement: 'QR_OR_BIOMETRIC' }
@@ -37,6 +50,8 @@ test('release and credit remain separate and respect role and event status', () 
   assert.equal(claimWorkflow(claim, wallet, 'BARANGAY_FACILITATOR').href, undefined)
   assert.equal(claimWorkflow({ ...claim, claimStatus: 'CLAIMED' }, wallet, 'SYSTEM_ADMIN').label, 'Credited')
   assert.equal(claimWorkflow({ ...claim, claimStatus: 'CLAIMED' }, event, 'SYSTEM_ADMIN').label, 'Released')
+  assert.equal(claimWorkflow({ ...claim, claimStatus: 'CLAIMED' }, event, 'SYSTEM_ADMIN').transactionLabel, 'Released — receipt pending')
+  assert.equal(claimWorkflow({ ...claim, claimStatus: 'CLAIMED', receipt: { receiptNo: 'TEST-1' } }, event, 'SYSTEM_ADMIN').transactionLabel, 'Completed — released and receipted')
 })
 
 test('active concerns, rejected and voided claims, and closed events never offer release', () => {

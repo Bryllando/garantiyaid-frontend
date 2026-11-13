@@ -13,7 +13,7 @@ import SlotCapacityDialog from '../components/distributions/SlotCapacityDialog.j
 import EventOperationsStatus from '../components/distributions/EventOperationsStatus.jsx'
 import EventOperationsReview from '../components/distributions/EventOperationsReview.jsx'
 import { distributionSetupState } from '../utils/distributionWorkflow.js'
-import { verificationLabels } from '../utils/claimVerification.js'
+import { verificationLabels, eventVerificationLabel } from '../utils/claimVerification.js'
 import {
   cancelDistribution,
   createDistribution,
@@ -42,6 +42,11 @@ import {
 
 const statuses = ['', 'DRAFT', 'OPEN', 'CLOSED', 'CANCELLED']
 const verificationGuides = {
+  MANUAL: {
+    scenario: 'Authorized staff review the scheduled beneficiary using the office-approved basis, then collect acknowledgment/signature.',
+    checks: [['profile', 'Record the identity review, evidence reference and staff confirmation.'], ['pen', 'Collect acknowledgment/signature after the review.']],
+    preparation: 'Record the responsible office’s approved verification basis below. A signature alone does not establish identity.',
+  },
   QR: {
     scenario: 'For beneficiaries presenting a printed or digital QR credential.',
     checks: [['qr', 'Scan the current QR credential for this event.']],
@@ -92,20 +97,21 @@ function LoadingState() {
 }
 
 function DistributionFormDialog({ barangays, distribution, packageOnly = false, initialProgramId = '', programs, onClose, onSave }) {
+  const [manualEnabled, setManualEnabled] = useState(Boolean(distribution?.manualVerificationBasis))
   const dialogRef = useRef(null)
   const errorRef = useRef(null)
   const [form, setForm] = useState(() => distribution ? {
-    packageName: distribution.packageName ?? '', packageUnit: distribution.packageUnit ?? 'pack', packageQuantity: String(distribution.packageQuantity ?? 1),
+    manualVerificationBasis: distribution.manualVerificationBasis ?? '', packageName: distribution.packageName ?? '', packageUnit: distribution.packageUnit ?? 'pack', packageQuantity: String(distribution.packageQuantity ?? 1),
     programId: distribution.programId, title: distribution.title, distributionDate: distribution.distributionDate,
     startTime: distribution.startTime, endTime: distribution.endTime, slotDurationMinutes: String(distribution.slotDurationMinutes),
     location: distribution.location, barangayId: distribution.barangayId, deliveryMode: distribution.deliveryMode, verificationRequirement: distribution.verificationRequirement,
-  } : { packageName: '', packageUnit: 'pack', packageQuantity: '1', programId: initialProgramId, title: '', distributionDate: todayInManila(), startTime: '08:00', endTime: '12:00', slotDurationMinutes: '30', location: '', barangayId: '', deliveryMode: 'PHYSICAL_GOODS', verificationRequirement: 'QR' })
+  } : { manualVerificationBasis: '', packageName: '', packageUnit: 'pack', packageQuantity: '1', programId: initialProgramId, title: '', distributionDate: todayInManila(), startTime: '08:00', endTime: '12:00', slotDurationMinutes: '30', location: '', barangayId: '', deliveryMode: 'PHYSICAL_GOODS', verificationRequirement: 'QR' })
   const [isSaving, setIsSaving] = useState(false)
   const [formError, setFormError] = useState('')
   const [reviewing, setReviewing] = useState(false)
   useEffect(() => { dialogRef.current?.showModal() }, [])
   useEffect(() => { if (formError) errorRef.current?.focus(); else if (reviewing) dialogRef.current?.querySelector('#review-event-heading')?.focus() }, [formError, reviewing])
-  function change(field, value) { setForm((current) => ({ ...current, [field]: value })); setFormError('') }
+  function change(field, value) { if (field === 'verificationRequirement' && ['QR_AND_BIOMETRIC', 'BIOMETRIC_AND_SIGNATURE'].includes(value)) setManualEnabled(false); setForm((current) => ({ ...current, [field]: value })); setFormError('') }
   const [startHour, startMinute] = form.startTime.split(':').map(Number)
   const [endHour, endMinute] = form.endTime.split(':').map(Number)
   const eventMinutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute)
@@ -121,6 +127,7 @@ function DistributionFormDialog({ barangays, distribution, packageOnly = false, 
     event.preventDefault()
     let issue = ''
     if (!packageOnly && !verificationGuide) issue = 'Select at least one allowed verification method.'
+    else if (!packageOnly && manualEnabled && form.manualVerificationBasis.trim().length < 20) issue = 'Record the office-approved manual verification basis using at least 20 characters.'
     else if (eventMinutes <= 0) issue = 'Distribution end time must be later than the start time.'
     else if (eventMinutes % duration !== 0) issue = 'The event time must divide evenly by the selected slot duration.'
     if (issue) {
@@ -136,7 +143,7 @@ function DistributionFormDialog({ barangays, distribution, packageOnly = false, 
     setFormError('')
     setIsSaving(true)
     try {
-      await onSave({ ...(!packageOnly ? { ...form, slotDurationMinutes: duration } : {}), packageName: form.deliveryMode === 'PHYSICAL_GOODS' ? form.packageName.trim() : null, packageUnit: form.deliveryMode === 'PHYSICAL_GOODS' ? form.packageUnit.trim() : null, packageQuantity: form.deliveryMode === 'PHYSICAL_GOODS' ? Number(form.packageQuantity) : null })
+      await onSave({ ...(!packageOnly ? { ...form, manualVerificationBasis: manualEnabled ? form.manualVerificationBasis.trim() : null, slotDurationMinutes: duration } : {}), packageName: form.deliveryMode === 'PHYSICAL_GOODS' ? form.packageName.trim() : null, packageUnit: form.deliveryMode === 'PHYSICAL_GOODS' ? form.packageUnit.trim() : null, packageQuantity: form.deliveryMode === 'PHYSICAL_GOODS' ? Number(form.packageQuantity) : null })
       dialogRef.current?.close()
     } catch (requestError) {
       setFormError(getAuthErrorMessage(requestError))
@@ -169,7 +176,8 @@ function DistributionFormDialog({ barangays, distribution, packageOnly = false, 
                 ['Queue slot', `${form.slotDurationMinutes} minutes`],
                 ...(form.deliveryMode === 'PHYSICAL_GOODS' ? [['Assistance package', `${form.packageName}: ${form.packageQuantity} ${form.packageUnit} per beneficiary`]] : []),
                 ['Delivery', deliveryModes.find(([value]) => value === form.deliveryMode)?.[1]],
-                ['Claim verification', verificationLabels[form.verificationRequirement] ?? humanize(form.verificationRequirement)],
+                ['Claim verification', eventVerificationLabel({ ...form, manualVerificationBasis: manualEnabled ? form.manualVerificationBasis : null })],
+                ...(manualEnabled ? [['Manual alternative', form.manualVerificationBasis]] : []),
               ].filter(([label]) => !packageOnly || ['Event', 'Assistance package'].includes(label)).map(([label, value]) => <div key={label} className="grid gap-1 py-3 sm:grid-cols-[11rem_1fr] sm:gap-4"><dt className="font-semibold text-copy">{label}</dt><dd className="font-bold text-ink">{value}</dd></div>)}
             </dl>
             <p className="mt-5 border-l-4 border-brand-blue bg-info-soft p-4 text-sm leading-6 text-copy">Saving keeps the event in draft. Beneficiaries are not notified and field operations do not open yet.</p>
@@ -225,17 +233,19 @@ function DistributionFormDialog({ barangays, distribution, packageOnly = false, 
                 <p id="verification-method-label" className="ga-label" data-required="true">Allowed verification methods</p>
                 <div className="mt-2 grid gap-3 sm:grid-cols-2">
                   <label className={`flex items-start gap-3 rounded-lg border p-4 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-brand-blue ${requiresSignature ? 'cursor-not-allowed border-line bg-slate-50 opacity-60' : needsQr ? 'cursor-pointer border-brand-blue bg-info-soft' : 'cursor-pointer border-line hover:border-blue-200'}`}>
-                    <input id="allow-qr" type="checkbox" checked={needsQr} disabled={requiresSignature} aria-labelledby="allow-qr-label" aria-describedby="allow-qr-help" onChange={(event) => change('verificationRequirement', event.target.checked ? needsFace ? 'QR_OR_BIOMETRIC' : 'QR' : needsFace ? 'BIOMETRIC' : '')} className="mt-1 size-4 shrink-0 accent-brand-blue" />
+                    <input id="allow-qr" type="checkbox" checked={needsQr} disabled={requiresSignature} aria-labelledby="allow-qr-label" aria-describedby="allow-qr-help" onChange={(event) => change('verificationRequirement', event.target.checked ? needsFace ? 'QR_OR_BIOMETRIC' : 'QR' : needsFace ? 'BIOMETRIC' : manualEnabled ? 'MANUAL' : '')} className="mt-1 size-4 shrink-0 accent-brand-blue" />
                     <span><span id="allow-qr-label" className="flex items-center gap-2 text-sm font-semibold"><Icon name="qr" className="size-4 shrink-0 text-brand-blue" />QR code</span><span id="allow-qr-help" className="mt-2 block text-xs leading-5 text-copy">Scan a printed credential or one shown on a phone.</span></span>
                   </label>
                   <label className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-brand-blue ${needsFace ? 'border-brand-blue bg-info-soft' : 'border-line hover:border-blue-200'}`}>
-                    <input id="allow-face" type="checkbox" checked={needsFace} aria-labelledby="allow-face-label" aria-describedby="allow-face-help" onChange={(event) => change('verificationRequirement', event.target.checked ? needsQr ? 'QR_OR_BIOMETRIC' : 'BIOMETRIC' : needsQr ? 'QR' : '')} className="mt-1 size-4 shrink-0 accent-brand-blue" />
+                    <input id="allow-face" type="checkbox" checked={needsFace} aria-labelledby="allow-face-label" aria-describedby="allow-face-help" onChange={(event) => change('verificationRequirement', event.target.checked ? needsQr ? 'QR_OR_BIOMETRIC' : 'BIOMETRIC' : needsQr ? 'QR' : manualEnabled ? 'MANUAL' : '')} className="mt-1 size-4 shrink-0 accent-brand-blue" />
                     <span><span id="allow-face-label" className="flex items-center gap-2 text-sm font-semibold"><Icon name="biometrics" className="size-4 shrink-0 text-brand-blue" />Live face match</span><span id="allow-face-help" className="mt-2 block text-xs leading-5 text-copy">Use the staff camera. Requires consent and an enrolled face profile.</span></span>
                   </label>
                 </div>
                 {needsQr && needsFace && <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-line p-3 text-sm leading-6"><input type="checkbox" checked={form.verificationRequirement === 'QR_AND_BIOMETRIC'} onChange={(event) => change('verificationRequirement', event.target.checked ? 'QR_AND_BIOMETRIC' : 'QR_OR_BIOMETRIC')} className="mt-1 size-4 shrink-0 accent-brand-blue" /><span><span className="font-semibold">Require both methods for every beneficiary</span><span className="block text-xs text-muted-copy">Leave unchecked to allow either QR or face match.</span></span></label>}
                 {needsFace && !needsQr && <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-line p-3 text-sm leading-6"><input type="checkbox" checked={requiresSignature} onChange={(event) => change('verificationRequirement', event.target.checked ? 'BIOMETRIC_AND_SIGNATURE' : 'BIOMETRIC')} className="mt-1 size-4 shrink-0 accent-brand-blue" /><span><span className="font-semibold">Require a signature after the face match</span><span className="block text-xs text-muted-copy">This applies to every claim. Turn it off before allowing QR as an alternative.</span></span></label>}
-                <p role="status" className={`mt-3 text-sm font-semibold ${!form.verificationRequirement ? 'text-brand-red' : 'text-brand-blue'}`}>{verificationLabels[form.verificationRequirement] || 'Select at least one method.'}</p>
+                <label className="mt-3 flex items-start gap-3 rounded-lg border border-line p-4"><input id="allow-manual" type="checkbox" disabled={['QR_AND_BIOMETRIC', 'BIOMETRIC_AND_SIGNATURE'].includes(form.verificationRequirement)} checked={manualEnabled} onChange={(event) => { setManualEnabled(event.target.checked); if (!needsQr && !needsFace) change('verificationRequirement', event.target.checked ? 'MANUAL' : '') }} className="mt-1 size-4 accent-brand-blue" /><span><span className="block text-sm font-semibold">Manual staff verification + acknowledgment/signature</span><span className="mt-1 block text-xs leading-5 text-muted-copy">Explicitly allow an office-approved identity review. Unavailable when every beneficiary must complete combined checks.</span></span></label>
+                {manualEnabled && <div className="mt-3"><label htmlFor="manual-verification-basis" className="ga-label">Office-approved verification basis</label><textarea id="manual-verification-basis" required minLength={20} maxLength={1000} rows={3} value={form.manualVerificationBasis} onChange={(event) => change('manualVerificationBasis', event.target.value)} aria-describedby="manual-basis-help" className="ga-input mt-2 py-3" /><p id="manual-basis-help" className="mt-1 text-xs leading-5 text-muted-copy">Record the responsible office’s approved instructions and reference. Do not enter full identification numbers or invent acceptable IDs.</p></div>}
+                <p role="status" className={`mt-3 text-sm font-semibold ${!form.verificationRequirement ? 'text-brand-red' : 'text-brand-blue'}`}>{manualEnabled && form.verificationRequirement === 'QR' ? 'QR code' : verificationLabels[form.verificationRequirement] || 'Select at least one method.'}{manualEnabled && form.verificationRequirement !== 'MANUAL' ? ' OR manual staff verification + acknowledgment/signature' : ''}</p>
               </div>
               {verificationGuide && <section className="mt-4 rounded-lg border border-line bg-slate-50 p-4" aria-labelledby="verification-checks-heading" aria-live="polite">
                 <h3 id="verification-checks-heading" className="text-sm font-semibold text-ink">At the claim desk</h3><p className="mt-1 text-sm leading-6 text-copy">{verificationGuide.scenario}</p>
@@ -263,7 +273,7 @@ function DistributionFormDialog({ barangays, distribution, packageOnly = false, 
               <div className="py-3"><dt className="text-xs font-semibold text-muted-copy">Service area</dt><dd className="mt-1 font-bold text-ink">{selectedBarangay ? `${selectedBarangay.barangayName}, ${selectedBarangay.city}` : 'Not selected'}</dd></div>
               <div className="py-3"><dt className="text-xs font-semibold text-muted-copy">Schedule</dt><dd className="mt-1 font-bold text-ink">{form.distributionDate ? displayDate(form.distributionDate) : 'Not selected'}</dd><dd className="mt-1 text-copy">{form.startTime || '—'}–{form.endTime || '—'}</dd></div>
               <div className="py-3"><dt className="text-xs font-semibold text-muted-copy">Service windows</dt><dd aria-live="polite" className={`mt-1 text-base font-semibold tabular-nums ${windowCount ? 'text-ink' : 'text-brand-amber'}`}>{windowCount ? `${windowCount} planned · ${form.slotDurationMinutes} min each` : 'Check the service times'}</dd><dd className="mt-1 text-xs leading-5 text-muted-copy">Set or review slot capacity after saving.</dd></div>
-              <div className="py-3 last:pb-0"><dt className="text-xs font-semibold text-muted-copy">Verification</dt><dd className="mt-1 font-bold text-ink">{verificationLabels[form.verificationRequirement] || 'Select at least one method'}</dd></div>
+              <div className="py-3 last:pb-0"><dt className="text-xs font-semibold text-muted-copy">Verification</dt><dd className="mt-1 font-bold text-ink">{form.verificationRequirement ? eventVerificationLabel({ ...form, manualVerificationBasis: manualEnabled ? form.manualVerificationBasis : null }) : 'Select at least one method'}</dd></div>
               <div className="py-3 last:pb-0"><dt className="text-xs font-semibold text-muted-copy">Delivery</dt><dd className="mt-1 font-bold text-ink">{deliveryModes.find(([value]) => value === form.deliveryMode)?.[1]}</dd>{form.deliveryMode === 'PHYSICAL_GOODS' && <dd className="mt-1 text-xs leading-5 text-copy [overflow-wrap:anywhere]">{form.packageName ? `${form.packageQuantity || '—'} ${form.packageUnit || 'units'} · ${form.packageName}` : 'Package details needed'}</dd>}</div>
             </dl>
             <p className="mt-4 border-t border-line pt-4 text-xs leading-5 text-copy">Saving does not notify beneficiaries or open field operations. Review capacity and schedules before opening.</p>

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import ClaimSignaturePad from '../components/claims/ClaimSignaturePad.jsx'
+import { CameraDeviceSelect } from '../components/ui/camera-device-select.jsx'
+import { useCameraDevices } from '../hooks/useCameraDevices.js'
+import { cameraConstraints, cameraErrorMessage } from '../utils/camera.js'
 import BiometricDuplicateReview from '../components/biometrics/BiometricDuplicateReview.jsx'
 import BiometricAttemptReview from '../components/biometrics/BiometricAttemptReview.jsx'
 import { biometricAttemptGuidance, biometricHistoryHref, followUpStatuses, readBiometricFollowUps } from '../utils/biometricFollowUp.js'
@@ -10,7 +13,7 @@ import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Icon } from '../components/ui/icon.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
-import { verificationLabels } from '../utils/claimVerification.js'
+import { eventVerificationLabel } from '../utils/claimVerification.js'
 import {
   deleteBiometricEnrollment,
   getAuthErrorMessage,
@@ -97,6 +100,7 @@ function WorkspaceSkeleton() {
 }
 
 function CaptureField({ id, help, purpose = 'verification', disabled = false }) {
+  const cameras = useCameraDevices()
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const inputRef = useRef(null)
@@ -151,22 +155,18 @@ function CaptureField({ id, help, purpose = 'verification', disabled = false }) 
     try {
       replacePreview()
       setCaptureState('live')
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 960 } },
-      })
+      const stream = await navigator.mediaDevices.getUserMedia(cameraConstraints(cameras.deviceId))
       if (requestId !== cameraRequestRef.current || !videoRef.current) {
         stream.getTracks().forEach((track) => track.stop())
         return
       }
       streamRef.current = stream
+      void cameras.refresh()
       videoRef.current.srcObject = stream
     } catch (cameraError) {
       if (requestId !== cameraRequestRef.current) return
       setCaptureState('idle')
-      setError(cameraError?.name === 'NotAllowedError'
-        ? 'Camera access was blocked. Allow camera permission in the browser, then try again, or upload a current photo.'
-        : 'The camera could not be opened. Check that another app is not using it, then try again or upload a photo.')
+      setError(cameraErrorMessage(cameraError))
     }
   }
 
@@ -213,6 +213,7 @@ function CaptureField({ id, help, purpose = 'verification', disabled = false }) 
   return (
     <fieldset disabled={disabled} aria-describedby={`${id}-help ${id}-status`} className="min-w-0">
       <legend className="ga-label">{purpose === 'enrollment' ? 'Reference photo for enrollment' : 'New photo for this claim'}</legend>
+      <CameraDeviceSelect id={`${id}-device`} devices={cameras.devices} deviceId={cameras.deviceId} onChange={(value) => { resetCapture(); cameras.setDeviceId(value) }} disabled={disabled} />
       <div className="mt-2 overflow-hidden rounded-xl border border-line bg-slate-950 shadow-inner">
         <div className="relative aspect-[4/3] min-h-64 w-full overflow-hidden sm:min-h-80">
           {captureState === 'captured' && previewUrl
@@ -610,7 +611,7 @@ function BiometricIdentityPage({ session, onLogout, onNavigate, onSessionExpired
   const selectedBeneficiary = profileResult?.beneficiary?.beneficiaryId === beneficiaryId ? profileResult.beneficiary : beneficiaries.find((item) => item.beneficiaryId === beneficiaryId)
   const selectedDistribution = distributions.find((item) => item.distributionId === distributionId)
   const activeConsent = consents.find((consent) => consent.consentStatus === 'ACTIVE')
-  const verificationDistributions = distributions.filter((item) => item.status === 'OPEN' && item.verificationRequirement !== 'QR')
+  const verificationDistributions = distributions.filter((item) => item.status === 'OPEN' && !['QR', 'MANUAL'].includes(item.verificationRequirement))
   const claimCandidates = schedules.filter((schedule) => ['SCHEDULED', 'CHECKED_IN'].includes(schedule.status) && !['VERIFIED', 'CLAIMED', 'VOIDED', 'REJECTED'].includes(schedule.claim?.claimStatus))
   const tabs = [
     ['enrollment', canCapture ? 'Consent & enrollment' : 'Profiles & consent'],
@@ -732,6 +733,7 @@ function VerificationWorkspace({ onManageEnrollment, loadingClaim, claimError, o
           {verificationError && <div role="alert" className="mb-4 border-l-2 border-brand-amber bg-warning-soft p-4 text-sm leading-6"><p className="font-bold">{needsEnrollment ? 'Consent and an enrolled face profile are required' : retrySignature ? 'Signature confirmation unavailable' : 'Identity verification was not confirmed'}</p><p>{verificationError.message}</p>{needsEnrollment && <><p className="mt-2">This photo checks the current visit against a previously enrolled profile; it does not create that profile. {role === 'BARANGAY_FACILITATOR' ? 'Review consent, enroll the beneficiary, then return here for a new live photo.' : 'Ask the assigned Barangay Facilitator to review consent and enroll the beneficiary, then return here for a new live photo.'} Your selected event and beneficiary will stay selected. The claim remains pending and no handover is recorded.</p><button type="button" disabled={isSubmitting} onClick={onManageEnrollment} className="ga-btn-secondary mt-3"><Icon name="profile" className="size-4" />Review consent &amp; enrollment</button></>}</div>}
           {distributionId && !eventAvailable && <p role="status" className="mt-2 text-sm text-brand-amber">This event is unavailable for biometric verification. Select an open event that requires a face check.</p>}
           {loadingClaim && <p role="status" className="mb-4 text-sm"><LoadingLabel>Checking saved verification...</LoadingLabel></p>}
+          {selectedDistribution?.manualVerificationBasis && ['BIOMETRIC', 'QR_OR_BIOMETRIC'].includes(selectedDistribution.verificationRequirement) && !result && <button type="button" disabled={isSubmitting || loadingClaim || Boolean(claimError)} onClick={() => onNavigate(`/manual-verification?distribution=${encodeURIComponent(distributionId)}&beneficiary=${encodeURIComponent(beneficiaryId)}`)} className="ga-btn-secondary mb-4">Use permitted manual identity review</button>}
           {claimError && <div role="alert" className="mb-4 border-l-2 border-brand-amber bg-warning-soft p-4 text-sm leading-6"><p className="font-bold">Saved verification could not be loaded</p><p>{claimError}</p><p className="mt-2">Check the saved record before repeating an identity check.</p><button type="button" onClick={onRetryClaim} className="ga-btn-secondary mt-3">Retry saved verification</button></div>}
           {!loadingClaim && !claimError && result?.reviewRequired ? <section className="border-l-2 border-brand-amber bg-warning-soft p-5"><h3 className="font-bold">Review the existing claim</h3><p className="mt-2 text-sm leading-6">{result.beneficiaryName} has a recorded claim that cannot continue through verification. Review its status and event before taking further action.</p><a href={`/claim-accountability?distribution=${encodeURIComponent(distributionId)}&claim=${encodeURIComponent(result.claim.claimId)}`} onClick={(event) => { event.preventDefault(); onNavigate(event.currentTarget.getAttribute('href')) }} className="ga-btn-secondary mt-4">Open claim record</a><button type="button" onClick={onReset} className="ga-btn-secondary mt-3 w-full">Verify next beneficiary</button></section> : !loadingClaim && !claimError && result?.claim && !awaitingSignature ? (
             <section role="status" aria-live="polite" className="rounded-xl border border-emerald-200 bg-success-soft p-5 sm:p-6">
@@ -761,7 +763,7 @@ function VerificationWorkspace({ onManageEnrollment, loadingClaim, claimError, o
 
               {selectedDistribution && (
                 <dl className="grid gap-4 rounded-xl border border-line bg-slate-50 p-4 text-sm sm:grid-cols-3">
-                  <Info label="Method" value={verificationLabels[selectedDistribution.verificationRequirement] || humanize(selectedDistribution.verificationRequirement)} />
+                  <Info label="Method" value={eventVerificationLabel(selectedDistribution)} />
                   <Info label="Location" value={selectedDistribution.location} />
                   <Info label="Service time" value={`${selectedDistribution.startTime}–${selectedDistribution.endTime}`} />
                 </dl>

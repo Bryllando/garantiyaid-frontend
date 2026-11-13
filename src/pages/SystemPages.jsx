@@ -1,10 +1,11 @@
 import { Component, useEffect, useRef } from 'react'
 import { Icon } from '../components/ui/icon.jsx'
+import { getStoredStaffSession } from '../auth/staffAuth.js'
 
 function Brand() {
   return (
     <span className="flex items-center gap-3 font-bold tracking-tight text-brand-navy">
-      <img src="/GarantiyAid-logo.svg" alt="" width="512" height="512" className="size-12 shrink-0 object-contain sm:size-14" />
+      <img src="/GarantiyAid-logo.svg" alt="" width="512" height="512" className="size-10 shrink-0 object-contain sm:size-12" />
       <span className="text-lg">GarantiyAid</span>
     </span>
   )
@@ -17,7 +18,7 @@ function PublicPageShell({ children, wide = false, showLoginLink = true, notice 
       <header className="border-b border-line bg-white">
         <nav aria-label="Public navigation" className="mx-auto flex h-18 w-full max-w-7xl items-center justify-between gap-4 px-5 sm:px-6 lg:px-8">
           <a href="/" aria-label="GarantiyAid home" className="rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-blue"><Brand /></a>
-          {showLoginLink ? <a href="/login" className="inline-flex min-h-11 items-center rounded-lg bg-brand-blue px-4 text-sm font-bold text-white hover:bg-brand-blue-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">Staff Login</a> : <span className="text-sm text-copy">Staff portal</span>}
+          {showLoginLink ? <a href="/login" className="ga-btn-secondary">Staff sign in</a> : <a href="/" className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"><Icon name="arrowLeft" className="size-4" />Public home</a>}
         </nav>
       </header>
       <main id="main-content" data-route-focus tabIndex={-1} className={`mx-auto w-full flex-1 px-5 py-10 outline-none sm:px-6 sm:py-14 lg:px-8 ${wide ? 'max-w-5xl' : notice ? 'max-w-4xl' : 'grid max-w-2xl place-items-center'}`}>{children}</main>
@@ -31,9 +32,9 @@ function ServiceNotice({ title, description, primary, secondary, help, helpTitle
   useEffect(() => { headingRef.current?.focus() }, [])
 
   return (
-    <section className="w-full rounded-sm border border-line border-t-4 border-t-brand-navy bg-white text-left" aria-labelledby="status-page-title">
+    <section role={error ? 'alert' : undefined} className="w-full overflow-hidden rounded-xl border border-line bg-white text-left" aria-labelledby="status-page-title">
       <div className="p-5 sm:p-8">
-        <div className="flex items-center gap-2.5 text-sm font-semibold text-copy"><Icon name={icon} className={`size-5 shrink-0 ${error ? 'text-brand-red' : 'text-brand-navy'}`} />Service notice</div>
+        <div className="flex items-center gap-3 text-sm font-semibold text-copy"><span className={`grid size-10 shrink-0 place-items-center rounded-lg ${error ? 'bg-danger-soft text-brand-red' : 'bg-info-soft text-brand-blue'}`}><Icon name={icon} className="size-5" /></span>{error ? 'Page unavailable' : 'Service notice'}</div>
         <h1 id="status-page-title" ref={headingRef} tabIndex={-1} aria-describedby="status-page-description" className="mt-4 text-2xl font-semibold leading-tight text-ink outline-none sm:text-[1.75rem]">{title}</h1>
         <p id="status-page-description" className="mt-3 max-w-2xl text-base leading-7 text-copy">{description}</p>
         {children}
@@ -86,20 +87,22 @@ export function NotFoundPage() {
 }
 
 export function UnexpectedErrorPage({ onRetry = () => window.location.reload() }) {
+  const { accessToken, user } = getStoredStaffSession()
+  const hasSession = Boolean(accessToken && user)
   return (
     <PublicPageShell notice showLoginLink={false}>
       <ServiceNotice
         error
         title="Unable to display this page"
-        description="Reload the page to try again. Unsaved changes may be lost."
+        description={hasSession ? 'The page could not finish loading. Reload to try again, or return to your workspace.' : 'The page could not finish loading. Reload to try again, or return to the public home page.'}
         primary={<button type="button" onClick={onRetry} className={noticeAction}><Icon name="reset" />Reload page</button>}
-        secondary={<a href="/" className={noticeLink}>Return to home page</a>}
+        secondary={<a href={hasSession ? '/dashboard' : '/'} className="ga-btn-secondary">{hasSession ? 'Back to workspace' : 'Return to home page'}</a>}
         helpTitle="If the problem continues"
         help="Contact your office’s System Administrator. Include the page you were using and what you were trying to do."
       >
         <div className="mt-6 border-l-2 border-line pl-4">
-          <h2 className="text-sm font-semibold text-ink">Check your last action</h2>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-copy">If you were saving a record or starting an import, check its status after reloading before submitting it again.</p>
+          <h2 className="text-sm font-semibold text-ink">Before trying again</h2>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-copy">Unsaved changes may be lost. If you were saving a record, check its saved status before submitting it again.</p>
         </div>
       </ServiceNotice>
     </PublicPageShell>

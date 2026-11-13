@@ -4,6 +4,7 @@ import { Icon } from '../components/ui/icon.jsx'
 import { emailDeliveryFeedback } from '../components/ui/SecurityEmailStatus.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
+import { isDeveloperStaffAccount } from '../utils/staffAccountDisplay.js'
 import { getAuthErrorMessage, isSessionExpiredError, requestStaffUsers, resetStaffTotp, STAFF_ROLE_LABELS } from '../auth/staffAuth.js'
 
 const emptyVerification = {
@@ -174,16 +175,21 @@ function AdminStaffSecurityPage({ session, onLogout, onNavigate, onSessionExpire
               ) : (
                 <ul className="divide-y divide-line">
                   {users.map((user) => {
+                    const developer = isDeveloperStaffAccount(user)
                     const isSelf = user.userId === session.user.userId
                     const canReset = user.isActive && user.totpEnabled && !isSelf
-                    const resetUnavailableReason = isSelf
+                    const resetUnavailableReason = developer && !user.totpEnabled
+                      ? 'This local developer account signs in with a password; TOTP is not required.'
+                      : isSelf
                       ? 'Another System Administrator must reset your authenticator.'
                       : !user.isActive
                         ? 'Reactivate this account before resetting its authenticator.'
                         : !user.totpEnabled
                           ? 'No active authenticator is enrolled.'
                           : ''
-                    const authenticatorStatus = user.mustChangePassword
+                    const authenticatorStatus = developer
+                      ? 'Developer mode'
+                      : user.mustChangePassword
                       ? 'First sign-in pending'
                       : user.totpEnabled
                         ? 'Authenticator active'
@@ -197,9 +203,10 @@ function AdminStaffSecurityPage({ session, onLogout, onNavigate, onSessionExpire
                             <h3 className="break-words font-extrabold text-ink">{user.fullName}</h3>
                             <p className="mt-1 text-sm text-muted-copy">{user.employeeId} · {STAFF_ROLE_LABELS[user.role] ?? user.role}</p>
                             <div className="mt-3 flex flex-wrap gap-2">
-                              <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${user.totpEnabled && !user.mustChangePassword ? 'border-emerald-200 bg-success-soft text-brand-green' : 'border-amber-200 bg-warning-soft text-brand-amber'}`}>{authenticatorStatus}</span>
+                              <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${developer ? 'border-blue-200 bg-info-soft text-brand-blue' : user.totpEnabled && !user.mustChangePassword ? 'border-emerald-200 bg-success-soft text-brand-green' : 'border-amber-200 bg-warning-soft text-brand-amber'}`}>{authenticatorStatus}</span>
                               <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${user.isActive ? 'border-blue-200 bg-info-soft text-brand-blue' : 'border-line bg-slate-100 text-copy'}`}>{user.isActive ? 'Account active' : 'Account inactive'}</span>
                             </div>
+                            {developer && <p className="mt-2 text-xs leading-5 text-muted-copy">Local development only</p>}
                           </div>
                         </div>
                         <div className="min-w-0 sm:w-52 sm:justify-self-end">

@@ -8,6 +8,7 @@ import { Skeleton } from '../components/ui/skeleton.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
 import { connectStaffRealtime } from '../realtime/staffRealtime.js'
 import { claimChecks, claimWorkflow, disputeLedgerHref } from '../utils/claimWorkflow.js'
+import { verificationLabels } from '../utils/claimVerification.js'
 import {
   createClaimDispute,
   getAuthErrorMessage,
@@ -258,10 +259,10 @@ function ClaimsView({ busyClaimId, claims, distribution, role, unavailable, onDi
     return <li key={claim.claimId} className="p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0"><h2 className="text-lg font-bold text-ink">{beneficiaryName(claim.beneficiary)}</h2><p className="mt-1 text-sm text-muted-copy">Queue #{claim.schedule?.queueNumber ?? 'Not recorded'} · {claim.beneficiary?.barangay?.barangayName || 'Barangay not recorded'}</p></div>
-        <span className={'inline-flex max-w-full rounded-full border px-3 py-1 text-sm font-semibold ' + (state.tone === 'success' ? 'ga-status-success' : state.tone === 'danger' ? 'ga-status-danger' : 'ga-status-warning')}>{state.label}</span>
+        <span className={'inline-flex max-w-full rounded-full border px-3 py-1 text-sm font-semibold ' + (state.tone === 'success' ? 'ga-status-success' : state.tone === 'danger' ? 'ga-status-danger' : 'ga-status-warning')}>{state.transactionLabel || state.label}</span>
       </div>
       <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)]">
-        <div><p className="ga-label">Verification</p><dl className="mt-2 space-y-2 text-sm">{claimChecks(claim, distribution).map((check) => <div key={check.key} className="flex flex-wrap justify-between gap-x-3"><dt className="text-copy">{check.label}</dt><dd className={check.required && !check.complete ? 'font-semibold text-brand-amber' : 'text-muted-copy'}>{check.status}</dd></div>)}</dl></div>
+        <div><p className="ga-label">Verification</p><p className="mt-2 text-sm font-semibold">{verificationLabels[claim.verificationMethod || distribution?.verificationRequirement]}</p><dl className="mt-2 space-y-2 text-sm">{claimChecks(claim, distribution).map((check) => <div key={check.key} className="flex flex-wrap justify-between gap-x-3"><dt className="text-copy">{check.label}</dt><dd className={check.required && !check.complete ? 'font-semibold text-brand-amber' : 'text-muted-copy'}>{check.status}</dd></div>)}</dl>{claim.manualVerification && <p className="mt-3 break-words text-xs leading-5 text-muted-copy">Identity review: {claim.manualVerification.evidenceReference} · {claim.manualVerification.verifiedByName || 'Authorized staff'} · {dateTime.format(new Date(claim.manualVerification.verifiedAt))} PHT</p>}</div>
         <div className="text-sm"><p className="ga-label">Recorded assistance</p><p className="mt-2 font-semibold tabular-nums">{money.format(Number(claim.allocation?.amount ?? 0))}</p><p className="mt-2 text-copy">{releaseTime ? (claim.releaseMethod === 'PHYSICAL_GOODS' || distribution?.deliveryMode === 'PHYSICAL_GOODS' ? 'Released ' : 'Credited ') + dateTime.format(new Date(releaseTime)) + ' PHT' : 'No release or credit recorded'}</p>{claim.releasedBy?.fullName && <p className="mt-1 text-muted-copy">Recorded by {claim.releasedBy.fullName}</p>}{claim.releasedQuantity != null && <p className="mt-2 text-copy">{claim.releasedPackageName}: {claim.releasedQuantity} {claim.releasedPackageUnit}</p>}{claim.releaseEvidenceReference && <p className="mt-1 break-words text-copy">Evidence: {claim.releaseEvidenceReference}</p>}<p className="mt-2 break-words text-muted-copy">{claim.receipt?.receiptNo || 'No receipt issued'}</p></div>
         <div className="border-l-2 border-line pl-4 text-sm"><p className="ga-label">Next step</p><p className="mt-2 leading-6 text-copy">{state.next}</p><p className="mt-2 font-semibold text-ink">Responsible: {state.owner}</p></div>
       </div>

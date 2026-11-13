@@ -7,6 +7,7 @@ export function queueNextAction(schedule, distribution, role) {
     return { label: schedule.claim.claimStatus === 'CLAIMED' ? 'View release / receipt' : 'Review claim', href: `/claim-accountability?${scope}` }
   }
   if (distribution.status !== 'OPEN' || !['SCHEDULED', 'CHECKED_IN'].includes(schedule.status)) return null
+  if (distribution.verificationRequirement === 'MANUAL' && ['BARANGAY_FACILITATOR', 'DSWD_STAFF'].includes(role)) return { label: 'Review identity', href: `/manual-verification?${scope}&beneficiary=${encodeURIComponent(schedule.beneficiaryId || schedule.beneficiary.beneficiaryId)}` }
   if (['QR', 'QR_AND_BIOMETRIC', 'QR_OR_BIOMETRIC'].includes(distribution.verificationRequirement)) {
     return { label: 'Check QR', href: `${role === 'SYSTEM_ADMIN' ? '/admin/verify-claims' : role === 'DSWD_STAFF' ? '/dswd/verify-claims' : '/facilitator/qr-verification'}?${scope}` }
   }
@@ -19,12 +20,13 @@ export function queueNextAction(schedule, distribution, role) {
 }
 
 export function claimChecks(claim, distribution) {
-  const requirement = distribution?.verificationRequirement || claim.distribution?.verificationRequirement || claim.verificationMethod || ''
+  const recorded = { ...claim, manualVerification: Boolean(claim.manualVerification?.confirmed && claim.manualVerification?.verifiedById && claim.manualVerification?.evidenceReference) }
+  const requirement = claim.verificationMethod === 'MANUAL' ? 'MANUAL_SIGNATURE' : distribution?.verificationRequirement || claim.distribution?.verificationRequirement || claim.verificationMethod || ''
   const alternative = requirement === 'QR_OR_BIOMETRIC'
   const satisfied = alternative && (claim.qrVerified || claim.biometricVerified)
-  return [['QR', 'qrVerified', 'QR validation'], ['BIOMETRIC', 'biometricVerified', 'Face verification'], ['SIGNATURE', 'signatureVerified', 'Signature']].map(([key, field, label]) => ({
-    label, key, required: requirement.includes(key) && (!satisfied || Boolean(claim[field])), complete: Boolean(claim[field]),
-    status: requirement.includes(key) ? claim[field] ? 'Complete' : alternative ? satisfied ? 'Alternative not needed' : 'Allowed alternative' : 'Pending' : 'Not required for this event',
+  return [['MANUAL', 'manualVerification', 'Staff identity review'], ['QR', 'qrVerified', 'QR validation'], ['BIOMETRIC', 'biometricVerified', 'Face verification'], ['SIGNATURE', 'signatureVerified', 'Signature']].filter(([key]) => key !== 'MANUAL' || requirement.includes('MANUAL')).map(([key, field, label]) => ({
+    label, key, required: requirement.includes(key) && (!satisfied || Boolean(recorded[field])), complete: Boolean(recorded[field]),
+    status: requirement.includes(key) ? recorded[field] ? 'Complete' : alternative ? satisfied ? 'Alternative not needed' : 'Allowed alternative' : 'Pending' : 'Not required for this event',
   }))
 }
 
@@ -40,18 +42,22 @@ export function claimWorkflow(claim, distribution, role) {
   const base = { receiptReady, canRelease: false, tone: 'pending' }
   if (dispute) return { ...base, label: 'On hold — dispute under review', owner: 'Independent Admin / DSWD reviewer', next: 'Review the active case before any further release or credit.', action: 'Open dispute', href: `/claim-accountability?${scope}&view=disputes&search=${encodeURIComponent(dispute.referenceNo || dispute.disputeId)}` }
   if (claim.claimStatus === 'VOIDED') return { ...base, label: 'Voided claim', tone: 'danger', owner: 'Admin / DSWD reviewer', next: 'Review the recorded decision and any remaining remediation. Original release evidence is preserved.', action: 'Review dispute records', href: `/claim-accountability?${scope}&view=disputes&search=${encodeURIComponent(claim.claimId)}` }
-  if (done) return { ...base, label: physical ? 'Released' : 'Credited', tone: 'success', owner: 'Admin review', next: claim.receipt ? 'Review the recorded evidence and existing receipt.' : 'Review the recorded evidence. Issue a receipt when ready.' }
+  if (done) return { ...base, label: physical ? 'Released' : 'Credited', transactionLabel: physical ? claim.receipt ? 'Completed — released and receipted' : 'Released — receipt pending' : 'Credited', tone: 'success', owner: 'Admin review', next: claim.receipt ? 'Review the recorded evidence and original receipt. Event closure is handled separately.' : 'Issue the receipt to finish documenting this transaction.' }
   if (claim.claimStatus === 'REJECTED' || claim.isDuplicateFlag) return { ...base, label: claim.isDuplicateFlag ? 'Flagged for review' : 'Claim rejected', tone: 'danger', owner: 'Admin / DSWD reviewer', next: claim.isDuplicateFlag ? 'File the beneficiary’s concern for independent review. An assigned Admin or DSWD reviewer can confirm the record and clear the hold. Verification and release remain separate steps.' : 'Inspect the verification record and recorded concern before continuing.' }
   if (closed) return { ...base, label: event.status === 'CANCELLED' ? 'Event cancelled' : 'Event closed', owner: 'Admin review', next: 'No completed release is recorded. Review the preserved event records; further release is unavailable.' }
   if (claim.claimStatus === 'VERIFIED') {
     const open = event.status === 'OPEN'
-    return { ...base, label: physical ? 'Awaiting physical release' : 'Awaiting simulated credit', owner: physical ? 'Barangay staff' : 'DSWD staff',
+    return { ...base, label: physical ? 'Awaiting physical release' : 'Awaiting simulated credit', transactionLabel: physical ? 'Identity verified — awaiting release' : 'Awaiting simulated credit', owner: physical ? 'Barangay staff' : 'DSWD staff',
       next: !open ? 'The event must be open before release or credit.' : physical ? 'The assigned Barangay Facilitator records the handover and its evidence.' : 'DSWD reviews the verified claim and records its simulated credit.',
       canRelease: physical && open && role === 'BARANGAY_FACILITATOR',
       ...(!physical && ['SYSTEM_ADMIN', 'DSWD_STAFF'].includes(role) ? { action: role === 'DSWD_STAFF' ? 'Open wallet credits' : 'Review transactions', href: `/dswd/ledger?${scope}` } : {}),
     }
   }
   const pending = claimChecks(claim, distribution).filter((item) => item.required && !item.complete)
+  if (claim.verificationMethod === 'MANUAL') {
+    const reviewed = claimChecks(claim, distribution).find((item) => item.key === 'MANUAL')?.complete
+    return { ...base, label: reviewed ? 'Identity reviewed — acknowledgment pending' : 'Manual review evidence unavailable', owner: 'DSWD / Barangay staff', next: reviewed ? 'Collect the beneficiary acknowledgment/signature. Assistance has not been released.' : 'Ask authorized staff to review the original record. A manual method label alone does not establish identity.', ...(!closed && reviewed && ['DSWD_STAFF', 'BARANGAY_FACILITATOR'].includes(role) ? { action: 'Continue acknowledgment', href: `/manual-verification?${scope}&claim=${encodeURIComponent(claim.claimId)}` } : {}) }
+  }
   const face = pending.some((item) => item.key === 'BIOMETRIC')
   const qr = pending.some((item) => item.key === 'QR')
   const canVerifyFace = ['DSWD_STAFF', 'BARANGAY_FACILITATOR'].includes(role)

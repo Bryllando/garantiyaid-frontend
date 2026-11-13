@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { cameraConstraints, cameraErrorMessage } from '../src/utils/camera.js'
 
 const source = readFileSync(new URL('../src/pages/BiometricIdentityPage.jsx', import.meta.url), 'utf8')
 
 test('live biometric capture requests the front camera, cleans streams, and keeps an upload fallback', () => {
   assert.match(source, /navigator\.mediaDevices\?\.getUserMedia/)
-  assert.match(source, /facingMode: 'user'/)
+  assert.equal(cameraConstraints('').video.facingMode.ideal, 'user')
+  assert.deepEqual(cameraConstraints('usb-webcam').video.deviceId, { exact: 'usb-webcam' })
+  assert.equal(cameraConstraints('usb-webcam').audio, false)
+  assert.match(source, /CameraDeviceSelect/)
   assert.match(source, /getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/)
   assert.match(source, /cameraRequestRef\.current/)
   assert.match(source, /new DataTransfer\(\)/)
@@ -15,4 +19,13 @@ test('live biometric capture requests the front camera, cleans streams, and keep
   assert.match(source, /role="alert"/)
   assert.match(source, /AI recognition configured:/)
   assert.match(source, /anti-spoofing protection/)
+})
+
+test('camera errors separate permission, device and insecure-origin failures', () => {
+  globalThis.isSecureContext = false
+  assert.match(cameraErrorMessage(), /HTTPS or localhost/)
+  globalThis.isSecureContext = true
+  assert.match(cameraErrorMessage({ name: 'NotAllowedError' }), /permission/)
+  assert.match(cameraErrorMessage({ name: 'NotFoundError' }), /selected camera/)
+  delete globalThis.isSecureContext
 })

@@ -95,6 +95,7 @@ export default function ClaimReceiptDialog({ receipt, onClose, onDispute, onPrin
             <dl className="mt-5 grid gap-4 border-t border-line pt-5 text-sm sm:grid-cols-2">
               <ReceiptField label="Evidence hash" value={receipt.evidenceHash} mono />
               <ReceiptField label="Signature hash" value={evidence.signature?.imageSha256} mono />
+              {evidence.manual && <><ReceiptField label="Manual identity review reference" value={evidence.manual.evidenceReference} mono /><ReceiptField label="Office-approved verification basis" value={evidence.manual.basis} /><ReceiptField label="Identity reviewed by" value={evidence.manual.verifiedByName || evidence.manual.verifiedById} /><ReceiptField label="Identity review time" value={dateTime.format(new Date(evidence.manual.verifiedAt))} /></>}
               <ReceiptField label="Verified by" value={evidence.verifiedBy ? `${evidence.verifiedBy.fullName} (${evidence.verifiedBy.employeeId})` : null} />
               <ReceiptField label="Processed by" value={release.releasedBy ? `${release.releasedBy.fullName} (${release.releasedBy.employeeId})` : evidence.transaction?.processedBy ? `${evidence.transaction.processedBy.fullName} (${evidence.transaction.processedBy.employeeId})` : null} />
             </dl>

@@ -1,0 +1,3 @@
+export function CameraDeviceSelect({ id, devices, deviceId, onChange, disabled = false }) {
+  return <div className="mb-3"><label htmlFor={id} className="ga-label">Camera</label><select id={id} value={deviceId} disabled={disabled} onChange={(event) => onChange(event.target.value)} className="ga-input mt-2"><option value="">Browser default camera</option>{devices.filter((device) => device.deviceId).map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}</select><p className="mt-1 text-xs leading-5 text-muted-copy">Choose your USB webcam if more than one camera is connected. Device names appear after permission is granted.</p></div>
+}

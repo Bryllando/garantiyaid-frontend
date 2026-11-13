@@ -245,7 +245,7 @@ function DashboardShellFrame({ breadcrumbs, children, currentPath, onLogout, onN
             <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-white shadow-sm"><img src="/GarantiyAid-logo.svg" alt="" width="512" height="512" className="size-10 object-contain" /></span>
             <span className="ga-sidebar-label shrink-0 whitespace-nowrap">
               <span className="block text-[1.375rem] font-semibold tracking-tight">GarantiyAid</span>
-              <span className="mt-0.5 block text-xs text-blue-100">Staff workspace</span>
+              <span className="mt-0.5 block text-xs text-blue-100">{user.employeeId === 'DEV-ADMIN' ? 'Admin workspace · Local dev' : user.role === 'BARANGAY_FACILITATOR' ? 'Barangay workspace' : user.role === 'DSWD_STAFF' ? 'DSWD workspace' : user.role === 'SYSTEM_ADMIN' ? 'Admin workspace' : 'Workspace'}</span>
             </span>
           </a>
           <button ref={closeButtonRef} type="button" onClick={() => closeMobileNavigation()} aria-label="Close navigation" className="ml-auto grid size-11 shrink-0 place-items-center rounded-full text-blue-100 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white lg:hidden">

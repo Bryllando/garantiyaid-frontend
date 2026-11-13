@@ -27,6 +27,7 @@ const NotificationManagementPage = lazy(() => import('./pages/NotificationManage
 const ChatbotOperationsPage = lazy(() => import('./pages/ChatbotOperationsPage.jsx'))
 const ServiceReviewPage = lazy(() => import('./pages/ServiceReviewPage.jsx'))
 const BiometricIdentityPage = lazy(() => import('./pages/BiometricIdentityPage.jsx'))
+const ManualVerificationPage = lazy(() => import('./pages/ManualVerificationPage.jsx'))
 const DswdOperationsPage = lazy(() => import('./pages/DswdOperationsPage.jsx'))
 const DswdMonitoringPage = lazy(() => import('./pages/DswdMonitoringPage.jsx'))
 const ClaimAccountabilityPage = lazy(() => import('./pages/ClaimAccountabilityPage.jsx'))
@@ -83,9 +84,9 @@ function App() {
     navigate('/login')
   }
 
-  function finishAuthentication() {
+  function finishAuthentication(user) {
     setPendingLogin(null)
-    const destination = accountReturnPath(returnTo) ?? '/dashboard'
+    const destination = user?.employeeId === 'DEV-ADMIN' ? '/dashboard' : accountReturnPath(returnTo) ?? '/dashboard'
     setReturnTo(null)
     sessionStorage.removeItem('garantiyaid.accountReturnTo')
     navigate(destination)
@@ -213,6 +214,8 @@ function App() {
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
     )
+  } else if (path === '/manual-verification') {
+    page = session.accessToken && session.user ? <Suspense fallback={<ContentLoader />}><ManualVerificationPage key={`${session.user.userId}:${session.user.role}:${session.user.barangayId || ''}`} session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} /></Suspense> : <SessionExpiredPage onLogin={backToLogin} />
   } else if (path === '/biometrics') {
     page = session.accessToken && session.user ? (
       <Suspense fallback={<ContentLoader />}>
@@ -300,7 +303,7 @@ function App() {
     page = <SessionExpiredPage onLogin={backToLogin} />
   }
 
-  const isStaffPage = Boolean(session.accessToken && session.user && (staffPaths.has(path) || path === '/assistant' || path === '/burial-referrals'))
+  const isStaffPage = Boolean(session.accessToken && session.user && (staffPaths.has(path) || path === '/assistant' || path === '/burial-referrals' || path === '/manual-verification'))
   const navigation = isStaffPage ? getDashboardNavigation(session.user.role) : []
   const navigationItem = navigation.flatMap((item) => item.children ?? [item]).find((item) => item.href === path)
   const shellDetails = pageDetails?.currentPath === path ? pageDetails : null

@@ -4,7 +4,7 @@ import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Icon } from '../components/ui/icon.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
-import { verificationLabels } from '../utils/claimVerification.js'
+import { manualVerificationAllowed, eventVerificationLabel } from '../utils/claimVerification.js'
 import {
   cancelDistributionSchedule,
   generateDistributionSchedules,
@@ -22,6 +22,9 @@ import {
 } from '../auth/staffAuth.js'
 import { connectFacilitatorQueueRealtime } from '../realtime/staffRealtime.js'
 import { queueNextAction } from '../utils/claimWorkflow.js'
+import { cameraConstraints, cameraErrorMessage, createQrDetector } from '../utils/camera.js'
+import { CameraDeviceSelect } from '../components/ui/camera-device-select.jsx'
+import { useCameraDevices } from '../hooks/useCameraDevices.js'
 
 const dateFormatter = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeZone: 'Asia/Manila' })
 const timeFormatter = new Intl.DateTimeFormat('en-PH', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila' })
@@ -52,7 +55,7 @@ function ClaimProgress({ claim }) {
 
 function DistributionSelector({ distributions, selectedId, onChange, disabled }) {
   return (
-    <div>
+    <div className="min-w-0">
       <label htmlFor="distribution-event" className="block text-sm font-bold text-ink">Distribution event</label>
       <div className="relative mt-2">
         <Icon name="calendar" className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-copy" />
@@ -500,12 +503,14 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
         <>
           <section className="ga-card mt-7 grid gap-5 p-5 md:grid-cols-[minmax(0,1fr)_minmax(16rem,0.7fr)] md:items-end sm:p-6" aria-label="Selected distribution event">
             <DistributionSelector distributions={distributions} selectedId={selectedId} onChange={selectDistribution} disabled={isPreviewing || isVerifying || isScheduleBusy || Boolean(scheduleAction) || Boolean(reschedule)} />
-            <dl className="grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-4 text-sm">
+            <dl className="grid min-w-0 grid-cols-1 gap-4 rounded-lg bg-slate-50 p-4 text-sm [overflow-wrap:anywhere] sm:grid-cols-2">
               <div><dt className="text-xs font-semibold text-muted-copy">Location</dt><dd className="mt-1 font-bold text-ink">{selectedDistribution?.location}</dd></div>
               <div><dt className="text-xs font-semibold text-muted-copy">Event time</dt><dd className="mt-1 font-bold text-ink">{selectedDistribution?.startTime}–{selectedDistribution?.endTime}</dd></div>
               <div><dt className="text-xs font-semibold text-muted-copy">Assistance</dt><dd className="mt-1 font-semibold text-ink">{selectedDistribution?.deliveryMode === 'PHYSICAL_GOODS' ? 'Physical handover' : 'Simulated wallet credit'}</dd></div>
-              <div><dt className="text-xs font-semibold text-muted-copy">Required checks</dt><dd className="mt-1 font-semibold text-ink">{humanize(selectedDistribution?.verificationRequirement).replace('Biometric', 'Face').replace('And', '+').replace('Qr', 'QR')}</dd></div>
+              <div><dt className="text-xs font-semibold text-muted-copy">Allowed verification</dt><dd className="mt-1 font-semibold text-ink">{eventVerificationLabel(selectedDistribution)}</dd></div>
             </dl>
+
+            {view === 'queue' && !isAdmin && selectedDistribution?.status === 'OPEN' && manualVerificationAllowed(selectedDistribution) && <button type="button" disabled={isScheduleBusy || Boolean(scheduleAction) || Boolean(reschedule)} onClick={() => onNavigate(`/manual-verification?distribution=${encodeURIComponent(selectedId)}`)} className="ga-btn-secondary md:col-span-2 md:justify-self-start">Open manual identity review</button>}
           </section>
 
           {view === 'queue' ? (
@@ -686,6 +691,7 @@ function QueueView({ distribution, queue, role, onNavigate, queueError, isLoadin
 }
 
 function QrCameraDialog({ onClose, onDetected }) {
+  const { devices, deviceId, setDeviceId, refresh } = useCameraDevices()
   const dialogRef = useRef(null)
   const videoRef = useRef(null)
   const streamRef = useRef(null)
@@ -709,9 +715,9 @@ function QrCameraDialog({ onClose, onDetected }) {
 
   const startCamera = useCallback(async () => {
     setError('')
-    if (!navigator.mediaDevices?.getUserMedia || !window.BarcodeDetector) {
+    if (!navigator.mediaDevices?.getUserMedia) {
       setState('error')
-      setError('QR camera scanning is unavailable in this browser. Use a USB handheld scanner or ask the System Administrator to reissue the credential.')
+      setError('Camera access is unavailable. Use HTTPS or localhost, check camera permissions, and connect a webcam.')
       return
     }
 
@@ -719,22 +725,24 @@ function QrCameraDialog({ onClose, onDetected }) {
     const requestId = requestRef.current
     setState('starting')
     try {
-      const detector = new window.BarcodeDetector({ formats: ['qr_code'] })
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-      })
+      const detector = await createQrDetector()
+      if (requestId !== requestRef.current) return
+      const stream = await navigator.mediaDevices.getUserMedia(cameraConstraints(deviceId, 'environment'))
       if (requestId !== requestRef.current || !videoRef.current) {
         stream.getTracks().forEach((track) => track.stop())
         return
       }
       streamRef.current = stream
+      void refresh()
       videoRef.current.srcObject = stream
       await videoRef.current.play()
       setState('scanning')
 
-      const scan = async () => {
+      let lastScanAt = 0
+      const scan = async (timestamp) => {
         if (requestId !== requestRef.current || !videoRef.current) return
+        if (timestamp - lastScanAt < 120) { frameRef.current = requestAnimationFrame(scan); return }
+        lastScanAt = timestamp
         try {
           const detections = await detector.detect(videoRef.current)
           const value = detections.find((item) => item.rawValue?.trim())?.rawValue.trim()
@@ -756,11 +764,9 @@ function QrCameraDialog({ onClose, onDetected }) {
       if (requestId !== requestRef.current) return
       stopCamera()
       setState('error')
-      setError(cameraError?.name === 'NotAllowedError'
-        ? 'Camera access was blocked. Allow camera permission in the browser, then try again, or use the handheld scanner.'
-        : 'The camera could not be opened. Check that another app is not using it, then try again.')
+      setError(cameraErrorMessage(cameraError))
     }
-  }, [onDetected, stopCamera])
+  }, [onDetected, stopCamera, deviceId, refresh])
 
   useEffect(() => {
     dialogRef.current?.showModal()
@@ -775,6 +781,7 @@ function QrCameraDialog({ onClose, onDetected }) {
         <button type="button" onClick={close} aria-label="Close QR camera" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-copy transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"><Icon name="close" /></button>
       </div>
       <div className="p-5 sm:p-6">
+        <CameraDeviceSelect id="qr-camera-device" devices={devices} deviceId={deviceId} onChange={setDeviceId} />
         <div className="relative aspect-[4/3] min-h-64 overflow-hidden rounded-xl bg-slate-950 shadow-inner">
           <video ref={videoRef} autoPlay muted playsInline aria-label="Live camera preview for QR scanning" className={`h-full w-full object-cover ${state === 'scanning' ? 'block' : 'hidden'}`} />
           {state !== 'scanning' && <div className="absolute inset-0 grid place-items-center px-6 text-center text-white"><div><span aria-hidden="true" className="mx-auto grid size-16 place-items-center rounded-full border border-white/20 bg-white/10"><Icon name="camera" className="size-7" /></span><p className="mt-4 font-bold">{state === 'starting' ? 'Starting camera…' : 'Camera unavailable'}</p></div></div>}
@@ -839,11 +846,13 @@ function QrVerificationView({ role, distribution, qrToken, setQrToken, error, pr
 
           <div className="p-5 sm:p-7">
             <dl className="grid gap-4 rounded-xl border border-line bg-slate-50 p-4 text-sm sm:grid-cols-2">
-              <div><dt className="text-xs font-semibold text-muted-copy">Allowed verification</dt><dd className="mt-1 font-bold text-ink">{verificationLabels[distribution.verificationRequirement]}</dd></div>
+              <div><dt className="text-xs font-semibold text-muted-copy">Allowed verification</dt><dd className="mt-1 font-bold text-ink">{eventVerificationLabel(distribution)}</dd></div>
               <div><dt className="text-xs font-semibold text-muted-copy">Release handled by</dt><dd className="mt-1 font-bold text-ink">{distribution.deliveryMode === 'PHYSICAL_GOODS' ? 'Barangay Facilitator' : 'DSWD Staff'}</dd></div>
             </dl>
 
             {distribution.verificationRequirement === 'QR_OR_BIOMETRIC' && <div className="mt-4 border-l-2 border-brand-blue bg-info-soft p-4 text-sm leading-6"><p>QR or live face match is enough for this event. A printed QR works without a phone.</p>{!isAdmin && !result && <button type="button" disabled={busy} onClick={() => onNavigate(`/biometrics?view=verify&distribution=${encodeURIComponent(distribution.distributionId)}${preview?.beneficiary ? `&beneficiary=${encodeURIComponent(preview.beneficiary.beneficiaryId)}` : ''}`)} className="ga-btn-secondary mt-3"><Icon name="biometrics" className="size-4" />Use face match instead</button>}</div>}
+
+            {!isAdmin && manualVerificationAllowed(distribution) && !result && !preview && <button type="button" disabled={busy} onClick={() => onNavigate(`/manual-verification?distribution=${encodeURIComponent(distribution.distributionId)}`)} className="ga-btn-secondary mt-4">Use permitted manual identity review</button>}
 
             <form onSubmit={onSubmit} className="mt-6" aria-busy={busy}>
               {isAdmin ? <>

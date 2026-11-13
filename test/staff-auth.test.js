@@ -265,7 +265,7 @@ test('dashboard navigation is limited to the signed-in staff role', () => {
   assert.deepEqual(dswdLabels, ['Overview', 'Programs & enrollment', 'Identity & claims', 'Distribution & funds', 'Reports & review', 'Notifications & support', 'Staff Assistant'])
   assert.deepEqual(facilitatorLabels, ['Overview', 'Beneficiary services', 'Distribution day', 'Notifications & support', 'Staff Assistant'])
   for (const label of ['Ledger', 'Enrollment review', 'Assistance programs', 'SMS delivery', 'Claim accountability', 'Help cases']) assert.ok(dswdLinks.some((item) => item.label === label))
-  for (const label of ['Assistance programs', 'SMS delivery', 'QR verification', 'Enrollments', 'Releases & receipts', 'Help cases']) assert.ok(facilitatorLinks.some((item) => item.label === label))
+  for (const label of ['Assistance programs', 'SMS delivery', 'QR verification', 'Manual identity review', 'Enrollments', 'Releases & receipts', 'Help cases']) assert.ok(facilitatorLinks.some((item) => item.label === label))
   assert.equal(dswdLinks.find(({ label }) => label === 'Live monitoring').href, '/dswd/live-dashboard')
   assert.equal(dswdLinks.find(({ label }) => label === 'Ledger').href, '/dswd/ledger')
   assert.equal(dswdLinks.find(({ label }) => label === 'Reports').href, '/reports')

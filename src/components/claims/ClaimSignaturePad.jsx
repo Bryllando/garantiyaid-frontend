@@ -36,7 +36,8 @@ function typedSignatureImage(name) {
 
 const normalizedName = (value) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-PH')
 
-export default function ClaimSignaturePad({ beneficiaryName, busy, retrying = false, onSubmit }) {
+export default function ClaimSignaturePad({ beneficiaryName, busy, retrying = false, onSubmit, verificationMethod = 'BIOMETRIC_AND_SIGNATURE' }) {
+  const manual = verificationMethod === 'MANUAL'
   const canvasRef = useRef(null)
   const drawingRef = useRef(false)
   const pointsRef = useRef(0)
@@ -111,8 +112,8 @@ export default function ClaimSignaturePad({ beneficiaryName, busy, retrying = fa
   return (
     <section className="mt-6 overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-sm" aria-labelledby="signature-heading">
       <div className="flex flex-col gap-4 border-b border-blue-100 bg-info-soft p-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-3"><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-brand-blue text-white"><Icon name="pen" /></span><div><p className="ga-eyebrow">Final identity step</p><h3 id="signature-heading" className="mt-1 text-xl font-extrabold text-ink">Collect beneficiary signature</h3><p className="mt-1 text-sm leading-6 text-copy">{retrying ? 'Face verification is recorded. Check whether the signature was saved before continuing.' : 'Face matched successfully. The claim remains pending until this acknowledgment is secured.'}</p></div></div>
-        <span className="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-bold text-brand-green"><Icon name="security" />Face verified</span>
+        <div className="flex items-start gap-3"><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-brand-blue text-white"><Icon name="pen" /></span><div><p className="ga-eyebrow">Claim acknowledgment</p><h3 id="signature-heading" className="mt-1 text-xl font-extrabold text-ink">Collect beneficiary signature</h3><p className="mt-1 text-sm leading-6 text-copy">{manual ? retrying ? 'The staff identity review is recorded. Check whether acknowledgment was saved before continuing.' : 'The staff identity review is recorded. The claim remains pending until acknowledgment is secured.' : retrying ? 'Face verification is recorded. Check whether the signature was saved before continuing.' : 'Face matched successfully. The claim remains pending until this acknowledgment is secured.'}</p></div></div>
+        <span className="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-bold text-brand-green"><Icon name="security" />{manual ? 'Identity reviewed' : 'Face verified'}</span>
       </div>
 
       <form onSubmit={submit} className="p-5 sm:p-6" aria-busy={busy}>

@@ -731,6 +731,12 @@ export async function submitClaimSignature(token, distributionId, claimId, signa
   return data
 }
 
+export async function verifyManualClaim(token, distributionId, evidence, idempotencyKey) {
+  const data = await requestJson(`/distributions/${distributionId}/claims/verify-manual`, { token, headers: { 'Idempotency-Key': idempotencyKey }, body: evidence })
+  if (!data?.claim || data.verificationComplete !== false || data.nextRequiredVerification !== 'SIGNATURE') throw new Error('The server returned an unexpected manual-review response.')
+  return data
+}
+
 export async function requestBiometricAttempts(token, distributionId, filters = {}) {
   const data = await requestJson(`/distributions/${distributionId}/biometric-attempts${queryString(filters)}`, { token, method: 'GET' })
   if (!Array.isArray(data?.attempts) || !data?.pagination || !data?.privacy) throw new Error('The server returned an unexpected biometric-attempt response.')
@@ -1504,6 +1510,7 @@ const dashboardNavigation = Object.freeze({
     ] },
     { label: 'Identity & claims', icon: 'biometrics', children: [
       { label: 'Verify QR claims', href: '/dswd/verify-claims' },
+      { label: 'Manual identity review', href: '/manual-verification' },
       { label: 'Biometric identity', href: '/biometrics' },
       { label: 'Claim accountability', href: '/claim-accountability' },
     ] },
@@ -1533,6 +1540,7 @@ const dashboardNavigation = Object.freeze({
     { label: 'Distribution day', icon: 'queue', children: [
       { label: 'Queue & schedules', href: '/facilitator/queue' },
       { label: 'QR verification', href: '/facilitator/qr-verification' },
+      { label: 'Manual identity review', href: '/manual-verification' },
       { label: 'Releases & receipts', href: '/claim-accountability' },
     ] },
     { label: 'Notifications & support', section: 'Support', icon: 'helpCases', children: [
