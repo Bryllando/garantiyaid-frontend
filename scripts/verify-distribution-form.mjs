@@ -15,7 +15,9 @@ let browser
 try {
   browser = await chromium.launch({ headless: true, channel: 'chrome' })
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
+  await page.clock.setFixedTime(new Date('2026-11-16T06:00:00Z'))
   page.setDefaultTimeout(10_000)
+  page.setDefaultNavigationTimeout(30_000)
   await page.emulateMedia({ reducedMotion: 'reduce' })
   const errors = [], writes = [], events = []
   let failSave = false, holdSave = false, releaseSave
@@ -70,8 +72,8 @@ try {
   const dialog = page.getByRole('dialog')
   const verification = dialog.getByRole('group', { name: 'Allowed verification methods', exact: true })
   const guide = dialog.getByRole('region', { name: 'At the claim desk', exact: true })
-  const expectedChecks = { QR: 1, BIOMETRIC: 1, QR_AND_BIOMETRIC: 2, QR_OR_BIOMETRIC: 2, BIOMETRIC_AND_SIGNATURE: 2 }
-  const expectedLabels = { QR: 'QR code only', BIOMETRIC: 'Live face match', QR_AND_BIOMETRIC: 'QR code + live face match (both required)', QR_OR_BIOMETRIC: 'QR code OR live face match', BIOMETRIC_AND_SIGNATURE: 'Live face match + signature' }
+  const expectedChecks = { QR: 1, BIOMETRIC: 1, QR_AND_BIOMETRIC: 2, QR_OR_BIOMETRIC: 2, BIOMETRIC_AND_SIGNATURE: 2, MANUAL: 2 }
+  const expectedLabels = { QR: 'QR code only', BIOMETRIC: 'Live face match', QR_AND_BIOMETRIC: 'QR code + live face match (both required)', QR_OR_BIOMETRIC: 'QR code OR live face match', BIOMETRIC_AND_SIGNATURE: 'Live face match + signature', MANUAL: 'Manual staff verification + acknowledgment/signature' }
   for (const method of VERIFICATION_REQUIREMENTS) {
     await page.setViewportSize({ width: 1440, height: 1000 })
     await page.goto(origin + '/distributions/manage?create=1')
@@ -88,7 +90,11 @@ try {
     await dialog.getByLabel('Venue or location', { exact: true }).fill('San Nicolas covered court')
     await dialog.getByLabel('Package or item name', { exact: true }).fill('Family food pack')
     await dialog.getByLabel('Quantity per beneficiary', { exact: true }).fill('3')
-    if (method !== 'QR') {
+    if (method === 'MANUAL') {
+      await dialog.locator('#allow-manual').check()
+      await verification.getByRole('checkbox', { name: 'QR code', exact: true }).uncheck()
+      await dialog.getByLabel('Office-approved verification basis', { exact: true }).fill('Synthetic office-approved identity review basis for automated testing only.')
+    } else if (method !== 'QR') {
       await verification.getByRole('checkbox', { name: 'Live face match', exact: true }).check()
       if (['BIOMETRIC', 'BIOMETRIC_AND_SIGNATURE'].includes(method)) await verification.getByRole('checkbox', { name: 'QR code', exact: true }).uncheck()
       if (method === 'QR_AND_BIOMETRIC') await verification.getByRole('checkbox', { name: /^Require both methods/ }).check()
@@ -101,10 +107,16 @@ try {
     await expect(guide.getByRole('list', { name: 'Verification steps' }).getByRole('listitem')).toHaveCount(expectedChecks[method])
     await dialog.locator('details > summary').click()
     await expect(dialog.getByText('Lost or damaged QR credential', { exact: true })).toHaveCount(['QR', 'QR_AND_BIOMETRIC', 'QR_OR_BIOMETRIC'].includes(method) ? 1 : 0)
-    await expect(dialog.getByText('Face profile, camera, or matching issue', { exact: true })).toHaveCount(method === 'QR' ? 0 : 1)
+    await expect(dialog.getByText('Face profile, camera, or matching issue', { exact: true })).toHaveCount(['QR', 'MANUAL'].includes(method) ? 0 : 1)
     await expect(dialog.getByText('Beneficiary cannot complete the signature', { exact: true })).toHaveCount(method === 'BIOMETRIC_AND_SIGNATURE' ? 1 : 0)
 
     if (method === 'QR') {
+      await expect(dialog.getByLabel('Distribution date', { exact: true })).toHaveValue('2026-11-17')
+      await dialog.getByLabel('Distribution date', { exact: true }).fill('2026-11-16')
+      await dialog.getByRole('button', { name: 'Review event details', exact: true }).click()
+      await expect(dialog.getByRole('alert')).toContainText('already ended in Philippine time')
+      assert.equal(writes.length, 0, 'An ended event cannot reach the save API')
+      await dialog.getByLabel('Distribution date', { exact: true }).fill('2026-11-17')
       await expect(guide).toContainText('without a phone')
       await verification.getByRole('checkbox', { name: 'QR code', exact: true }).uncheck()
       await dialog.getByRole('button', { name: 'Review event details', exact: true }).click()
@@ -117,8 +129,32 @@ try {
       await dialog.getByLabel('End time', { exact: true }).fill('12:00')
       await dialog.getByLabel('Queue slot duration', { exact: true }).fill('35')
       await dialog.getByRole('button', { name: 'Review event details', exact: true }).click()
-      await expect(dialog.getByRole('alert')).toContainText('divide evenly')
+      await expect(dialog.getByRole('alert')).toContainText('Your schedule is 240 minutes long. Each queue slot needs 35 minutes.')
       await dialog.getByLabel('Queue slot duration', { exact: true }).fill('30')
+      await dialog.getByLabel('Start time', { exact: true }).fill('16:30')
+      await dialog.getByLabel('End time', { exact: true }).fill('17:01')
+      const slotPlan = dialog.locator('#slot-duration-plan')
+      await expect(slotPlan.getByRole('status')).toHaveText('31 minutes total · 30 minutes per slot')
+      await dialog.getByRole('button', { name: 'Review event details', exact: true }).click()
+      await expect(dialog.getByRole('alert')).toContainText('Set End time to 5:00 PM for 1 complete slot.')
+      assert.equal(writes.length, 0, 'A time suggestion must not change or save the event automatically')
+      for (const width of [1440, 390, 320]) {
+        await page.setViewportSize({ width, height: 1000 })
+        await slotPlan.scrollIntoViewIfNeeded()
+        await expect.poll(() => dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+        await page.screenshot({ path: `${output}/time-guidance-${width}.png` })
+      }
+      await slotPlan.getByRole('button', { name: 'Use 5:00 PM end time', exact: true }).click()
+      await expect(dialog.getByLabel('End time', { exact: true })).toHaveValue('17:00')
+      await expect(dialog.getByLabel('End time', { exact: true })).toBeFocused()
+      await expect(slotPlan.getByRole('status')).toHaveText('30 minutes total · 1 slot of 30 minutes')
+      await expect(dialog.getByRole('alert')).toHaveCount(0)
+      await expect(dialog.getByLabel('Queue slot duration', { exact: true })).toHaveValue('30')
+      await expect(dialog.getByLabel('Active assistance program', { exact: true })).toHaveValue(program.programId)
+      await expect(dialog.getByLabel('Service barangay', { exact: true })).toHaveValue(barangay.barangayId)
+      await dialog.getByLabel('Start time', { exact: true }).fill('08:00')
+      await dialog.getByLabel('End time', { exact: true }).fill('12:00')
+      await page.setViewportSize({ width: 1440, height: 1000 })
     }
     if (method === 'BIOMETRIC_AND_SIGNATURE') {
       await dialog.getByRole('radio', { name: 'Simulated wallet', exact: true }).check()

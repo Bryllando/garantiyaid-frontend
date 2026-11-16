@@ -58,7 +58,7 @@ try {
   await page.getByRole('button', { name: 'Register beneficiary', exact: true }).click()
   const form = page.getByRole('dialog')
   await expect(form.getByLabel('First name', { exact: true })).toBeFocused()
-  for (const [id, length] of [['beneficiary-first-name', 100], ['beneficiary-middle-name', 100], ['beneficiary-last-name', 100], ['beneficiary-philsys', 50], ['beneficiary-sitio-purok', 120], ['beneficiary-email', 150], ['beneficiary-address', 2000]]) {
+  for (const [id, length] of [['beneficiary-first-name', 100], ['beneficiary-middle-name', 100], ['beneficiary-last-name', 100], ['beneficiary-philsys', 50], ['beneficiary-email', 150], ['beneficiary-address', 2000]]) {
     await expect(form.locator(`#${id}`)).toHaveAttribute('maxlength', String(length))
   }
   await form.locator('#beneficiary-first-name').fill('Juan')
@@ -66,7 +66,9 @@ try {
   await form.locator('#beneficiary-birth-date').fill('1995-01-15')
   await form.locator('#beneficiary-sex').selectOption('MALE')
   await form.locator('#beneficiary-barangay').selectOption(barangay.barangayId)
-  await form.locator('#beneficiary-sitio-purok').fill('Purok Test')
+  await form.locator('#beneficiary-sitio-purok').selectOption('__review__')
+  await expect(form.locator('#beneficiary-area-text')).toHaveAttribute('maxlength', '120')
+  await form.locator('#beneficiary-area-text').fill('Purok Test')
   await form.locator('#beneficiary-address').fill('TEST House 1, Sample Street, Test North, Test City')
   await form.locator('#beneficiary-contact').fill('0917')
   await form.locator('#beneficiary-contact').blur()
@@ -147,7 +149,8 @@ try {
   await page.evaluate(() => sessionStorage.setItem('test-role', 'BARANGAY_FACILITATOR'))
   await page.goto(`${origin}/beneficiaries`)
   await page.getByRole('button', { name: 'Register beneficiary', exact: true }).click()
-  await expect(form.locator('#beneficiary-barangay')).toHaveCount(0)
+  await expect(form.locator('#beneficiary-barangay')).toBeDisabled()
+  await expect(form.locator('#beneficiary-barangay')).toHaveValue(barangay.barangayId)
   await expect(form).toContainText('Test North')
   await form.locator('#beneficiary-first-name').fill('Ana')
   await form.locator('#beneficiary-last-name').fill('Test Reyes')
@@ -169,7 +172,7 @@ try {
 
   await page.evaluate(() => sessionStorage.setItem('test-role', 'DSWD_STAFF'))
   await page.goto(`${origin}/beneficiaries`)
-  await expect(page.getByRole('heading', { name: 'Beneficiary management', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Beneficiary records', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Register beneficiary', exact: true })).toHaveCount(0)
   assert.deepEqual(errors, [])
   console.log('PASS: Admin editing, Barangay assigned-area payload, optional blank fields and DSWD read access; all save payloads pass backend schemas. No live writes.')

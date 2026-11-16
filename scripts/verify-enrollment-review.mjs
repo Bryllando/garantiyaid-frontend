@@ -269,6 +269,7 @@ try {
   documents = [document, { ...document, documentId: 'document-2', documentType: 'BARANGAY_CERTIFICATE', originalFileName: 'barangay-certificate.pdf' }, ...['Request letter', 'Voter ID'].map((documentName, index) => ({ ...document, documentId: `other-${index}`, documentType: 'OTHER', documentName, originalFileName: `supporting-${index}.pdf` }))]
   status = 'PENDING'
   reviewNotes = ''
+  documents[0] = { ...documents[0], originalFileName: 'Valid-ID_Beneficiary-Supporting-Document_With-A-Long-Filename-For-Layout-Review.pdf' }
   await openCase()
   const summary = page.getByRole('region', { name: 'Ready to start validation' })
   const start = page.getByRole('button', { name: 'Start validation', exact: true })
@@ -295,11 +296,22 @@ try {
   await expect(page.getByRole('button', { name: 'Accept', exact: true })).toHaveCount(4)
   await expect(approve).toBeDisabled()
   await expect(page.getByText('Age · at least 18 years', { exact: true })).toBeVisible()
-  for (const width of [1440, 390, 320]) {
+  for (const width of [1440, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 })
     await page.evaluate(() => window.scrollTo(0, 0))
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), { message: `Four-document validation fits ${width}px after responsive layout settles` }).toBe(true)
+    const actions = page.getByRole('group', { name: 'Valid ID file actions', exact: true })
+    const decisions = page.getByRole('group', { name: 'Valid ID review decision', exact: true })
+    await expect(actions.getByRole('button')).toHaveCount(2)
+    await expect(decisions.getByRole('button')).toHaveCount(2)
+    for (const group of [actions, decisions]) {
+      assert.ok(await group.getByRole('button').evaluateAll(buttons => buttons.every(button => {
+        const box = button.getBoundingClientRect()
+        return box.height >= 44 && box.width >= 44 && box.left >= 0 && box.right <= innerWidth + 1
+      })), `Document actions have usable, visible touch targets at ${width}px`)
+    }
     await page.screenshot({ path: `${output}/refined-validation-${width}.png`, fullPage: true, style: '[data-sonner-toaster] { visibility: hidden !important; }' })
+    await page.getByRole('list', { name: 'Uploaded documents' }).screenshot({ path: `${output}/document-actions-${width}.png`, style: '[data-sonner-toaster] { visibility: hidden !important; }' })
   }
   program.requiredDocumentTypes = ['VALID_ID']
   delete program.otherRequiredDocumentNames

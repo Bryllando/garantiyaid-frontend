@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { Icon } from '../ui/icon.jsx'
 import { LoadingLabel } from '../ui/spinner.jsx'
+import { claimReceiptPdf } from './claim-receipt-pdf.js'
 
 const money = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' })
 const dateTime = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Manila' })
@@ -17,8 +18,12 @@ function ReceiptField({ label, value, mono = false }) {
 
 export default function ClaimReceiptDialog({ receipt, onClose, onDispute, onPrint }) {
   const dialogRef = useRef(null)
-  const [isPrinting, setIsPrinting] = useState(false)
+  const articleRef = useRef(null)
+  const exportingRef = useRef(false)
+  const errorRef = useRef(null)
+  const [exporting, setExporting] = useState('')
   const [error, setError] = useState('')
+  const isBusy = Boolean(exporting)
   const snapshot = receipt.snapshot
   const evidence = snapshot.verificationEvidence
   const release = snapshot.assistance
@@ -26,36 +31,74 @@ export default function ClaimReceiptDialog({ receipt, onClose, onDispute, onPrin
   const qrValue = `${window.location.origin}/claim-accountability?distribution=${snapshot.distribution.distributionId}&claim=${snapshot.claim.claimId}&receipt=${encodeURIComponent(receipt.receiptNo)}&hash=${receipt.evidenceHash}`
 
   useEffect(() => { dialogRef.current?.showModal() }, [])
+  useEffect(() => { if (error) errorRef.current?.focus() }, [error])
+  useEffect(() => {
+    let printRoot
+    const cleanup = () => { printRoot?.remove(); printRoot = null }
+    const prepare = () => {
+      cleanup()
+      const copy = articleRef.current.cloneNode(true)
+      copy.querySelectorAll('button, [data-claim-receipt-actions], [role="alert"]').forEach(element => element.remove())
+      copy.querySelectorAll('[id]').forEach(element => element.removeAttribute('id'))
+      printRoot = document.createElement('div')
+      printRoot.setAttribute('data-claim-receipt-print-root', '')
+      printRoot.setAttribute('aria-hidden', 'true')
+      printRoot.className = 'hidden'
+      printRoot.append(copy)
+      // A body-level copy avoids the modal's scroll clipping and top-layer print bugs.
+      document.body.append(printRoot)
+    }
+    window.addEventListener('beforeprint', prepare)
+    window.addEventListener('afterprint', cleanup)
+    return () => { cleanup(); window.removeEventListener('beforeprint', prepare); window.removeEventListener('afterprint', cleanup) }
+  }, [])
 
   async function printReceipt() {
+    if (exportingRef.current) return
+    exportingRef.current = true
     setError('')
-    setIsPrinting(true)
+    setExporting('print')
     try {
       await onPrint()
       window.print()
     } catch (requestError) {
       setError(requestError.message)
     } finally {
-      setIsPrinting(false)
+      setExporting(''); exportingRef.current = false
     }
   }
 
+  async function savePdf() {
+    if (exportingRef.current) return
+    exportingRef.current = true
+    setError(''); setExporting('pdf')
+    try {
+      const blob = await claimReceiptPdf(articleRef.current, receipt.receiptNo)
+      const url = URL.createObjectURL(blob), link = document.createElement('a')
+      link.href = url
+      link.download = `garantiyaid-receipt-${receipt.receiptNo.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 80)}.pdf`
+      link.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch { setError('The PDF could not be saved. Try again, or choose Print receipt.') }
+    finally { setExporting(''); exportingRef.current = false }
+  }
+
   return (
-    <dialog ref={dialogRef} onCancel={(event) => { event.preventDefault(); dialogRef.current?.close() }} onClose={onClose} aria-labelledby="claim-receipt-title" className="m-auto max-h-[calc(100dvh-1rem)] w-[min(58rem,calc(100%-1rem))] overflow-y-auto rounded-2xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/60 backdrop:backdrop-blur-[3px] sm:max-h-[calc(100dvh-2rem)] sm:w-[min(58rem,calc(100%-2rem))]">
-      <article data-claim-receipt-print className="bg-white">
+    <dialog ref={dialogRef} onCancel={(event) => { event.preventDefault(); if (!exportingRef.current) dialogRef.current?.close() }} onClose={onClose} aria-labelledby="claim-receipt-title" className="m-auto max-h-[calc(100dvh-1rem)] w-[min(58rem,calc(100%-1rem))] overflow-y-auto rounded-2xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/60 backdrop:backdrop-blur-[3px] sm:max-h-[calc(100dvh-2rem)] sm:w-[min(58rem,calc(100%-2rem))]">
+      <article ref={articleRef} data-claim-receipt-print className="bg-white">
         <header className="flex items-start justify-between gap-5 border-b border-white/10 bg-brand-navy p-5 text-white sm:p-7">
           <div>
             <div className="flex flex-wrap items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-blue-200"><span>GarantiyAid</span><span aria-hidden="true">•</span><span>{receipt.receiptVersion}</span></div>
             <h2 id="claim-receipt-title" className="mt-2 text-2xl font-extrabold sm:text-3xl">Claim acknowledgment receipt</h2>
             <p className="mt-2 text-sm leading-6 text-slate-300">System record issued {dateTime.format(new Date(receipt.issuedAt))}</p>
           </div>
-          <button type="button" onClick={() => dialogRef.current?.close()} aria-label="Close claim receipt" className="grid size-11 shrink-0 place-items-center rounded-lg border border-white/20 text-white hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"><Icon name="close" /></button>
+          <button type="button" disabled={isBusy} onClick={() => dialogRef.current?.close()} aria-label="Close claim receipt" className="grid size-11 shrink-0 place-items-center rounded-lg border border-white/20 text-white hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:opacity-50"><Icon name="close" /></button>
         </header>
 
         <div className="p-5 sm:p-7">
           <section className="grid gap-5 border-b border-line pb-6 md:grid-cols-[1fr_auto] md:items-end">
             <div><p className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">Receipt number</p><p className="mt-1 [overflow-wrap:anywhere] font-mono text-base font-black text-brand-navy">{receipt.receiptNo}</p><p className="mt-3 text-sm leading-6 text-copy">This receipt preserves the claim status and verification evidence recorded when it was first issued.</p></div>
-            <div className="md:text-right"><p className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">Assistance amount</p><p className="mt-1 text-3xl font-black tabular-nums text-brand-green">{money.format(Number(snapshot.assistance.amount))}</p><span className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-bold ${receipt.currentClaimStatus === 'VOIDED' ? 'border-red-200 bg-danger-soft text-brand-red' : 'border-emerald-200 bg-success-soft text-brand-green'}`}>Current status: {humanize(receipt.currentClaimStatus)}</span></div>
+            <div className="md:text-right"><p className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">Assistance amount</p><p data-receipt-amount className="mt-1 text-3xl font-black tabular-nums text-brand-green">{money.format(Number(snapshot.assistance.amount))}</p><span data-receipt-status className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-bold ${receipt.currentClaimStatus === 'VOIDED' ? 'border-red-200 bg-danger-soft text-brand-red' : 'border-emerald-200 bg-success-soft text-brand-green'}`}>Current status: {humanize(receipt.currentClaimStatus)}</span></div>
           </section>
 
           <section className="mt-6" aria-labelledby="receipt-beneficiary-heading">
@@ -90,7 +133,7 @@ export default function ClaimReceiptDialog({ receipt, onClose, onDispute, onPrin
                   <li className="flex gap-3"><span aria-hidden="true" className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-success-soft text-brand-green"><Icon name="check" className="size-3" strokeWidth={2.5} /></span><span><strong className="text-ink">{physicalRelease ? 'Release record' : 'Ledger record'}:</strong> {physicalRelease ? release.evidence?.reference ?? 'Evidence reference unavailable' : evidence.transaction?.referenceNo ?? 'No benefit-credit reference at issuance'}</span></li>
                 </ul>
               </div>
-              <div className="mx-auto shrink-0 rounded-xl border border-line bg-white p-3 text-center sm:mx-0"><QRCodeSVG value={qrValue} size={132} level="M" marginSize={1} /><p className="mt-2 text-[0.68rem] font-bold uppercase tracking-[0.08em] text-muted-copy">Verify record</p></div>
+              <div data-receipt-qr className="mx-auto shrink-0 rounded-xl border border-line bg-white p-3 text-center sm:mx-0"><QRCodeSVG value={qrValue} size={132} level="M" marginSize={4} /><p className="mt-2 text-[0.68rem] font-bold uppercase tracking-[0.08em] text-muted-copy">Verify record</p></div>
             </div>
             <dl className="mt-5 grid gap-4 border-t border-line pt-5 text-sm sm:grid-cols-2">
               <ReceiptField label="Evidence hash" value={receipt.evidenceHash} mono />
@@ -101,13 +144,14 @@ export default function ClaimReceiptDialog({ receipt, onClose, onDispute, onPrin
             </dl>
           </section>
 
-          <p className="mt-5 rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">Important:</strong> Keep this receipt. If any detail is incorrect or the beneficiary denies the claim, file a dispute using this receipt number. The original record remains preserved while an independent reviewer investigates.</p>
-          <p className="mt-4 text-xs leading-5 text-muted-copy">{physicalRelease ? 'Physical assistance system record. Retain the signed release log or acknowledgment identified above; this receipt does not establish government approval.' : 'Prototype accountability record. It does not connect to a government disbursement or banking rail.'}</p>
+          <p data-receipt-note className="mt-5 rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">Important:</strong> Keep this receipt. If any detail is incorrect or the beneficiary denies the claim, file a dispute using this receipt number. The original record remains preserved while an independent reviewer investigates.</p>
+          <p data-receipt-note className="mt-4 text-xs leading-5 text-muted-copy">{physicalRelease ? 'Physical assistance system record. Retain the signed release log or acknowledgment identified above; this receipt does not establish government approval.' : 'Prototype accountability record. It does not connect to a government disbursement or banking rail.'}</p>
 
-          {error && <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-danger-soft p-3 text-sm font-semibold text-brand-red">{error}</p>}
+          {error && <p ref={errorRef} tabIndex={-1} role="alert" className="mt-4 rounded-lg border border-red-200 bg-danger-soft p-3 text-sm font-semibold text-brand-red">{error}</p>}
           <footer data-claim-receipt-actions className="mt-6 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end">
-            <button type="button" onClick={onDispute} disabled={isPrinting} className="ga-btn-secondary">Report a dispute</button>
-            <button type="button" onClick={printReceipt} disabled={isPrinting} className="ga-btn-primary"><Icon name="printer" className="size-4" />{isPrinting ? <LoadingLabel>Preparing print...</LoadingLabel> : 'Print receipt'}</button>
+            <button type="button" onClick={onDispute} disabled={isBusy} className="ga-btn-secondary">Report a dispute</button>
+            <button type="button" onClick={savePdf} disabled={isBusy} className="ga-btn-primary"><Icon name="download" className="size-4" />{exporting === 'pdf' ? <LoadingLabel>Saving PDF...</LoadingLabel> : 'Save as PDF'}</button>
+            <button type="button" onClick={printReceipt} disabled={isBusy} className="ga-btn-secondary"><Icon name="printer" className="size-4" />{exporting === 'print' ? <LoadingLabel>Preparing print...</LoadingLabel> : 'Print receipt'}</button>
           </footer>
         </div>
       </article>

@@ -12,7 +12,8 @@ try {
   browser = await chromium.launch({ headless: true, channel: 'chrome' })
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
   page.setDefaultTimeout(10000)
-  await page.clock.install()
+  page.setDefaultNavigationTimeout(30000)
+  await page.clock.install({ time: new Date('2026-11-16T06:00:00Z') })
   await page.addInitScript(() => {
     sessionStorage.setItem('garantiyaid.accessToken', 'synthetic-recovery-token')
     sessionStorage.setItem('garantiyaid.user', JSON.stringify({ userId: 'admin-1', fullName: 'Test Administrator', role: 'SYSTEM_ADMIN' }))
@@ -25,7 +26,7 @@ try {
   const person = { firstName: 'Synthetic', lastName: 'Recipient' }
   const token = { qrTokenId: 'qr-1', beneficiaryId: 'person-1', beneficiary: person, qrStatus: 'ACTIVE', expiresAt: '2099-11-11T04:00:00Z' }
   const used = { ...token, qrTokenId: 'qr-used', qrStatus: 'USED', beneficiary: { firstName: 'Used', lastName: 'Credential' } }
-  let mode = 'limited', delay = false, release, failRefresh = false
+  let mode = 'limited', delay = false, release, failRefresh = false, endedAppointments = true
   const pagination = { page: 1, totalPages: 1, total: 2 }
   await page.route('**/socket.io/**', route => route.abort())
   await page.routeWebSocket(/socket\.io/, () => {})
@@ -46,16 +47,16 @@ try {
     else if (path === '/staff-notifications') data = { notifications: [], unreadCount: 0 }
     else if (path === '/programs') data = { programs: [program], pagination }
     else if (path === '/barangays') data = { barangays: [barangay] }
-    else if (path === '/distributions') data = { distributions: [event], pagination }
+    else if (path === '/distributions') data = { distributions: [{ ...event, distributionDate: endedAppointments ? '2026-11-16' : event.distributionDate }], pagination }
     else if (path === '/distributions/event-1') {
       if (failRefresh) return route.fulfill({ status: 429, json: { error: { code: 'RATE_LIMIT_EXCEEDED', message: 'Refresh temporarily limited.', scope: 'garantiyaid-api', retryAfterSeconds: 2 } } })
-      data = { distribution: event }
+      data = { distribution: { ...event, distributionDate: endedAppointments ? '2026-11-16' : event.distributionDate } }
     }
     else if (path.endsWith('/slots')) data = { slots: [], summary: { matchingSlotCount: 0, matchingCapacity: 0, sessionCount: 0 } }
     else if (path.endsWith('/allocations')) data = { allocations: [], summary: { countsByStatus: {}, totalAmount: '0' } }
     else if (path.endsWith('/schedules')) data = { schedules: [], summary: { countsByStatus: {}, matchingScheduleCount: 0 }, pagination }
-    else if (path.endsWith('/qr-tokens')) data = { qrTokens: [token, used], summary: { matchingTokenCount: 2 }, pagination }
-    else if (path.endsWith('/qr-eligible-schedules')) data = { schedules: [], summary: { qrEligibleScheduleCount: 0 } }
+    else if (path.endsWith('/qr-tokens')) data = { qrTokens: endedAppointments ? [] : [token, used], summary: { matchingTokenCount: endedAppointments ? 0 : 2 }, pagination }
+    else if (path.endsWith('/qr-eligible-schedules')) data = { schedules: [], summary: { qrEligibleScheduleCount: 0, scheduledCount: 1, endedScheduleCount: endedAppointments ? 1 : 0 } }
     else if (path.endsWith('/claims')) data = { claims: [], summary: { countsByStatus: {} }, pagination }
     else if (path.endsWith('/claim-disputes')) data = { disputes: [], summary: { countsByStatus: {} }, pagination }
     else if (path.endsWith('/reconciliation')) return route.fulfill({ status: 503, json: { error: { message: 'Synthetic unrelated review unavailable' } } })
@@ -66,6 +67,22 @@ try {
   await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/distributions/manage?event=event-1&stage=launch`)
   const panel = page.getByRole('region', { name: 'Beneficiary QR cards', exact: true })
   await expect(panel).toBeVisible()
+  await expect(panel.getByRole('heading', { name: 'The appointment time has ended' })).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Generate remaining QR credentials' })).toBeDisabled()
+  for (const width of [1440, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await panel.scrollIntoViewIfNeeded()
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true)
+    await page.screenshot({ path: `../output/qr-recovery/ended-${width}.png` })
+  }
+  await panel.getByRole('button', { name: 'Create another distribution' }).click()
+  const create = page.getByRole('dialog', { name: 'Create distribution event', exact: true })
+  await expect(create.getByLabel('Distribution date', { exact: true })).toHaveValue('2026-11-17')
+  await create.getByRole('button', { name: 'Cancel', exact: true }).click()
+  assert.equal(writes.length, 0, 'Ended guidance and creating/cancelling a draft form must not mutate the old event')
+  endedAppointments = false
+  await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/distributions/manage?event=event-1&stage=launch`)
+  await expect(panel).toContainText('Cards already issued.')
   await expect(panel.getByRole('button', { name: 'Generate remaining QR credentials' })).toBeDisabled()
   await expect(panel.getByText('Synthetic Recipient', { exact: true })).toBeVisible()
   await expect(panel.getByRole('button', { name: 'Replace lost QR' })).toHaveCount(1)

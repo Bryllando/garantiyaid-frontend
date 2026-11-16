@@ -14,6 +14,8 @@ import {
   isSessionExpiredError,
   requestDashboardOverview,
   requestDistributionList,
+  requestOwnAccount,
+  storeStaffSession,
   STAFF_ROLE_LABELS,
 } from '../auth/staffAuth.js'
 import { connectOverviewRealtime } from '../realtime/staffRealtime.js'
@@ -124,12 +126,12 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
   const previousCooldown = useRef(0)
   const retrySeconds = useApiCooldown(session.accessToken)
   const error = requestError ? getAuthErrorMessage(requestError) : ''
+  const assignmentRequired = requestError?.code === 'BARANGAY_ASSIGNMENT_REQUIRED'
   const rateLimited = requestError?.status === 429 || retrySeconds > 0
   const refreshDashboard = useCallback(() => {
     if (fetching.current || getApiRetryAfterSeconds(session.accessToken)) return
     fetching.current = true
     setIsLoading(true)
-    setRequestError(null)
     setReloadCount(count => count + 1)
   }, [session.accessToken])
   const role = session.user.role
@@ -145,6 +147,7 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
   }, [refreshDashboard, retrySeconds])
 
   useEffect(() => {
+    if (assignmentRequired) return undefined
     let active = true
     let connectedOnce = false
     const refresh = createLiveRefresh(session.accessToken, refreshDashboard)
@@ -165,21 +168,35 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
     })
     const safetyRefresh = setInterval(() => { if (document.visibilityState === 'visible') refresh() }, 60_000)
     return () => { active = false; refresh.cancel(); clearInterval(safetyRefresh); disconnect() }
-  }, [onSessionExpired, refreshDashboard, session.accessToken])
+  }, [assignmentRequired, onSessionExpired, refreshDashboard, session.accessToken])
 
   useEffect(() => {
     let active = true
     fetching.current = true
     requestDashboardOverview(session.accessToken)
-      .then((data) => { if (active) { setOverview(data); setRequestError(null) } })
+      .then(async (data) => {
+        if (!active) return
+        if (role === 'BARANGAY_FACILITATOR' && data.scope?.barangayId && data.scope.barangayId !== session.user.barangayId) {
+          setOverview(null)
+          const account = await requestOwnAccount(session.accessToken)
+          if (!active) return
+          if (account.user.userId !== session.user.userId || account.user.barangayId !== data.scope.barangayId) throw new Error('Account details could not be confirmed. Refresh or sign in again.')
+          storeStaffSession({ accessToken: session.accessToken, user: account.user })
+          onNavigate('/dashboard')
+          return
+        }
+        setOverview(data)
+        setRequestError(null)
+      })
       .catch((requestError) => {
         if (!active) return
         if (isSessionExpiredError(requestError)) return onSessionExpired()
+        if (requestError.code === 'BARANGAY_ASSIGNMENT_REQUIRED') setOverview(null)
         setRequestError(requestError)
       })
       .finally(() => { if (active) { fetching.current = false; setIsLoading(false) } })
     return () => { active = false }
-  }, [onSessionExpired, reloadCount, session.accessToken])
+  }, [onNavigate, onSessionExpired, reloadCount, role, session.accessToken, session.user.barangayId, session.user.userId])
 
   useEffect(() => {
     if (role !== 'SYSTEM_ADMIN') return undefined
@@ -207,7 +224,9 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
   return (
     <DashboardShell breadcrumbs={['Operations', 'Overview']} currentPath="/dashboard" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Overview" showAssistant={role === 'SYSTEM_ADMIN'} user={session.user}>
       {overview && (error || retrySeconds > 0) && <DashboardLoadNotice compact error={error} rateLimited={rateLimited} retrySeconds={retrySeconds} busy={isLoading} onRetry={refreshDashboard} />}
-      {isLoading && !overview ? <DashboardSkeleton /> : error && !overview ? (
+      {assignmentRequired ? (
+        <DashboardLoadNotice assignmentRequired staffId={session.user.employeeId} retrySeconds={retrySeconds} busy={isLoading} onRetry={refreshDashboard} />
+      ) : isLoading && !overview ? <DashboardSkeleton /> : error && !overview ? (
         <DashboardLoadNotice error={error} rateLimited={rateLimited} retrySeconds={retrySeconds} busy={isLoading} onRetry={refreshDashboard} />
       ) : role === 'SYSTEM_ADMIN' ? <>
         <AdminOverview session={session} overview={overview} draftEvents={draftEvents} draftError={draftError} draftLoading={draftLoading} liveStatus={liveStatus} reloadCount={reloadCount} onRefresh={refreshDashboard} refreshDisabled={isLoading || retrySeconds > 0} onNavigate={onNavigate} onSessionExpired={onSessionExpired} />

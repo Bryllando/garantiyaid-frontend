@@ -291,15 +291,21 @@ function StaffAccountCreatedDialog({ account, onClose }) {
   )
 }
 
-function BarangayFormDialog({ barangay, onClose, onSave }) {
+function BarangayFormDialog({ barangay, cities, onClose, onSave }) {
   const dialogRef = useRef(null)
   const [form, setForm] = useState(() => barangay ? { barangayCode: barangay.barangayCode ?? '', barangayName: barangay.barangayName, city: barangay.city, province: barangay.province } : emptyBarangay)
   const [isSaving, setIsSaving] = useState(false)
+  const [areaText, setAreaText] = useState(() => (barangay?.serviceAreas || []).join('\n'))
+  const [formError, setFormError] = useState('')
   useEffect(() => { dialogRef.current?.showModal() }, [])
   function change(field, value) { setForm((current) => ({ ...current, [field]: value })) }
   async function submit(event) {
     event.preventDefault(); setIsSaving(true)
-    try { await onSave(form); dialogRef.current?.close() } catch { /* The page reports the API error. */ } finally { setIsSaving(false) }
+    try {
+      await onSave({ ...form, serviceAreas: areaText.split(/\r?\n/).map(value => value.trim()).filter(Boolean) })
+      dialogRef.current?.close()
+    } catch (error) { setFormError(getAuthErrorMessage(error)) }
+    finally { setIsSaving(false) }
   }
   return (
     <dialog
@@ -358,11 +364,14 @@ function BarangayFormDialog({ barangay, onClose, onSave }) {
             <legend className="px-2 text-sm font-extrabold text-ink">Local-government jurisdiction</legend>
             <p className="mb-4 mt-1 text-xs leading-5 text-muted-copy">This determines where the barangay appears in staff assignments and service-area filters.</p>
             <div className="grid gap-5 sm:grid-cols-2">
-              <Field id="barangay-city" label="City or municipality" required maxLength="100" value={form.city} onChange={(value) => change('city', value)} />
+              <Field id="barangay-city" label="City or municipality" list="barangay-cities" required maxLength="100" value={form.city} onChange={(value) => change('city', value)} />
+              <datalist id="barangay-cities">{cities.map(city => <option key={city} value={city} />)}</datalist>
               <Field id="barangay-province" label="Province" required maxLength="100" value={form.province} onChange={(value) => change('province', value)} />
             </div>
           </fieldset>
 
+          <fieldset className="rounded-lg border border-line p-4"><legend className="px-2 text-sm font-bold">Sitios / Puroks in this Barangay</legend><label htmlFor="barangay-service-areas" className="ga-label">Confirmed Sitios / Puroks</label><textarea id="barangay-service-areas" rows="5" value={areaText} onChange={event => { setAreaText(event.target.value); setFormError('') }} className="ga-input mt-2 min-h-32 py-3" aria-describedby="barangay-area-help" /><p id="barangay-area-help" className="mt-2 text-xs leading-5 text-muted-copy">Enter one area per line after checking the local records. Include Sitio or Purok in the name where appropriate. Existing beneficiary text remains available for review.</p></fieldset>
+          {formError && <p role="alert" className="rounded-lg border border-red-200 bg-danger-soft p-3 text-sm text-brand-red">{formError}</p>}
           <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy">
             <span aria-hidden="true" className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-white text-brand-blue shadow-sm"><Icon name="info" className="size-4" strokeWidth={2} /></span>
             <p><strong className="text-ink">Before saving:</strong> verify the spelling and jurisdiction. These details will be used when assigning Barangay Facilitator accounts.</p>
@@ -597,18 +606,18 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
       <div className="ga-card mt-4 overflow-hidden">
         {barangayLoading ? <LoadingRows label="Loading barangays" /> : barangayError ? <div className="p-6" role="alert"><h2 className="font-extrabold">Barangays could not be loaded</h2><p className="mt-2 text-sm text-muted-copy">{barangayError}</p><button type="button" onClick={() => { setBarangayLoading(true); setBarangayReload((value) => value + 1) }} className="ga-btn-primary mt-4">Try again</button></div> : visibleBarangays.length === 0 ? <div className="p-8 text-center"><h3 className="font-extrabold">{showArchivedBarangays ? 'No archived barangays found' : 'No current barangays found'}</h3><p className="mt-2 text-sm text-muted-copy">{barangaySearch ? 'Try another name, code, city, or province.' : showArchivedBarangays ? 'Archived service areas will appear here and can be restored.' : 'Add a barangay or restore an archived service area.'}</p></div> : <>
           <div className="hidden overflow-x-auto md:block">
-            <table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-copy"><tr><th className="px-5 py-3">Barangay</th><th className="px-5 py-3">Jurisdiction</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Actions</th></tr></thead>
+            <table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-muted-copy"><tr><th className="px-5 py-3">Barangay</th><th className="px-5 py-3">Jurisdiction</th><th className="px-5 py-3">Sitios / Puroks</th><th className="px-5 py-3">Status</th><th className="px-5 py-3 text-right">Actions</th></tr></thead>
               <tbody className="divide-y divide-line">{visibleBarangays.map(barangay => <tr key={barangay.barangayId} className="hover:bg-slate-50">
                 <td className="px-5 py-4"><p className="font-bold">{barangay.barangayName}</p><p className="mt-1 text-xs text-muted-copy">{barangay.barangayCode || 'No barangay code recorded'}</p></td>
                 <td className="px-5 py-4"><p>{barangay.city}</p><p className="mt-1 text-xs text-muted-copy">{barangay.province}</p></td>
-                <td className="px-5 py-4"><StatusBadge active={barangay.isActive} archived={!barangay.isActive} /></td>
+                <td className="max-w-64 px-5 py-4"><p className="text-sm">{barangay.serviceAreas?.length ? barangay.serviceAreas.join(', ') : 'Not listed'}</p></td><td className="px-5 py-4"><StatusBadge active={barangay.isActive} archived={!barangay.isActive} /></td>
                 <td className="px-5 py-4"><div className="flex justify-end"><BarangayActions barangay={barangay} onEdit={record => setBarangayForm({ barangay: record })} onToggle={toggleBarangay} /></div></td>
               </tr>)}</tbody>
             </table>
           </div>
           <div className="divide-y divide-line md:hidden">{visibleBarangays.map(barangay => <article key={barangay.barangayId} className="p-5">
             <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="break-words font-extrabold">{barangay.barangayName}</h3><p className="mt-1 break-words text-sm text-muted-copy">{barangay.barangayCode || 'No code'} · {barangay.city}, {barangay.province}</p></div><StatusBadge active={barangay.isActive} archived={!barangay.isActive} /></div>
-            <div className="mt-4 border-t border-line pt-3"><BarangayActions barangay={barangay} onEdit={record => setBarangayForm({ barangay: record })} onToggle={toggleBarangay} /></div>
+            <p className="mt-3 text-sm text-copy">Sitios / Puroks: {barangay.serviceAreas?.join(', ') || 'Not listed'}</p><div className="mt-4 border-t border-line pt-3"><BarangayActions barangay={barangay} onEdit={record => setBarangayForm({ barangay: record })} onToggle={toggleBarangay} /></div>
           </article>)}</div>
         </>}
       </div>
@@ -619,7 +628,7 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
     {staffForm && <StaffFormDialog activeBarangays={activeBarangays} currentUserId={session.user.userId} initialRole={staffForm.role} user={staffForm.user} onBack={staffForm.user ? undefined : () => { setStaffForm(null); setStaffRolePickerOpen(true) }} onClose={() => setStaffForm(null)} onSave={saveStaff} />}
     {emailHistoryUser && <StaffEmailHistoryDialog key={emailHistoryUser.userId} user={emailHistoryUser} accessToken={session.accessToken} onClose={() => setEmailHistoryUser(null)} onSessionExpired={onSessionExpired} />}
     {createdStaff && <StaffAccountCreatedDialog account={createdStaff} onClose={() => setCreatedStaff(null)} />}
-    {barangayForm && <BarangayFormDialog barangay={barangayForm.barangay} onClose={() => setBarangayForm(null)} onSave={saveBarangay} />}
+    {barangayForm && <BarangayFormDialog barangay={barangayForm.barangay} cities={[...new Set(barangays.map(item => item.city))].sort()} onClose={() => setBarangayForm(null)} onSave={saveBarangay} />}
     <ConfirmationDialog open={Boolean(confirmation)} title={confirmation?.title} description={confirmation?.description} actionLabel={confirmation?.actionLabel} confirmationText={confirmation?.confirmationText} destructive={confirmation?.destructive} error={confirmation?.error} onCancel={() => setConfirmation(null)} onConfirm={confirmStatusChange} />
   </DashboardShell>
 }

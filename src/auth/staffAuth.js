@@ -1410,8 +1410,7 @@ async function beneficiaryRows(request, key, beneficiary, search = beneficiary.b
 }
 
 export function requestBeneficiaryEnrollments(token, beneficiary) {
-  // shortcut: enrollment search only accepts names; use an exact beneficiary filter when the API adds one.
-  return beneficiaryRows((filters) => requestEnrollmentList(token, { ...filters, barangayId: beneficiary.barangayId }), 'enrollments', beneficiary, beneficiary.lastName.slice(0, 100))
+  return beneficiaryRows((filters) => requestEnrollmentList(token, { ...filters, beneficiaryId: beneficiary.beneficiaryId, barangayId: beneficiary.barangayId }), 'enrollments', beneficiary, '')
 }
 
 export async function requestBeneficiaryEventProgress(token, distributionId, beneficiary) {
@@ -1420,6 +1419,9 @@ export async function requestBeneficiaryEventProgress(token, distributionId, ben
     beneficiaryRows((filters) => requestDistributionSchedules(token, distributionId, filters), 'schedules', beneficiary),
     beneficiaryRows((filters) => requestDistributionClaims(token, distributionId, filters), 'claims', beneficiary),
   ])
+  if ([...allocations, ...schedules, ...claims].some(record => record.distributionId !== distributionId)) {
+    throw new Error('The returned progress records do not match the selected event. Refresh the record.')
+  }
   return { allocation: allocations[0] ?? null, schedule: schedules[0] ?? null, claim: claims[0] ?? null }
 }
 

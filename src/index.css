@@ -631,6 +631,31 @@ input[type="file"]:not(.sr-only)[required]:valid::file-selector-button {
 }
 
 @media print {
+  @page claim-receipt { size: A4 portrait; margin: 12mm; }
+  html:has([data-claim-receipt-print-root]),
+  body:has([data-claim-receipt-print-root]) { background: white !important; height: auto !important; min-height: 0 !important; overflow: visible !important; }
+  body:has([data-claim-receipt-print-root]) { page: claim-receipt; margin: 0 !important; }
+  body:has([data-claim-receipt-print-root]) > :not([data-claim-receipt-print-root]) { display: none !important; }
+  body:has([data-claim-receipt-print-root]) dialog::backdrop { display: none !important; }
+  [data-claim-receipt-print-root], [data-claim-receipt-print-root] * { visibility: visible !important; color: #111 !important; background: white !important; border-color: #bbb !important; box-shadow: none !important; }
+  [data-claim-receipt-print-root] { display: block !important; font-size: 9pt; line-height: 1.35; }
+  [data-claim-receipt-print-root] [data-claim-receipt-print] { position: static !important; inset: auto !important; width: 100% !important; }
+  [data-claim-receipt-print-root] article > div { padding: 0 !important; }
+  [data-claim-receipt-print-root] header { padding: 0 0 3mm !important; border-bottom: 1pt solid #333 !important; }
+  [data-claim-receipt-print-root] h2 { font-size: 17pt !important; line-height: 1.2 !important; }
+  [data-claim-receipt-print-root] h3 { font-size: 11pt !important; break-after: avoid; }
+  [data-claim-receipt-print-root] p { font-size: 9pt !important; line-height: 1.3 !important; }
+  [data-claim-receipt-print-root] [data-receipt-amount] { font-size: 16pt !important; }
+  [data-claim-receipt-print-root] section { margin-top: 2mm !important; padding: 1.5mm !important; border-radius: 0 !important; }
+  [data-claim-receipt-print-root] dl { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 1.5mm 5mm !important; margin-top: 2mm !important; padding-top: 0 !important; font-size: 9pt !important; line-height: 1.25 !important; }
+  [data-claim-receipt-print-root] dl > div { min-width: 0; break-inside: avoid; }
+  [data-claim-receipt-print-root] dt { font-size: 7.5pt !important; }
+  [data-claim-receipt-print-root] dd { margin-top: 0.5mm !important; overflow-wrap: anywhere; }
+  [data-claim-receipt-print-root] ul { margin-top: 2mm !important; font-size: 9pt !important; }
+  [data-claim-receipt-print-root] li { margin-top: 0.5mm !important; line-height: 1.3 !important; }
+  [data-claim-receipt-print-root] [data-receipt-qr] { break-inside: avoid; padding: 2mm !important; }
+  [data-claim-receipt-print-root] [data-receipt-qr] svg { width: 32mm !important; height: 32mm !important; }
+  [data-claim-receipt-print-root] [data-receipt-note] { margin-top: 3mm !important; padding: 2mm !important; font-size: 8pt !important; line-height: 1.35 !important; }
   @page burial-referral { size: A4; margin: 18mm; }
   html:has([data-burial-print-root]) { background: white !important; }
   body:has([data-burial-print-root]) { page: burial-referral; background: white !important; }

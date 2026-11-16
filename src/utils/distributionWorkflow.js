@@ -1,3 +1,37 @@
+export function nextDistributionDate(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(now.getTime() + 86_400_000))
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]))
+  return `${values.year}-${values.month}-${values.day}`
+}
+
+export function distributionWindowEnded(distribution, now = new Date()) {
+  return new Date(`${distribution.distributionDate}T${distribution.endTime}:00+08:00`) <= now
+}
+
+export function distributionTimeSlots(startTime, endTime, slotDuration) {
+  const minutes = time => { const [hour, minute] = time.split(':').map(Number); return hour * 60 + minute }
+  const start = minutes(startTime)
+  const eventMinutes = minutes(endTime) - start
+  const duration = Number(slotDuration)
+  const valid = eventMinutes > 0 && Number.isInteger(duration) && duration >= 5 && duration <= 720 && duration % 5 === 0
+  const remainder = valid ? eventMinutes % duration : null
+  const nearestEnd = start + Math.max(1, Math.round(eventMinutes / duration)) * duration
+  return {
+    eventMinutes,
+    remainder,
+    windowCount: remainder === 0 ? eventMinutes / duration : 0,
+    suggestedEndTime: remainder > 0 && nearestEnd < 1440 ? `${String(Math.floor(nearestEnd / 60)).padStart(2, '0')}:${String(nearestEnd % 60).padStart(2, '0')}` : null,
+  }
+}
+
+export function qrIssuanceState({ distribution, readyCount = 0, issuedCount = 0, eligibility = {}, now = new Date() }) {
+  if (readyCount > 0) return 'READY'
+  if (issuedCount > 0) return 'ISSUED'
+  if (eligibility.scheduledCount > 0 && eligibility.endedScheduleCount === eligibility.scheduledCount) return 'ENDED'
+  if (eligibility.scheduledCount === undefined && distributionWindowEnded(distribution, now)) return 'ENDED'
+  return 'UNAVAILABLE'
+}
+
 export const DISTRIBUTION_SETUP_STAGES = Object.freeze([
   { key: 'sessions', label: 'Service sessions', shortLabel: 'Sessions', icon: 'calendar' },
   { key: 'beneficiaries', label: 'Beneficiary allocation', shortLabel: 'Allocate', icon: 'beneficiaries' },

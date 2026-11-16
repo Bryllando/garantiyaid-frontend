@@ -119,7 +119,8 @@ test('enrollment lookup reads later pages and excludes a different person with t
     return new Response(JSON.stringify({ data: page === 2 && fail ? {} : { enrollments: [{ ...enrollment, beneficiaryId: page === 1 ? 'someone-else' : person.beneficiaryId }], pagination: { page, totalPages: 2 } } }))
   })
   assert.deepEqual(await requestBeneficiaryEnrollments('staff-token', person), [{ ...enrollment, beneficiaryId: person.beneficiaryId }])
-  assert.equal(calls[0].url.searchParams.get('search'), 'Santos')
+  assert.equal(calls[0].url.searchParams.get('beneficiaryId'), person.beneficiaryId)
+  assert.equal(calls[0].url.searchParams.get('search'), null)
   assert.equal(calls[0].url.searchParams.get('barangayId'), 'barangay-1')
   assert.equal(calls[0].options.headers.Authorization, 'Bearer staff-token')
   fail = true
@@ -134,9 +135,17 @@ test('event progress uses the beneficiary identifier and does not interpret fail
     const key = url.pathname.split('/').at(-1)
     if (fail && key === 'claims') return new Response(JSON.stringify({ error: { message: 'Claim records unavailable.' } }), { status: 503 })
     const values = { allocations: [records.allocation], schedules: [records.schedule], claims: [records.claim] }
-    return new Response(JSON.stringify({ data: { [key]: values[key].map((row) => ({ ...row, beneficiaryId: person.beneficiaryId })), summary: {}, pagination: { totalPages: 1 } } }))
+    return new Response(JSON.stringify({ data: { [key]: values[key].map((row) => ({ ...row, beneficiaryId: person.beneficiaryId, distributionId: 'event-1' })), summary: {}, pagination: { totalPages: 1 } } }))
   })
   assert.equal((await requestBeneficiaryEventProgress('token', 'event-1', person)).claim.claimStatus, 'PENDING')
   fail = true
   await assert.rejects(requestBeneficiaryEventProgress('token', 'event-1', person), /Claim records unavailable/)
+})
+
+test('event progress rejects a response for another event rather than displaying its receipt', async t => {
+  t.mock.method(globalThis, 'fetch', async input => {
+    const key = new URL(input, 'http://localhost').pathname.split('/').at(-1)
+    return new Response(JSON.stringify({ data: { [key]: [{ beneficiaryId: person.beneficiaryId, distributionId: 'other-event', receipt: { receiptNo: 'UNRELATED' } }], summary: {}, pagination: { totalPages: 1 } } }))
+  })
+  await assert.rejects(requestBeneficiaryEventProgress('token', 'event-1', person), /do not match the selected event/)
 })

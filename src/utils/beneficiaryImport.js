@@ -1,9 +1,10 @@
 import { tableFromSheet, readStaffImportFile } from './staffImport.js'
+import { locationName } from './locations.js'
 
 export const BENEFICIARY_IMPORT_FIELDS = [
   ['firstName', 'First name', true], ['middleName', 'Middle name'], ['lastName', 'Last name', true],
   ['birthDate', 'Birth date', true], ['sex', 'Sex', true], ['address', 'Address', true],
-  ['sitioPurok', 'Sitio / Purok'], ['barangayId', 'Barangay'], ['contactNumber', 'Mobile number'],
+  ['city', 'City / Municipality'], ['barangayId', 'Barangay'], ['sitioPurok', 'Sitio / Purok'], ['contactNumber', 'Mobile number'],
   ['email', 'Email'], ['philsysNumber', 'PhilSys number'], ['programId', 'Assistance program'],
 ]
 const key = value => String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9]/g, '')
@@ -12,6 +13,7 @@ const aliases = {
   birthDate: ['birthdate', 'dateofbirth', 'dob', 'birthday'], sex: ['sex', 'gender'],
   address: ['address', 'completeaddress', 'homeaddress'], sitioPurok: ['sitiopurok', 'sitio', 'purok'],
   barangayId: ['barangay', 'barangayname', 'barangaycode', 'barangayid'],
+  city: ['city', 'municipality', 'citymunicipality', 'cityormunicipality'],
   contactNumber: ['mobilenumber', 'contactnumber', 'phone', 'mobile', 'phonenumber'],
   email: ['email', 'emailaddress'], philsysNumber: ['philsysnumber', 'philsys', 'nationalidnumber', 'philsyscardnumber', 'philsyscardnumberpcn', 'pcn'],
   programId: ['assistanceprogram', 'program', 'programname', 'programcode', 'programid'],
@@ -33,16 +35,21 @@ export function importBirthDate(value, format = 'YMD') {
   const [, a, b, year] = match
   return `${year}-${(format === 'MDY' ? a : b).padStart(2, '0')}-${(format === 'MDY' ? b : a).padStart(2, '0')}`
 }
-export function mapBeneficiaryImportRows(table, columns, { barangays = {}, defaultBarangay = '', assignedBarangay = '', dateFormat = 'YMD', includeProgram = false, programs = {}, defaultProgram = '' } = {}) {
+export function mapBeneficiaryImportRows(table, columns, { barangays = {}, locations = [], defaultBarangay = '', assignedBarangay = '', dateFormat = 'YMD', includeProgram = false, programs = {}, defaultProgram = '' } = {}) {
   const fields = BENEFICIARY_IMPORT_FIELDS.filter(([field]) => (includeProgram || field !== 'programId'))
   const selected = fields.map(([field]) => columns[field]).filter(column => Number(column) >= 0)
   if (new Set(selected).size !== selected.length) throw new Error('Use each source column only once.')
   for (const [field, label, required] of fields) if (required && Number(columns[field]) < 0) throw new Error(`Choose the ${label.toLowerCase()} column. Names must be in separate first, middle and last name columns.`)
   return table.rows.map(row => {
     const value = field => row.values[Number(columns[field])] ?? ''
-    const mappedBarangay = Number(columns.barangayId) < 0 ? defaultBarangay : barangays[value('barangayId')] ?? ''
+    const city = value('city')
+    const source = locationName(value('barangayId'))
+    const matches = city && source ? locations.filter(item => locationName(item.city) === locationName(city) &&
+      [item.barangayId, item.barangayCode, item.barangayName, `${item.barangayName}, ${item.city}`].some(candidate => locationName(candidate) === source)) : []
+    const mappedBarangay = Number(columns.barangayId) < 0 ? defaultBarangay : matches.length === 1 ? matches[0].barangayId : barangays[value('barangayId')] ?? ''
     if (assignedBarangay && Number(columns.barangayId) >= 0 && mappedBarangay !== assignedBarangay) throw new Error(`Row ${row.sourceRow}: confirm that the file's barangay matches your assigned barangay.`)
-    const record = Object.fromEntries(fields.filter(([field]) => !['barangayId', 'programId'].includes(field)).map(([field]) => [field, value(field)]))
+    const record = Object.fromEntries(fields.filter(([field]) => !['barangayId', 'programId', 'city'].includes(field)).map(([field]) => [field, value(field)]))
+    if (Number(columns.city ?? -1) >= 0) record.city = city
     record.birthDate = importBirthDate(record.birthDate, dateFormat)
     record.sex = ({ m: 'MALE', male: 'MALE', f: 'FEMALE', female: 'FEMALE', other: 'OTHER', unknown: 'UNKNOWN' })[record.sex.toLowerCase()] ?? record.sex
     record.barangayId = assignedBarangay || mappedBarangay
@@ -56,5 +63,5 @@ export function mapBeneficiaryImportRows(table, columns, { barangays = {}, defau
 
 export function beneficiaryCorrectionsCsv(rows) {
   return [['Source row', ...BENEFICIARY_IMPORT_FIELDS.map(([, label]) => label), 'Corrections'], ...rows.map(row => [row.sourceRow,
-    ...BENEFICIARY_IMPORT_FIELDS.map(([field]) => field === 'programId' ? row.programLabel ?? row.programId ?? '' : field === 'barangayId' ? row.barangayLabel ?? row.record.barangayId ?? '' : field === 'birthDate' ? row.record.birthDate?.slice(0, 10) ?? '' : row.record[field] ?? ''), row.issues.join(' ')])]
+    ...BENEFICIARY_IMPORT_FIELDS.map(([field]) => field === 'city' ? row.city ?? '' : field === 'programId' ? row.programLabel ?? row.programId ?? '' : field === 'barangayId' ? row.barangayLabel ?? row.record.barangayId ?? '' : field === 'birthDate' ? row.record.birthDate?.slice(0, 10) ?? '' : row.record[field] ?? ''), row.issues.join(' ')])]
 }

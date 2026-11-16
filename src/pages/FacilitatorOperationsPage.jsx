@@ -23,7 +23,7 @@ import {
 import { connectFacilitatorQueueRealtime } from '../realtime/staffRealtime.js'
 import { createLiveRefresh } from '../utils/liveRefresh.js'
 import { queueNextAction } from '../utils/claimWorkflow.js'
-import { cameraConstraints, cameraErrorMessage, createQrDetector } from '../utils/camera.js'
+import { cameraConstraints, cameraErrorMessage, createQrDetector, watchCameraDisconnection } from '../utils/camera.js'
 import { CameraDeviceSelect } from '../components/ui/camera-device-select.jsx'
 import { useCameraDevices } from '../hooks/useCameraDevices.js'
 
@@ -690,31 +690,39 @@ function QrCameraDialog({ onClose, onDetected }) {
   const streamRef = useRef(null)
   const frameRef = useRef(0)
   const requestRef = useRef(0)
+  const unwatchRef = useRef(null)
+  const onDetectedRef = useRef(onDetected)
   const [state, setState] = useState('starting')
   const [error, setError] = useState('')
+  const [activeLabel, setActiveLabel] = useState('')
+
+  useEffect(() => { onDetectedRef.current = onDetected }, [onDetected])
 
   const stopCamera = useCallback(() => {
     requestRef.current += 1
     cancelAnimationFrame(frameRef.current)
+    unwatchRef.current?.()
+    unwatchRef.current = null
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
+    setActiveLabel('')
     if (videoRef.current) videoRef.current.srcObject = null
   }, [])
 
-  const close = useCallback(() => {
+  const close = useCallback((returnValue = '') => {
     stopCamera()
-    dialogRef.current?.close()
+    dialogRef.current?.close(returnValue)
   }, [stopCamera])
 
   const startCamera = useCallback(async () => {
     setError('')
+    stopCamera()
     if (!navigator.mediaDevices?.getUserMedia) {
       setState('error')
       setError('Camera access is unavailable. Use HTTPS or localhost, check camera permissions, and connect a webcam.')
       return
     }
 
-    stopCamera()
     const requestId = requestRef.current
     setState('starting')
     try {
@@ -726,27 +734,45 @@ function QrCameraDialog({ onClose, onDetected }) {
         return
       }
       streamRef.current = stream
+      unwatchRef.current = watchCameraDisconnection(stream, () => {
+        stopCamera()
+        setState('error')
+        setError('The camera disconnected. Reconnect the USB webcam or choose another camera, then retry.')
+        void refresh()
+      })
       void refresh()
       videoRef.current.srcObject = stream
       await videoRef.current.play()
-      setState('scanning')
+      if (requestId !== requestRef.current) return
 
       let lastScanAt = 0
+      let ready = false
       const scan = async (timestamp) => {
         if (requestId !== requestRef.current || !videoRef.current) return
+        if (videoRef.current.readyState < 2 || !videoRef.current.videoWidth) {
+          frameRef.current = requestAnimationFrame(scan)
+          return
+        }
+        if (!ready) {
+          ready = true
+          setState('scanning')
+          setActiveLabel(stream.getVideoTracks()[0]?.label || '')
+        }
         if (timestamp - lastScanAt < 120) { frameRef.current = requestAnimationFrame(scan); return }
         lastScanAt = timestamp
         try {
           const detections = await detector.detect(videoRef.current)
+          if (requestId !== requestRef.current) return
           const value = detections.find((item) => item.rawValue?.trim())?.rawValue.trim()
           if (value) {
             stopCamera()
             dialogRef.current?.close()
-            onDetected(value)
+            onDetectedRef.current(value)
             return
           }
           frameRef.current = requestAnimationFrame(scan)
         } catch {
+          if (requestId !== requestRef.current) return
           stopCamera()
           setState('error')
           setError('The camera feed could not be read. Try again, improve the lighting, or use the handheld scanner.')
@@ -759,7 +785,7 @@ function QrCameraDialog({ onClose, onDetected }) {
       setState('error')
       setError(cameraErrorMessage(cameraError))
     }
-  }, [onDetected, stopCamera, deviceId, refresh])
+  }, [stopCamera, deviceId, refresh])
 
   useEffect(() => {
     dialogRef.current?.showModal()
@@ -768,23 +794,25 @@ function QrCameraDialog({ onClose, onDetected }) {
   }, [startCamera, stopCamera])
 
   return (
-    <dialog ref={dialogRef} onCancel={(event) => { event.preventDefault(); close() }} onClose={onClose} className="m-auto w-[min(42rem,calc(100%-2rem))] overflow-hidden rounded-2xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/60">
+    <dialog ref={dialogRef} aria-labelledby="qr-camera-title" aria-describedby="qr-camera-description" onCancel={(event) => { event.preventDefault(); close() }} onClose={(event) => onClose(event.currentTarget.returnValue)} className="m-auto max-h-[calc(100dvh-2rem)] w-[min(42rem,calc(100%-2rem))] overflow-y-auto rounded-xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/60">
       <div className="flex items-start justify-between gap-5 border-b border-line p-5 sm:p-6">
-        <div><p className="ga-eyebrow">Live QR scanner</p><h2 className="mt-1 text-xl font-bold">Center the beneficiary QR code</h2><p className="mt-2 text-sm leading-6 text-muted-copy">One clear scan opens the beneficiary details for review. It does not check anyone in yet.</p></div>
-        <button type="button" onClick={close} aria-label="Close QR camera" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-copy transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"><Icon name="close" /></button>
+        <div><p className="ga-eyebrow">QR camera scanner</p><h2 id="qr-camera-title" className="mt-1 text-xl font-bold">Scan the beneficiary QR card</h2><p id="qr-camera-description" className="mt-2 text-sm leading-6 text-muted-copy">Hold a printed card or phone QR steady in the guide. You will review the beneficiary before confirming check-in.</p></div>
+        <button type="button" onClick={() => close()} aria-label="Close QR camera" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-copy transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue"><Icon name="close" /></button>
       </div>
       <div className="p-5 sm:p-6">
-        <CameraDeviceSelect id="qr-camera-device" devices={devices} deviceId={deviceId} onChange={setDeviceId} />
-        <div className="relative aspect-[4/3] min-h-64 overflow-hidden rounded-xl bg-slate-950 shadow-inner">
-          <video ref={videoRef} autoPlay muted playsInline aria-label="Live camera preview for QR scanning" className={`h-full w-full object-cover ${state === 'scanning' ? 'block' : 'hidden'}`} />
-          {state !== 'scanning' && <div className="absolute inset-0 grid place-items-center px-6 text-center text-white"><div><span aria-hidden="true" className="mx-auto grid size-16 place-items-center rounded-full border border-white/20 bg-white/10"><Icon name="camera" className="size-7" /></span><p className="mt-4 font-bold">{state === 'starting' ? 'Starting camera…' : 'Camera unavailable'}</p></div></div>}
-          {state === 'scanning' && <><div aria-hidden="true" className="pointer-events-none absolute inset-[14%] rounded-2xl border-2 border-white/90 shadow-[0_0_0_999px_rgba(2,6,23,0.34)]" /><span className="absolute left-3 top-3 inline-flex items-center gap-2 rounded-full bg-slate-950/75 px-3 py-1.5 text-xs font-bold text-white backdrop-blur"><span className="ga-live-dot size-2 rounded-full bg-emerald-400" /> SCANNING</span></>}
+        <CameraDeviceSelect id="qr-camera-device" devices={devices} deviceId={deviceId} activeLabel={activeLabel} onChange={setDeviceId} />
+        <div className="relative aspect-[4/3] max-h-[50dvh] min-h-48 overflow-hidden rounded-lg bg-slate-950">
+          <video ref={videoRef} autoPlay muted playsInline aria-label="Live camera preview for QR scanning" className={`h-full w-full object-contain ${state === 'scanning' ? 'block' : 'hidden'}`} />
+          {state !== 'scanning' && <div className="absolute inset-0 grid place-items-center px-6 text-center text-white"><div><Icon name="camera" className="mx-auto size-8 text-slate-300" /><p className="mt-3 font-semibold">{state === 'starting' ? 'Starting camera…' : state === 'idle' ? 'Camera stopped' : 'Camera unavailable'}</p><p className="mt-2 text-sm text-slate-300">{state === 'starting' ? 'Allow camera access if your browser asks.' : state === 'idle' ? 'Start the camera when the QR card is ready.' : 'Check the message below to continue.'}</p></div></div>}
+          {state === 'scanning' && <><div aria-hidden="true" className="pointer-events-none absolute inset-[16%] border-2 border-white/90" /><span className="absolute left-3 top-3 rounded-md bg-slate-950/85 px-3 py-1.5 text-xs font-semibold text-white">Scanning for QR</span></>}
         </div>
-        <p aria-live="polite" className="mt-3 text-sm font-semibold text-brand-green">{state === 'scanning' ? 'Camera ready. Hold the QR code steady inside the guide.' : ''}</p>
+        <p role="status" aria-live="polite" className="mt-3 min-h-6 text-sm text-copy">{state === 'scanning' ? 'Camera ready. Keep the full QR visible and avoid glare.' : state === 'starting' ? 'Waiting for the camera. No credential has been read.' : state === 'idle' ? 'Scanning is paused. No check-in has been recorded.' : 'Scanning stopped. No check-in has been recorded.'}</p>
         {error && <div role="alert" className="mt-3 rounded-lg border border-red-200 bg-danger-soft p-4"><p className="font-bold text-brand-red">Camera scan unavailable</p><p className="mt-1 text-sm leading-6 text-copy">{error}</p></div>}
-        <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <button type="button" onClick={close} className="ga-btn-secondary">Use handheld scanner</button>
-          {state === 'error' && <button type="button" onClick={startCamera} className="ga-btn-primary"><Icon name="camera" /> Try camera again</button>}
+        <div className="mt-5 flex flex-wrap gap-3 sm:justify-end">
+          <button type="button" onClick={() => close('handheld')} className="ga-btn-secondary">Use handheld scanner</button>
+          {['starting', 'scanning'].includes(state)
+            ? <button type="button" onClick={() => { stopCamera(); setState('idle'); setError('') }} className="ga-btn-secondary">Stop camera</button>
+            : <button type="button" onClick={startCamera} className="ga-btn-primary"><Icon name="camera" className="size-4" />{state === 'error' ? 'Retry camera' : 'Start camera'}</button>}
         </div>
       </div>
     </dialog>
@@ -796,6 +824,8 @@ function QrVerificationView({ role, distribution, qrToken, setQrToken, error, pr
   const confirmRef = useRef(null)
   const resultRef = useRef(null)
   const [cameraOpen, setCameraOpen] = useState(false)
+  const cameraButtonRef = useRef(null)
+  const handheldRequestedRef = useRef(false)
   const duplicateError = ['QR_TOKEN_ALREADY_USED', 'DUPLICATE_CLAIM'].includes(error?.code)
   const errorClaimHref = error?.claimId ? `/claim-accountability?${new URLSearchParams({ distribution: distribution.distributionId, claim: error.claimId })}` : ''
   const isAdmin = role === 'SYSTEM_ADMIN'
@@ -809,7 +839,11 @@ function QrVerificationView({ role, distribution, qrToken, setQrToken, error, pr
     if (cameraOpen || busy) return
     if (result) resultRef.current?.focus()
     else if (preview) confirmRef.current?.focus()
-    else if (!result) inputRef.current?.focus({ preventScroll: true })
+    else {
+      const target = handheldRequestedRef.current ? inputRef.current : cameraButtonRef.current ?? inputRef.current
+      target?.focus({ preventScroll: true })
+      handheldRequestedRef.current = false
+    }
   }, [busy, cameraOpen, preview, result])
 
   return (
@@ -854,7 +888,7 @@ function QrVerificationView({ role, distribution, qrToken, setQrToken, error, pr
                 <p id="admin-qr-hint" className="mt-2 text-sm leading-6 text-muted-copy">Paste the full backup credential printed on the beneficiary’s QR card. A claim reference or beneficiary number will not work.</p>
                 {!preview && !result && <button type="submit" disabled={busy || !qrToken.trim()} className="ga-btn-primary mt-4">{isPreviewing ? <LoadingLabel>Checking credential...</LoadingLabel> : 'Review QR claim'}</button>}
               </> : <>
-              <button type="button" disabled={busy || Boolean(preview) || Boolean(result)} onClick={() => setCameraOpen(true)} className="ga-btn-primary w-full py-3.5 text-base"><Icon name="camera" className="size-5" /> Scan with this device’s camera</button>
+              <button ref={cameraButtonRef} type="button" disabled={busy || Boolean(preview) || Boolean(result)} onClick={() => setCameraOpen(true)} className="ga-btn-primary w-full py-3.5 text-base"><Icon name="camera" className="size-5" /> Scan with this device’s camera</button>
 
               <div className="my-5 flex items-center gap-3 text-xs font-bold uppercase tracking-[0.1em] text-muted-copy"><span className="h-px flex-1 bg-line" /><span>or use a USB 2D QR scanner</span><span className="h-px flex-1 bg-line" /></div>
 
@@ -906,13 +940,15 @@ function QrVerificationView({ role, distribution, qrToken, setQrToken, error, pr
               <p className="mt-4 flex gap-3 rounded-lg border border-emerald-200 bg-success-soft p-4 text-sm leading-6 text-copy"><Icon name="info" className="mt-0.5 size-5 shrink-0 text-brand-green" /><span>No queue or claim record has changed yet. Confirmation is required.</span></p>
               <div className="mt-5 grid gap-3 sm:grid-cols-2"><button type="button" disabled={isVerifying} onClick={onReset} className="ga-btn-secondary">Use a different QR</button><button ref={confirmRef} type="button" disabled={isVerifying} onClick={onConfirm} className="ga-btn-primary">{isVerifying ? <LoadingLabel>Recording verification...</LoadingLabel> : <><Icon name="check" /> {isAdmin ? 'Confirm QR validation' : preview.checksInBeneficiary ? 'Confirm check-in' : 'Confirm QR verification'}</>}</button></div>
             </section>
+          ) : isPreviewing ? (
+            <section role="status" className="ga-card p-6"><h2 className="font-bold text-ink"><LoadingLabel>Reviewing credential...</LoadingLabel></h2><p className="mt-2 text-sm leading-6 text-copy">Checking the selected event and beneficiary. No queue or claim record has changed yet.</p></section>
           ) : (
             <section className="rounded-xl border border-dashed border-line bg-white p-7 text-center"><span aria-hidden="true" className="mx-auto grid size-12 place-items-center rounded-full bg-info-soft text-brand-blue"><Icon name="qr" className="size-6" /></span><h2 className="mt-4 font-bold text-ink">Beneficiary review</h2><p className="mt-2 text-sm leading-6 text-muted-copy">{isAdmin ? 'Enter a QR credential to see the beneficiary, queue number, and remaining checks here.' : 'Scan with the camera or USB scanner. Beneficiary details will appear here for review before check-in.'}</p></section>
           )}
 
           <section className="border-t border-line p-5"><h2 className="font-bold text-ink">Before confirming</h2><ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-copy"><li>Check the event, beneficiary name, and queue number.</li><li>Use the beneficiary’s current credential.</li><li>Complete any remaining identity check before release.</li></ul></section>
         </aside>
-        {cameraOpen && <QrCameraDialog onDetected={onCameraScan} onClose={() => setCameraOpen(false)} />}
+        {cameraOpen && <QrCameraDialog onDetected={onCameraScan} onClose={(returnValue) => { handheldRequestedRef.current = returnValue === 'handheld'; setCameraOpen(false) }} />}
       </div>
     </div>
   )

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { getAuthErrorMessage } from '../../auth/staffAuth.js'
 import { Icon } from '../ui/icon.jsx'
 import { LoadingLabel } from '../ui/spinner.jsx'
+import { sessionServiceAreas } from '../../utils/locations.js'
 
 const dateFormatter = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeZone: 'Asia/Manila' })
 const timeFormatter = new Intl.DateTimeFormat('en-PH', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila' })
@@ -27,7 +28,7 @@ function newSession(distribution, index, date = distribution.distributionDate, c
     date, startTime: distribution.startTime, endTime: distribution.endTime, location: distribution.location, capacity: '10', serviceAreas: [] }
 }
 
-function validatePlan(distribution, sessions, mode, serviceAreas, unspecifiedCount) {
+function validatePlan(distribution, sessions, mode, serviceAreas, unspecifiedCount, unconfirmedCount) {
   if (sessions.some((session) => !session.label.trim() || !session.location.trim())) return 'Complete every session label and venue.'
   const invalidTime = sessions.findIndex(session => minutes(session.endTime) <= minutes(session.startTime))
   if (invalidTime >= 0) return `Session ${invalidTime + 1}: end time must be later than start time.`
@@ -38,19 +39,21 @@ function validatePlan(distribution, sessions, mode, serviceAreas, unspecifiedCou
   const ranges = sessions.map(session => ({ start: `${session.date}T${session.startTime}`, end: `${session.date}T${session.endTime}` })).sort((left, right) => left.start.localeCompare(right.start))
   if (ranges.some((range, index) => index > 0 && range.start < ranges[index - 1].end)) return 'Service sessions cannot overlap.'
   if (mode === 'BY_AREA') {
+    if (unconfirmedCount > 0) return `Review the Sitio/Purok of ${unconfirmedCount} eligible beneficiaries in Beneficiaries, and confirm its parent area in Administration > Barangays. Refresh this event after correction, or use Whole barangay.`
     if (unspecifiedCount > 0) return `Update the Sitio/Purok of ${unspecifiedCount} eligible ${unspecifiedCount === 1 ? 'beneficiary' : 'beneficiaries'} before using area-based scheduling. You can use Whole barangay without this field.`
     if (sessions.some(session => session.serviceAreas.length === 0)) return 'Choose at least one Sitio or Purok for every session.'
     const covered = new Set(sessions.flatMap(session => session.serviceAreas))
-    const missing = serviceAreas.filter(area => !covered.has(area.name))
+    const missing = serviceAreas.filter(area => area.count > 0 && !covered.has(area.name))
     if (missing.length > 0) return `Assign every eligible service area. Still missing: ${missing.map(area => area.name).join(', ')}.`
   }
   return ''
 }
 
 export function DistributionSessionPlanner({ busy, distribution, onGenerate, serviceAreaSummary }) {
-  const serviceAreas = serviceAreaSummary?.serviceAreas ?? []
+  const { areas: serviceAreas, unconfirmed } = sessionServiceAreas(distribution.barangay, serviceAreaSummary)
+  const unconfirmedCount = unconfirmed.reduce((total, area) => total + area.count, 0)
   const unspecifiedCount = serviceAreaSummary?.unspecifiedServiceAreaCount ?? 0
-  const eligibleCount = serviceAreas.reduce((total, area) => total + area.count, 0) + unspecifiedCount
+  const eligibleCount = serviceAreas.reduce((total, area) => total + area.count, 0) + unspecifiedCount + unconfirmedCount
   const barangay = distribution.barangay?.barangayName || 'the selected barangay'
   const [mode, setMode] = useState('WHOLE')
   const [sessions, setSessions] = useState(() => [newSession(distribution, 0)])
@@ -67,7 +70,7 @@ export function DistributionSessionPlanner({ busy, distribution, onGenerate, ser
   const totalCapacity = useMemo(() => sessions.reduce((total, session) => total + plannedSlots(session, distribution.slotDurationMinutes) * Number(session.capacity || 0), 0), [distribution.slotDurationMinutes, sessions])
   const totalSlots = sessions.reduce((total, session) => total + plannedSlots(session, distribution.slotDurationMinutes), 0)
   const coveredAreas = new Set(sessions.flatMap(session => session.serviceAreas))
-  const missingAreas = serviceAreas.filter(area => !coveredAreas.has(area.name))
+  const missingAreas = serviceAreas.filter(area => area.count > 0 && !coveredAreas.has(area.name))
 
   function updateSession(index, field, value) {
     setSessions(current => current.map((session, sessionIndex) => sessionIndex === index ? { ...session, [field]: value } : session))
@@ -92,7 +95,7 @@ export function DistributionSessionPlanner({ busy, distribution, onGenerate, ser
   async function submit(event) {
     event.preventDefault()
     if (busy || savingRef.current) return
-    const validationError = validatePlan(distribution, sessions, mode, serviceAreas, unspecifiedCount)
+    const validationError = validatePlan(distribution, sessions, mode, serviceAreas, unspecifiedCount, unconfirmedCount)
     if (validationError) { setError(validationError); errorRef.current?.focus(); return }
     setError('')
     savingRef.current = true
@@ -127,6 +130,7 @@ export function DistributionSessionPlanner({ busy, distribution, onGenerate, ser
       </fieldset>
 
       {mode === 'BY_AREA' && unspecifiedCount > 0 && <div className="flex items-start gap-3 border-l-2 border-brand-amber bg-warning-soft p-4 text-sm leading-6 text-copy" role="status"><Icon name="info" className="mt-1 size-4 shrink-0 text-brand-amber" /><p><strong className="text-ink">{unspecifiedCount} eligible {unspecifiedCount === 1 ? 'beneficiary needs' : 'beneficiaries need'} a Sitio/Purok.</strong> Update their address before creating area-specific sessions, or use Whole barangay.</p></div>}
+      {mode === 'BY_AREA' && unconfirmedCount > 0 && <div role="status" className="border-l-2 border-brand-amber bg-warning-soft p-4 text-sm leading-6 text-copy"><p><strong>{unconfirmedCount} eligible beneficiaries have unconfirmed area text.</strong> {unconfirmed.map(area => area.name).join(', ')}.</p><p className="mt-2">In Beneficiaries, review each location. Admin can confirm the matching area in Administration → Barangays → Edit. Refresh the event after correction, or use Whole barangay.</p></div>}
 
       <div className="space-y-5">
         {sessions.map((session, index) => {
@@ -145,8 +149,8 @@ export function DistributionSessionPlanner({ busy, distribution, onGenerate, ser
               <p className="text-xs text-muted-copy sm:col-span-2">All dates and times use Philippine Standard Time (PHT).</p>
             </div>
             <div aria-live="polite" className="flex items-start gap-2 border-t border-line px-4 py-3 text-sm leading-6 sm:px-5"><Icon name="clock" className="mt-1 size-4 shrink-0 text-brand-blue" /><p>{slotCount && Number(session.capacity) > 0 ? <><strong className="font-semibold text-ink">{slotCount} time {slotCount === 1 ? 'slot' : 'slots'} × {session.capacity} {Number(session.capacity) === 1 ? 'person' : 'people'} = {capacity} {capacity === 1 ? 'place' : 'places'}</strong><span className="block text-xs text-muted-copy">Each slot lasts {distribution.slotDurationMinutes} minutes. These are available places, not assigned beneficiaries.</span></> : 'Set valid service times and capacity to calculate places.'}</p></div>
-            {mode === 'BY_AREA' && <div className="border-t border-line p-4 sm:p-5"><div className="flex flex-wrap items-start justify-between gap-2"><div><h5 className="text-sm font-semibold text-ink">Covered Sitios / Puroks</h5><p className="mt-1 text-xs leading-5 text-muted-copy">Choose from eligible beneficiary records. An area can use more than one session.</p></div><p className="text-xs font-semibold text-copy">{pool} eligible in selected areas</p></div>
-              {serviceAreas.length === 0 ? <p className="mt-3 rounded-md bg-slate-50 p-3 text-sm leading-6 text-copy">No Sitio/Purok is recorded in the current eligible list. Update the beneficiary addresses or use Whole barangay.</p> : <div className="mt-3 grid gap-2 sm:grid-cols-2">{serviceAreas.map((area, areaIndex) => <label key={area.name} className={`flex min-h-12 cursor-pointer items-start justify-between gap-3 rounded-md border px-3 py-3 focus-within:outline-2 focus-within:outline-brand-blue ${session.serviceAreas.includes(area.name) ? 'border-brand-blue bg-info-soft' : 'border-line'}`}><span className="flex min-w-0 items-start gap-3"><input type="checkbox" checked={session.serviceAreas.includes(area.name)} aria-labelledby={`session-area-${session.clientId}-${areaIndex}`} onChange={() => toggleArea(index, area.name)} className="mt-0.5 size-4 shrink-0 accent-brand-blue" /><span id={`session-area-${session.clientId}-${areaIndex}`} className="break-words text-sm font-medium text-ink">{area.name}</span></span><span className="shrink-0 text-xs tabular-nums text-copy">{area.count} eligible</span></label>)}</div>}
+            {mode === 'BY_AREA' && <div className="border-t border-line p-4 sm:p-5"><div className="flex flex-wrap items-start justify-between gap-2"><div><h5 className="text-sm font-semibold text-ink">Covered Sitios / Puroks</h5><p className="mt-1 text-xs leading-5 text-muted-copy">Confirmed areas in this event's Barangay. An area can use more than one session.</p></div><p className="text-xs font-semibold text-copy">{pool} eligible in selected areas</p></div>
+              {serviceAreas.length === 0 ? <p className="mt-3 rounded-md bg-slate-50 p-3 text-sm leading-6 text-copy">No confirmed Sitio/Purok is listed in this Barangay. Ask Admin to review the Barangay registry, or use Whole barangay.</p> : <div className="mt-3 grid gap-2 sm:grid-cols-2">{serviceAreas.map((area, areaIndex) => <label key={area.name} className={`flex min-h-12 cursor-pointer items-start justify-between gap-3 rounded-md border px-3 py-3 focus-within:outline-2 focus-within:outline-brand-blue ${session.serviceAreas.includes(area.name) ? 'border-brand-blue bg-info-soft' : 'border-line'}`}><span className="flex min-w-0 items-start gap-3"><input type="checkbox" checked={session.serviceAreas.includes(area.name)} aria-labelledby={`session-area-${session.clientId}-${areaIndex}`} onChange={() => toggleArea(index, area.name)} className="mt-0.5 size-4 shrink-0 accent-brand-blue" /><span id={`session-area-${session.clientId}-${areaIndex}`} className="break-words text-sm font-medium text-ink">{area.name}</span></span><span className="shrink-0 text-xs tabular-nums text-copy">{area.count} eligible</span></label>)}</div>}
             </div>}
           </fieldset>
         })}

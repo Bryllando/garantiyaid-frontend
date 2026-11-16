@@ -16,6 +16,7 @@ try {
   browser = await chromium.launch({ headless: true, channel: 'chrome' })
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
   page.setDefaultTimeout(10_000)
+  page.setDefaultNavigationTimeout(30_000)
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.addInitScript(() => {
     sessionStorage.setItem('garantiyaid.accessToken', 'session-planner-fixture')
@@ -24,7 +25,7 @@ try {
   const errors = [], writes = []
   page.on('pageerror', error => errors.push(error.message))
   const program = { programId: '11111111-1111-4111-8111-111111111111', programCode: 'FOOD-2026', programName: 'Community Food Assistance', status: 'ACTIVE', grantAmount: '1000' }
-  const barangay = { barangayId: '22222222-2222-4222-8222-222222222222', barangayName: 'San Nicolas', city: 'Cebu City' }
+  const barangay = { barangayId: '22222222-2222-4222-8222-222222222222', barangayName: 'San Nicolas', city: 'Cebu City', serviceAreas: ['Sitio Riverside', 'Purok 2'] }
   const event = { distributionId: '33333333-3333-4333-8333-333333333333', title: 'Community distribution', programId: program.programId, program, barangayId: barangay.barangayId, barangay, status: 'DRAFT', distributionDate: '2099-11-11', startTime: '08:00', endTime: '12:00', slotDurationMinutes: 40, location: 'San Nicolas Barangay Hall', verificationRequirement: 'QR', deliveryMode: 'PHYSICAL_GOODS', packageName: 'Food pack', packageUnit: 'pack', packageQuantity: 1 }
   let slots = [], unspecified = 0, areas = [{ name: 'Sitio Riverside', count: 7 }, { name: 'Purok 2', count: 5 }]
   let hold = false, fail = false, release
@@ -152,7 +153,7 @@ try {
 
   unspecified = 1; areas = []
   await reset(); await byArea.check()
-  await expect(plan).toContainText('No Sitio/Purok is recorded')
+  await expect(plan).toContainText('1 eligible beneficiary needs a Sitio/Purok')
   await generate().click()
   await expect(plan.getByRole('alert')).toContainText('Update the Sitio/Purok of 1')
   const writesBefore = writes.length

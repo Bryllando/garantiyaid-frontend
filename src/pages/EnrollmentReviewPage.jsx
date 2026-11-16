@@ -457,12 +457,29 @@ function EnrollmentReviewPage({ session, onLogout, onNavigate, onSessionExpired 
               {documents.length === 0 ? <p className="mt-4 rounded-lg border border-dashed border-line p-4 text-sm text-muted-copy">No documents uploaded.</p> : <ul className="mt-4 divide-y divide-line border-y border-line" aria-label="Uploaded documents">{documents.map(item => {
                 const required = requiredTypes.some(requirement => documentMeetsRequirement(item, requirement))
                 const documentBusy = reviewBusy
-                return <li key={item.documentId} className="grid gap-x-4 gap-y-3 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                  <div className="flex items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-slate-50 text-muted-copy"><Icon name="reports" className="size-5" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2"><p className="min-w-0 text-sm font-semibold text-ink [overflow-wrap:anywhere]">{item.documentName ? `Other — ${item.documentName}` : humanize(item.documentType)}</p><StatusBadge value={item.reviewStatus} /></div><p className="mt-1 text-xs leading-5 text-muted-copy [overflow-wrap:anywhere]">{item.originalFileName}</p><p className="mt-1 text-xs text-muted-copy">{required ? 'Required by this program' : 'Additional supporting document'}</p></div></div>
-                  {item.reviewNotes && <p className="border-l-2 border-brand-red bg-danger-soft px-3 py-2 text-sm leading-6 text-brand-red sm:col-span-2 sm:row-start-2">{item.reviewNotes}</p>}
-                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 sm:col-start-2 sm:row-start-1 sm:flex-col sm:items-end sm:justify-center sm:gap-y-1"><div className="flex flex-wrap items-center gap-2"><button type="button" disabled={documentBusy} onClick={() => setPreviewDocument(item)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-line bg-white px-3 text-sm font-semibold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue disabled:opacity-60"><Icon name="eye" className="size-4" />Preview</button><button type="button" onClick={() => downloadDocument(item)} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-copy hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-blue"><Icon name="download" className="size-4" />Download</button></div>
-                    {canReviewSelected && selected.status === 'FOR_VALIDATION' && item.reviewStatus === 'SUBMITTED' && <div className="flex flex-wrap items-center gap-2"><button type="button" disabled={documentBusy} onClick={() => openConfirmation({ type: 'document-accept', document: item })} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 text-sm font-semibold text-brand-green hover:bg-success-soft focus-visible:outline-2 focus-visible:outline-brand-green disabled:opacity-60"><Icon name="check" className="size-4" />Accept</button><button type="button" disabled={documentBusy} onClick={() => openConfirmation({ type: 'document-reject', document: item })} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-brand-red hover:bg-danger-soft focus-visible:outline-2 focus-visible:outline-brand-red disabled:opacity-60"><Icon name="close" className="size-4" />Reject</button></div>}
+                const documentTitle = item.documentName ? `Other: ${item.documentName}` : item.documentType === 'VALID_ID' ? 'Valid ID' : humanize(item.documentType)
+                return <li key={item.documentId} className="py-4">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex min-w-0 flex-1 items-start gap-3">
+                      <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-lg bg-slate-50 text-muted-copy"><Icon name="reports" className="size-5" /></span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold text-ink [overflow-wrap:anywhere]">{documentTitle}</p><StatusBadge value={item.reviewStatus} /></div>
+                        <p className="mt-1 text-sm leading-6 text-muted-copy [overflow-wrap:anywhere]">{item.originalFileName}</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-copy">{required ? 'Required by this program' : 'Additional supporting document'}</p>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-3 border-t border-line pt-3 xl:border-t-0 xl:pt-0">
+                      <div role="group" aria-label={`${documentTitle} file actions`} className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+                        <button type="button" disabled={documentBusy} onClick={() => setPreviewDocument(item)} className="ga-btn-secondary min-h-11 px-3"><Icon name="eye" className="size-4" />Preview</button>
+                        <button type="button" onClick={() => downloadDocument(item)} className="ga-btn-secondary min-h-11 px-3"><Icon name="download" className="size-4" />Download</button>
+                      </div>
+                      {canReviewSelected && selected.status === 'FOR_VALIDATION' && item.reviewStatus === 'SUBMITTED' && <div role="group" aria-label={`${documentTitle} review decision`} className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:border-l sm:border-line sm:pl-3">
+                        <button type="button" disabled={documentBusy} onClick={() => openConfirmation({ type: 'document-accept', document: item })} className="ga-btn-secondary min-h-11 border-emerald-200 px-3 text-brand-green hover:bg-success-soft"><Icon name="check" className="size-4" />Accept</button>
+                        <button type="button" disabled={documentBusy} onClick={() => openConfirmation({ type: 'document-reject', document: item })} className="ga-btn-secondary min-h-11 border-red-200 px-3 text-brand-red hover:bg-danger-soft"><Icon name="close" className="size-4" />Reject</button>
+                      </div>}
+                    </div>
                   </div>
+                  {item.reviewNotes && <p className="mt-3 border-l-2 border-brand-red bg-danger-soft px-3 py-2 text-sm leading-6 text-brand-red [overflow-wrap:anywhere]">{item.reviewNotes}</p>}
                 </li>
               })}</ul>}
             </section>

@@ -6,7 +6,34 @@ export function cameraErrorMessage(error) {
   if (!globalThis.isSecureContext) return 'Camera access needs HTTPS or localhost. Open the secure app address and allow camera access.'
   if (error?.name === 'NotAllowedError') return 'Camera access was blocked. Allow camera permission in your browser and Windows camera settings, then try again.'
   if (['NotFoundError', 'OverconstrainedError'].includes(error?.name)) return 'The selected camera is unavailable. Connect the USB webcam or choose another camera, then start it again.'
+  if (['NotReadableError', 'TrackStartError'].includes(error?.name)) return 'The camera is busy or cannot be read. Close other apps using it, check the USB connection, then retry the camera.'
   return 'The camera could not be opened. Close other apps using it, check the USB connection, then try again.'
+}
+
+export function watchCameraDisconnection(stream, onDisconnect) {
+  const tracks = stream.getVideoTracks()
+  const deviceId = tracks[0]?.getSettings().deviceId
+  const media = navigator.mediaDevices
+  let stopped = false
+  const disconnected = () => {
+    if (stopped) return
+    stopped = true
+    onDisconnect()
+  }
+  const checkDevices = async () => {
+    if (!deviceId) return
+    try {
+      const devices = await media.enumerateDevices()
+      if (!stopped && !devices.some((device) => device.kind === 'videoinput' && device.deviceId === deviceId)) disconnected()
+    } catch { /* The track's ended event still reports disconnection if enumeration fails. */ }
+  }
+  tracks.forEach((track) => track.addEventListener('ended', disconnected))
+  media.addEventListener?.('devicechange', checkDevices)
+  return () => {
+    stopped = true
+    tracks.forEach((track) => track.removeEventListener('ended', disconnected))
+    media.removeEventListener?.('devicechange', checkDevices)
+  }
 }
 
 export async function createQrDetector() {

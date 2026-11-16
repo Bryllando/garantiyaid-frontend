@@ -1,6 +1,6 @@
 const mmPerPoint = 25.4 / 72
 
-async function qrImage(svg) {
+export async function qrImage(svg) {
   const clone = svg.cloneNode(true)
   const size = Math.round(svg.viewBox.baseVal.width * 12)
   clone.setAttribute('width', size)

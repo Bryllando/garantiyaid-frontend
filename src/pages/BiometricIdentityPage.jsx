@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import ClaimSignaturePad from '../components/claims/ClaimSignaturePad.jsx'
 import { CameraDeviceSelect } from '../components/ui/camera-device-select.jsx'
 import { useCameraDevices } from '../hooks/useCameraDevices.js'
-import { cameraConstraints, cameraErrorMessage } from '../utils/camera.js'
+import { cameraConstraints, cameraErrorMessage, watchCameraDisconnection } from '../utils/camera.js'
 import BiometricDuplicateReview from '../components/biometrics/BiometricDuplicateReview.jsx'
 import BiometricAttemptReview from '../components/biometrics/BiometricAttemptReview.jsx'
 import { biometricAttemptGuidance, biometricHistoryHref, followUpStatuses, readBiometricFollowUps } from '../utils/biometricFollowUp.js'
@@ -99,7 +99,7 @@ function WorkspaceSkeleton() {
   )
 }
 
-function CaptureField({ id, help, purpose = 'verification', disabled = false }) {
+function CaptureField({ id, help, purpose = 'verification', disabled = false, captureKey = id, onCaptureChange }) {
   const cameras = useCameraDevices()
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
@@ -107,25 +107,33 @@ function CaptureField({ id, help, purpose = 'verification', disabled = false }) 
   const streamRef = useRef(null)
   const cameraRequestRef = useRef(0)
   const previewUrlRef = useRef('')
+  const unwatchRef = useRef(null)
   const [captureState, setCaptureState] = useState('idle')
+  const [captureSource, setCaptureSource] = useState('camera')
   const [previewUrl, setPreviewUrl] = useState('')
   const [cameraReady, setCameraReady] = useState(false)
+  const [activeLabel, setActiveLabel] = useState('')
   const [error, setError] = useState('')
 
   const stopCamera = useCallback(() => {
     cameraRequestRef.current += 1
+    unwatchRef.current?.()
+    unwatchRef.current = null
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
     if (videoRef.current) videoRef.current.srcObject = null
     setCameraReady(false)
+    setActiveLabel('')
   }, [])
 
-  const replacePreview = useCallback((url = '') => {
+  const replacePreview = useCallback((url = '', source = 'camera') => {
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
     previewUrlRef.current = url
     setPreviewUrl(url)
+    setCaptureSource(source)
     setCaptureState(url ? 'captured' : 'idle')
-  }, [])
+    onCaptureChange?.(url ? captureKey : null)
+  }, [captureKey, onCaptureChange])
 
   const resetCapture = useCallback(() => {
     stopCamera()
@@ -135,6 +143,7 @@ function CaptureField({ id, help, purpose = 'verification', disabled = false }) 
   }, [replacePreview, stopCamera])
 
   useEffect(() => {
+    onCaptureChange?.(null)
     const form = inputRef.current?.form
     form?.addEventListener('reset', resetCapture)
     return () => {
@@ -142,32 +151,46 @@ function CaptureField({ id, help, purpose = 'verification', disabled = false }) 
       stopCamera()
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
     }
-  }, [resetCapture, stopCamera])
+  }, [resetCapture, stopCamera, onCaptureChange])
 
   async function startCamera() {
-    setError('')
+    resetCapture()
     if (!navigator.mediaDevices?.getUserMedia) {
       setError('Live camera is unavailable here. Open the app through HTTPS or localhost, or upload a current photo instead.')
       return
     }
-    stopCamera()
     const requestId = cameraRequestRef.current
     try {
-      replacePreview()
-      setCaptureState('live')
+      setCaptureState('starting')
       const stream = await navigator.mediaDevices.getUserMedia(cameraConstraints(cameras.deviceId))
       if (requestId !== cameraRequestRef.current || !videoRef.current) {
         stream.getTracks().forEach((track) => track.stop())
         return
       }
       streamRef.current = stream
+      unwatchRef.current = watchCameraDisconnection(stream, () => {
+        stopCamera()
+        setCaptureState('error')
+        setError('The camera disconnected. Reconnect the USB webcam or choose another camera, then retry.')
+        void cameras.refresh()
+      })
       void cameras.refresh()
       videoRef.current.srcObject = stream
+      await videoRef.current.play()
     } catch (cameraError) {
       if (requestId !== cameraRequestRef.current) return
-      setCaptureState('idle')
+      stopCamera()
+      setCaptureState('error')
       setError(cameraErrorMessage(cameraError))
     }
+  }
+
+  function cameraCanPlay(event) {
+    const video = event.currentTarget
+    if (!['starting', 'live'].includes(captureState) || !streamRef.current || video.srcObject !== streamRef.current || video.readyState < 2 || !video.videoWidth) return
+    setCameraReady(true)
+    setActiveLabel(streamRef.current.getVideoTracks()[0]?.label || '')
+    setCaptureState('live')
   }
 
   function captureFrame() {
@@ -180,9 +203,15 @@ function CaptureField({ id, help, purpose = 'verification', disabled = false }) 
     const scale = Math.min(1, 1280 / video.videoWidth, 960 / video.videoHeight)
     canvas.width = Math.round(video.videoWidth * scale)
     canvas.height = Math.round(video.videoHeight * scale)
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height)
+    const context = canvas.getContext('2d')
+    if (!context) { setError('Photo capture is unavailable in this browser. Retry or choose a photo.'); return }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    const requestId = cameraRequestRef.current
+    setCaptureState('capturing')
     canvas.toBlob((blob) => {
+      if (requestId !== cameraRequestRef.current) return
       if (!blob || !inputRef.current) {
+        setCaptureState('live')
         setError('The live photo could not be captured. Please try again or upload a photo.')
         return
       }
@@ -206,35 +235,40 @@ function CaptureField({ id, help, purpose = 'verification', disabled = false }) 
       setError('The selected image is larger than 5 MB. Choose a smaller image.')
       return
     }
-    replacePreview(URL.createObjectURL(file))
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) && !/\.(jpe?g|jfif|png|webp)$/i.test(file.name)) {
+      event.target.value = ''
+      replacePreview()
+      setError('Choose a JPG, PNG, or WebP photo, up to 5 MB.')
+      return
+    }
+    replacePreview(URL.createObjectURL(file), 'upload')
     setError('')
   }
 
   return (
     <fieldset disabled={disabled} aria-describedby={`${id}-help ${id}-status`} className="min-w-0">
-      <legend className="ga-label">{purpose === 'enrollment' ? 'Reference photo for enrollment' : 'New photo for this claim'}</legend>
-      <CameraDeviceSelect id={`${id}-device`} devices={cameras.devices} deviceId={cameras.deviceId} onChange={(value) => { resetCapture(); cameras.setDeviceId(value) }} disabled={disabled} />
-      <div className="mt-2 overflow-hidden rounded-xl border border-line bg-slate-950 shadow-inner">
-        <div className="relative aspect-[4/3] min-h-64 w-full overflow-hidden sm:min-h-80">
-          {captureState === 'captured' && previewUrl
-            ? <img src={previewUrl} alt="Captured beneficiary face preview" className="h-full w-full object-cover" />
-            : <video ref={videoRef} autoPlay muted playsInline onCanPlay={() => setCameraReady(true)} className={`h-full w-full scale-x-[-1] object-cover ${captureState === 'live' ? 'block' : 'hidden'}`} />}
-          {captureState === 'idle' && <div className="absolute inset-0 grid place-items-center px-6 text-center text-white"><div><span aria-hidden="true" className="mx-auto grid size-16 place-items-center rounded-full border border-white/20 bg-white/10 text-3xl">●</span><p className="mt-4 text-lg font-bold">Ready for a live identity photo</p><p className="mt-2 max-w-md text-sm leading-6 text-slate-300">Start the front camera and position one beneficiary inside the guide.</p></div></div>}
-          {captureState === 'live' && <div aria-hidden="true" className="pointer-events-none absolute inset-[10%] rounded-[45%] border-2 border-dashed border-white/80 shadow-[0_0_0_999px_rgba(2,6,23,0.3)]" />}
-          <span className="absolute left-3 top-3 rounded-full bg-slate-950/75 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">{captureState === 'live' ? 'LIVE CAMERA' : captureState === 'captured' ? 'PHOTO CAPTURED' : 'CAMERA OFF'}</span>
+      <legend className="ga-label mb-3">{purpose === 'enrollment' ? 'Reference photo for enrollment' : 'New photo for this claim'}</legend>
+      <CameraDeviceSelect id={`${id}-device`} devices={cameras.devices} deviceId={cameras.deviceId} activeLabel={activeLabel} onChange={(value) => { resetCapture(); cameras.setDeviceId(value) }} disabled={disabled} />
+      <div className="mt-3 overflow-hidden rounded-lg border border-line">
+        <div className="relative aspect-[4/3] max-h-[55dvh] min-h-48 w-full overflow-hidden bg-slate-950">
+          <video ref={videoRef} autoPlay muted playsInline aria-label="Live face camera preview" onCanPlay={cameraCanPlay} onPlaying={cameraCanPlay} className={`h-full w-full scale-x-[-1] object-contain ${['live', 'capturing'].includes(captureState) ? 'block' : 'hidden'}`} />
+          {captureState === 'captured' && previewUrl && <img src={previewUrl} alt={captureSource === 'upload' ? 'Uploaded beneficiary photo preview' : 'Captured beneficiary face preview'} className="absolute inset-0 h-full w-full object-contain" />}
+          {['idle', 'starting', 'error'].includes(captureState) && <div className="absolute inset-0 grid place-items-center px-6 text-center text-white"><div><Icon name="camera" className="mx-auto size-8 text-slate-300" /><p className="mt-3 font-semibold">{captureState === 'starting' ? 'Starting camera…' : captureState === 'error' ? 'Camera unavailable' : 'Camera off'}</p><p className="mt-2 max-w-md text-sm leading-6 text-slate-300">{captureState === 'starting' ? 'Allow camera access if your browser asks.' : captureState === 'error' ? 'Check the message below, then retry.' : 'Start the camera for a clear, well-lit photo of one beneficiary.'}</p></div></div>}
+          {captureState === 'live' && <div aria-hidden="true" className="pointer-events-none absolute inset-x-[24%] inset-y-[12%] rounded-[50%] border-2 border-dashed border-white/80" />}
+          {['live', 'capturing', 'captured'].includes(captureState) && <span className="absolute left-3 top-3 rounded-md bg-slate-950/85 px-3 py-1.5 text-xs font-semibold text-white">{captureState === 'live' ? 'Camera ready' : captureState === 'capturing' ? 'Capturing photo…' : captureSource === 'upload' ? 'Uploaded photo' : 'Photo captured'}</span>}
         </div>
-        <div className="flex flex-col gap-3 border-t border-white/10 bg-slate-900 p-4 sm:flex-row">
-          {captureState === 'live'
-            ? <button type="button" onClick={captureFrame} disabled={!cameraReady} className="ga-btn-primary min-h-11 flex-1 disabled:cursor-not-allowed disabled:opacity-60">{cameraReady ? 'Capture live photo' : 'Preparing camera…'}</button>
-            : <button type="button" onClick={startCamera} className="ga-btn-primary min-h-11 flex-1">{captureState === 'captured' ? 'Retake live photo' : 'Start live camera'}</button>}
-          {captureState === 'live' && <button type="button" onClick={resetCapture} className="ga-btn-secondary min-h-11 border-slate-600 bg-slate-800 text-white hover:bg-slate-700">Cancel</button>}
-          <button type="button" onClick={() => inputRef.current?.click()} className="ga-btn-secondary min-h-11 border-slate-600 bg-slate-800 text-white hover:bg-slate-700">{captureState === 'captured' ? 'Choose another photo' : 'Upload instead'}</button>
+        <div className="flex flex-wrap gap-3 border-t border-line bg-white p-3 sm:p-4">
+          {['live', 'capturing', 'starting'].includes(captureState)
+            ? <button type="button" onClick={captureFrame} disabled={!cameraReady || captureState !== 'live'} className="ga-btn-primary min-h-11 flex-1 disabled:cursor-not-allowed disabled:opacity-60">{captureState === 'starting' ? 'Starting camera…' : captureState === 'capturing' ? 'Capturing photo…' : 'Capture live photo'}</button>
+            : <button type="button" onClick={startCamera} className={`${captureState === 'captured' ? 'ga-btn-secondary' : 'ga-btn-primary'} min-h-11 flex-1`}><Icon name="camera" className="size-4" />{captureState === 'captured' ? captureSource === 'upload' ? 'Use camera instead' : 'Retake live photo' : captureState === 'error' ? 'Retry camera' : 'Start live camera'}</button>}
+          {['live', 'capturing', 'starting'].includes(captureState) && <button type="button" onClick={resetCapture} className="ga-btn-secondary min-h-11">Stop camera</button>}
+          <button type="button" onClick={() => inputRef.current?.click()} className="ga-btn-secondary min-h-11">{captureState === 'captured' ? 'Choose another photo' : 'Upload instead'}</button>
         </div>
       </div>
       <input ref={inputRef} id={id} name="faceCapture" type="file" tabIndex={-1} aria-label="Beneficiary face image" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.jfif,.png,.webp" capture="user" onChange={chooseFile} className="sr-only" />
       <canvas ref={canvasRef} className="hidden" aria-hidden="true" />
       <p id={`${id}-help`} className="mt-2 text-xs leading-5 text-muted-copy">{help} Live or uploaded JPG, PNG, or WebP; maximum 5 MB.</p>
-      <p id={`${id}-status`} aria-live="polite" className="mt-2 text-sm font-semibold text-brand-blue">{captureState === 'captured' ? purpose === 'enrollment' ? 'Photo captured. Use Save face profile below to enroll it.' : 'Photo captured. Use Verify beneficiary identity below to check this claim.' : ''}</p>
+      <p id={`${id}-status`} role="status" aria-live="polite" className="mt-2 min-h-6 text-sm leading-6 text-copy">{captureState === 'captured' ? `${captureSource === 'upload' ? 'Photo uploaded' : 'Photo captured'}. ${purpose === 'enrollment' ? 'Review it, then save the face profile below. Enrollment is not complete yet.' : 'Review it, then verify beneficiary identity below. This photo has not been verified.'}` : captureState === 'live' ? 'Keep one face centered in the alignment guide. This is not a face-match result.' : captureState === 'starting' ? 'Waiting for usable camera frames. No photo has been taken.' : ''}</p>
       {error && <p role="alert" className="mt-2 rounded-lg border border-red-200 bg-danger-soft p-3 text-sm font-semibold text-brand-red">{error}</p>}
     </fieldset>
   )
@@ -652,6 +686,7 @@ function BiometricIdentityPage({ session, onLogout, onNavigate, onSessionExpired
 }
 
 function EnrollmentWorkspace({ enrollmentError, onReturnVerification, beneficiaryQuery, onQuery, beneficiaryResult, onRetryBeneficiaries, profileError, onRetryProfile, beneficiaries, beneficiaryId, setBeneficiaryId, selectedBeneficiary, consents, profile, processing, activeConsent, canCapture, canReenroll, isLoadingProfile, isSubmitting, onConsent, onEnrollment, onRevoke, onDelete, isAdmin }) {
+  const [readyCapture, setReadyCapture] = useState(null)
   const [search, setSearch] = useState(beneficiaryQuery.search)
   const searchRef = useRef(null)
   const enrollmentErrorRef = useRef(null)
@@ -697,7 +732,7 @@ function EnrollmentWorkspace({ enrollmentError, onReturnVerification, beneficiar
 
           <section className="ga-card p-5 sm:p-6" aria-labelledby="capture-heading">
             <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="ga-eyebrow">Step 3</p><h2 id="capture-heading" className="mt-1 ga-section-heading">Protected face enrollment</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-copy">Use a current, well-lit, front-facing capture with one person visible and no face obstruction.</p></div><StatusBadge value={profile?.biometricStatus ?? 'NOT_ENROLLED'} /></div>
-            {!(canCapture || (canReenroll && profile?.biometricId)) ? <p className="mt-5 rounded-lg border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">Enrollment is assigned to facilitators.</strong> You can review the status and consent; administrators may re-enroll an existing profile.</p> : duplicateHold ? <div className={`mt-5 rounded-xl border p-5 ${profile.biometricStatus === 'DUPLICATE_BLOCKED' ? 'border-red-200 bg-danger-soft' : 'border-amber-200 bg-warning-soft'}`}><p className={`font-extrabold ${profile.biometricStatus === 'DUPLICATE_BLOCKED' ? 'text-brand-red' : 'text-brand-amber'}`}>{profile.biometricStatus === 'DUPLICATE_BLOCKED' ? 'Duplicate profile confirmed' : 'Authorized review pending'}</p><p className="mt-2 text-sm leading-6 text-copy">{profile.biometricStatus === 'DUPLICATE_BLOCKED' ? 'This template cannot be used for claims. A System Administrator must resolve the beneficiary record before any new enrollment.' : 'The similarity scan found another active profile above the configured threshold. Claim verification and replacement are paused while authorized staff review the records.'}</p><p className="mt-3 text-xs font-semibold text-muted-copy">For privacy, facilitators are not shown the matching person or barangay.</p>{isAdmin && <button type="button" onClick={onDelete} disabled={isSubmitting} className="ga-btn-secondary mt-4 border-red-200 text-brand-red hover:bg-danger-soft">Delete held template</button>}</div> : !activeConsent ? <p className="mt-5 rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">Enrollment locked:</strong> record active consent above before capturing biometric data.</p> : <form onSubmit={onEnrollment} className="mt-5">{enrollmentError && <div ref={enrollmentErrorRef} tabIndex={-1} role="alert" className="mb-4 rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 focus-visible:outline-2 focus-visible:outline-brand-blue"><p className="font-bold text-ink">Face profile was not confirmed</p><p className="mt-1">{enrollmentError.message}</p>{enrollmentError.code === 'BIOMETRIC_SERVICE_UNAVAILABLE' && <p className="mt-2">Your captured photo is still on this screen. Once the service is ready, use Retry saving face profile below. Taking another photo will not fix a service outage.</p>}</div>}<CaptureField id="enrollment-face-capture" purpose="enrollment" disabled={isSubmitting} help="Take one clear reference photo, review it, then save the face profile below." />{isSubmitting && <p role="status" className="mt-3 text-sm leading-6 text-copy">The face service is checking this photo. Keep this page open; no new capture is needed while it processes.</p>}<div className="mt-5 flex flex-col gap-3 sm:flex-row"><button type="submit" disabled={isSubmitting} className="ga-btn-primary flex-1">{isSubmitting ? <LoadingLabel>Saving face profile...</LoadingLabel> : enrollmentError?.code === 'BIOMETRIC_SERVICE_UNAVAILABLE' ? 'Retry saving face profile' : profile?.biometricId ? 'Replace face profile' : 'Save face profile'}</button>{isAdmin && profile?.biometricId && <button type="button" onClick={onDelete} disabled={isSubmitting} className="ga-btn-secondary border-red-200 text-brand-red hover:bg-danger-soft">Delete template</button>}</div></form>}
+            {!(canCapture || (canReenroll && profile?.biometricId)) ? <p className="mt-5 rounded-lg border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">Enrollment is assigned to facilitators.</strong> You can review the status and consent; administrators may re-enroll an existing profile.</p> : duplicateHold ? <div className={`mt-5 rounded-xl border p-5 ${profile.biometricStatus === 'DUPLICATE_BLOCKED' ? 'border-red-200 bg-danger-soft' : 'border-amber-200 bg-warning-soft'}`}><p className={`font-extrabold ${profile.biometricStatus === 'DUPLICATE_BLOCKED' ? 'text-brand-red' : 'text-brand-amber'}`}>{profile.biometricStatus === 'DUPLICATE_BLOCKED' ? 'Duplicate profile confirmed' : 'Authorized review pending'}</p><p className="mt-2 text-sm leading-6 text-copy">{profile.biometricStatus === 'DUPLICATE_BLOCKED' ? 'This template cannot be used for claims. A System Administrator must resolve the beneficiary record before any new enrollment.' : 'The similarity scan found another active profile above the configured threshold. Claim verification and replacement are paused while authorized staff review the records.'}</p><p className="mt-3 text-xs font-semibold text-muted-copy">For privacy, facilitators are not shown the matching person or barangay.</p>{isAdmin && <button type="button" onClick={onDelete} disabled={isSubmitting} className="ga-btn-secondary mt-4 border-red-200 text-brand-red hover:bg-danger-soft">Delete held template</button>}</div> : !activeConsent ? <p className="mt-5 rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">Enrollment locked:</strong> record active consent above before capturing biometric data.</p> : <form onSubmit={onEnrollment} className="mt-5">{enrollmentError && <div ref={enrollmentErrorRef} tabIndex={-1} role="alert" className="mb-4 rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 focus-visible:outline-2 focus-visible:outline-brand-blue"><p className="font-bold text-ink">Face profile was not confirmed</p><p className="mt-1">{enrollmentError.message}</p>{enrollmentError.code === 'BIOMETRIC_SERVICE_UNAVAILABLE' && <p className="mt-2">Your captured photo is still on this screen. Once the service is ready, use Retry saving face profile below. Taking another photo will not fix a service outage.</p>}</div>}<CaptureField key={beneficiaryId} id="enrollment-face-capture" purpose="enrollment" captureKey={beneficiaryId} onCaptureChange={setReadyCapture} disabled={isSubmitting} help="Take one clear reference photo, review it, then save the face profile below." />{isSubmitting && <p role="status" className="mt-3 text-sm leading-6 text-copy">The face service is checking this photo. Keep this page open; no new capture is needed while it processes.</p>}<div className="mt-5 flex flex-col gap-3 sm:flex-row"><button type="submit" disabled={isSubmitting || readyCapture !== beneficiaryId} className="ga-btn-primary flex-1">{isSubmitting ? <LoadingLabel>Saving face profile...</LoadingLabel> : enrollmentError?.code === 'BIOMETRIC_SERVICE_UNAVAILABLE' ? 'Retry saving face profile' : profile?.biometricId ? 'Replace face profile' : 'Save face profile'}</button>{isAdmin && profile?.biometricId && <button type="button" onClick={onDelete} disabled={isSubmitting} className="ga-btn-secondary border-red-200 text-brand-red hover:bg-danger-soft">Delete template</button>}</div></form>}
             {profile?.biometricId && <dl className="mt-5 grid gap-4 border-t border-line pt-5 text-sm sm:grid-cols-3"><Info label="Enrolled" value={displayDate(profile.createdAt)} /><Info label="Successful checks" value={profile.verificationCount ?? 0} /><Info label="Last verified" value={displayDate(profile.lastVerifiedAt)} /></dl>}
           </section>
         </>}
@@ -716,6 +751,8 @@ function EnrollmentWorkspace({ enrollmentError, onReturnVerification, beneficiar
 }
 
 function VerificationWorkspace({ onManageEnrollment, loadingClaim, claimError, onRetryClaim, retrySignature, role, onNavigate, verificationError, scheduleError, loadingSchedules, onRetrySchedules, distributions, distributionId, setDistributionId, beneficiaryId, setBeneficiaryId, selectedDistribution, candidates, isSubmitting, result, onSubmit, onSignature, onReset, processing }) {
+  const [readyCapture, setReadyCapture] = useState(null)
+  const captureKey = `${distributionId}:${beneficiaryId}`
   const awaitingSignature = result?.nextRequiredVerification === 'SIGNATURE'
   const requiresSignature = selectedDistribution?.verificationRequirement === 'BIOMETRIC_AND_SIGNATURE'
   const eventAvailable = distributions.some((item) => item.distributionId === distributionId)
@@ -730,7 +767,7 @@ function VerificationWorkspace({ onManageEnrollment, loadingClaim, claimError, o
         </header>
 
         <div className="p-5 sm:p-6">
-          {verificationError && <div role="alert" className="mb-4 border-l-2 border-brand-amber bg-warning-soft p-4 text-sm leading-6"><p className="font-bold">{needsEnrollment ? 'Consent and an enrolled face profile are required' : retrySignature ? 'Signature confirmation unavailable' : 'Identity verification was not confirmed'}</p><p>{verificationError.message}</p>{needsEnrollment && <><p className="mt-2">This photo checks the current visit against a previously enrolled profile; it does not create that profile. {role === 'BARANGAY_FACILITATOR' ? 'Review consent, enroll the beneficiary, then return here for a new live photo.' : 'Ask the assigned Barangay Facilitator to review consent and enroll the beneficiary, then return here for a new live photo.'} Your selected event and beneficiary will stay selected. The claim remains pending and no handover is recorded.</p><button type="button" disabled={isSubmitting} onClick={onManageEnrollment} className="ga-btn-secondary mt-3"><Icon name="profile" className="size-4" />Review consent &amp; enrollment</button></>}</div>}
+          {verificationError && <div role="alert" className="mb-4 border-l-2 border-brand-amber bg-warning-soft p-4 text-sm leading-6"><p className="font-bold">{needsEnrollment ? 'Consent and an enrolled face profile are required' : retrySignature ? 'Signature confirmation unavailable' : 'Identity verification was not confirmed'}</p><p>{verificationError.message}</p>{verificationError.code === 'BIOMETRIC_SERVICE_UNAVAILABLE' && <p className="mt-2">Your photo is still here. Retry verification when the service is available; taking another photo will not fix a service outage.</p>}{needsEnrollment && <><p className="mt-2">This photo checks the current visit against a previously enrolled profile; it does not create that profile. {role === 'BARANGAY_FACILITATOR' ? 'Review consent, enroll the beneficiary, then return here for a new live photo.' : 'Ask the assigned Barangay Facilitator to review consent and enroll the beneficiary, then return here for a new live photo.'} Your selected event and beneficiary will stay selected. The claim remains pending and no handover is recorded.</p><button type="button" disabled={isSubmitting} onClick={onManageEnrollment} className="ga-btn-secondary mt-3"><Icon name="profile" className="size-4" />Review consent &amp; enrollment</button></>}</div>}
           {distributionId && !eventAvailable && <p role="status" className="mt-2 text-sm text-brand-amber">This event is unavailable for biometric verification. Select an open event that requires a face check.</p>}
           {loadingClaim && <p role="status" className="mb-4 text-sm"><LoadingLabel>Checking saved verification...</LoadingLabel></p>}
           {selectedDistribution?.manualVerificationBasis && ['BIOMETRIC', 'QR_OR_BIOMETRIC'].includes(selectedDistribution.verificationRequirement) && !result && <button type="button" disabled={isSubmitting || loadingClaim || Boolean(claimError)} onClick={() => onNavigate(`/manual-verification?distribution=${encodeURIComponent(distributionId)}&beneficiary=${encodeURIComponent(beneficiaryId)}`)} className="ga-btn-secondary mb-4">Use permitted manual identity review</button>}
@@ -782,14 +819,14 @@ function VerificationWorkspace({ onManageEnrollment, loadingClaim, claimError, o
 
               {loadingSchedules && <p role="status" className="text-sm text-copy"><LoadingLabel>Loading scheduled beneficiaries...</LoadingLabel></p>}
               {scheduleError && <div role="alert" className="border-l-2 border-brand-amber bg-warning-soft p-4 text-sm leading-6"><p className="font-bold">Scheduled beneficiaries could not be loaded</p><p>{scheduleError}</p><button type="button" onClick={onRetrySchedules} className="ga-btn-secondary mt-3">Retry schedules</button></div>}
-              <CaptureField key={`${distributionId}:${beneficiaryId}`} id="verification-face-capture" disabled={isSubmitting || loadingClaim || Boolean(claimError) || loadingSchedules || Boolean(scheduleError) || !eventAvailable || !beneficiaryId || needsEnrollment} help="Confirm the beneficiary is present and agrees to the live identity check." />
+              <CaptureField key={captureKey} id="verification-face-capture" captureKey={captureKey} onCaptureChange={setReadyCapture} disabled={isSubmitting || loadingClaim || Boolean(claimError) || loadingSchedules || Boolean(scheduleError) || !eventAvailable || !beneficiaryId || needsEnrollment} help="Confirm the beneficiary is present and agrees to the live identity check." />
 
               <p className="flex gap-3 rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm leading-6 text-copy">
                 <Icon name="info" className="mt-0.5 size-5 shrink-0 text-brand-amber" />
                 <span><strong className="text-ink">Before capture:</strong> compare the selected schedule with the official beneficiary record.</span>
               </p>
 
-              <button type="submit" disabled={isSubmitting || loadingClaim || Boolean(claimError) || loadingSchedules || Boolean(scheduleError) || !eventAvailable || !beneficiaryId || needsEnrollment || !candidates.some((item) => item.beneficiaryId === beneficiaryId)} className="ga-btn-primary w-full">
+              <button type="submit" disabled={isSubmitting || readyCapture !== captureKey || loadingClaim || Boolean(claimError) || loadingSchedules || Boolean(scheduleError) || !eventAvailable || !beneficiaryId || needsEnrollment || !candidates.some((item) => item.beneficiaryId === beneficiaryId)} className="ga-btn-primary w-full">
                 {isSubmitting ? <LoadingLabel>Checking liveness and face match...</LoadingLabel> : requiresSignature ? 'Verify face and continue to signature' : 'Verify beneficiary identity'}
               </button>
             </form>
