@@ -19,8 +19,9 @@ try {
   page.on('pageerror', error => errors.push(error.message))
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.addInitScript(() => {
+    const role = sessionStorage.getItem('qr-layout-role') || 'SYSTEM_ADMIN'
     sessionStorage.setItem('garantiyaid.accessToken', 'synthetic-qr-layout')
-    sessionStorage.setItem('garantiyaid.user', JSON.stringify({ userId: 'test-admin', role: 'SYSTEM_ADMIN', fullName: 'Test Administrator' }))
+    sessionStorage.setItem('garantiyaid.user', JSON.stringify({ userId: 'test-staff', role, fullName: 'Synthetic Staff' }))
     window.printCalls = 0
     window.print = () => { if (window.failPrint) throw new Error('Print unavailable'); window.printCalls++ }
     Object.defineProperty(navigator.clipboard, 'writeText', { value: async text => {
@@ -38,7 +39,7 @@ try {
   const program = { programId: 'program-1', programName: 'Synthetic assistance', programCode: 'TEST-ONLY', status: 'ACTIVE', grantAmount: '1000' }
   const barangay = { barangayId: 'barangay-1', barangayName: 'Synthetic Barangay', city: 'Test City' }
   const event = { distributionId: 'event-1', title: 'Synthetic community distribution', status: 'OPEN', program, barangay, distributionDate: '2099-11-11', startTime: '08:00', endTime: '12:00', location: 'Synthetic Barangay Hall', verificationRequirement: 'QR', deliveryMode: 'PHYSICAL_GOODS', packageName: 'Food pack', packageUnit: 'pack', packageQuantity: 1 }
-  let tokens = [], issued = false
+  let tokens = [], issued = false, isDswd = false, holdGeneration = false, releaseGeneration
   await page.route('**/socket.io/**', route => route.abort())
   await page.routeWebSocket(/socket\.io/, () => {})
   await page.route('**/api/v1/**', async route => {
@@ -46,6 +47,7 @@ try {
     let data
     if (route.request().method() !== 'GET') {
       assert.equal(path, '/distributions/event-1/qr-tokens/generate')
+      if (holdGeneration) await new Promise(resolve => { releaseGeneration = resolve })
       issued = true
       return route.fulfill({ status: 201, json: { data: { qrTokens: tokens, summary: { generatedTokenCount: tokens.length, rawTokensReturnedOnce: true } } } })
     }
@@ -59,7 +61,7 @@ try {
     else if (path.endsWith('/allocations')) data = { allocations: [], summary: { countsByStatus: {}, totalAmount: '0' }, pagination }
     else if (path.endsWith('/schedules')) data = { schedules: [], summary: { countsByStatus: {}, matchingScheduleCount: 0 }, pagination }
     else if (path.endsWith('/qr-eligible-schedules')) data = { schedules: [], summary: { qrEligibleScheduleCount: issued ? 0 : tokens.length } }
-    else if (path.endsWith('/qr-tokens')) data = { qrTokens: [], summary: { matchingTokenCount: issued ? tokens.length : 0 } }
+    else if (path.endsWith('/qr-tokens')) data = { qrTokens: issued ? tokens.map(({ token: _token, ...item }) => ({ ...item, qrStatus: 'ACTIVE' })) : [], summary: { matchingTokenCount: issued ? tokens.length : 0 } }
     else if (path.endsWith('/eligible-enrollments')) data = { enrollments: [], summary: { serviceAreas: [], unspecifiedServiceAreaCount: 0 }, pagination }
     else if (path.endsWith('/claims')) data = { claims: [], summary: { countsByStatus: {} }, pagination }
     else if (path.endsWith('/claim-disputes')) data = { disputes: [], summary: { countsByStatus: {} }, pagination }
@@ -81,8 +83,15 @@ try {
     }))
     if (formulaName) tokens[0].beneficiary.firstName = '=Synthetic "Quoted", Name'
     if (unicodeName) Object.assign(tokens[0].beneficiary, { firstName: 'Jos\u00e9', middleName: '\u674e', lastName: 'Dela Pe\u00f1a' })
-    await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/distributions/manage?event=event-1&stage=launch`)
+    const route = isDswd ? '/dswd/verify-claims?distribution=event-1' : '/distributions/manage?event=event-1&stage=launch'
+    await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}${route}`)
+    if (isDswd) await page.getByText('Issue beneficiary QR cards', { exact: true }).click()
     await page.getByRole('button', { name: 'Generate remaining QR credentials' }).click()
+    if (holdGeneration) {
+      await expect.poll(() => typeof releaseGeneration).toBe('function')
+      await expect(page.getByRole('combobox', { name: 'Distribution event', exact: true })).toBeDisabled()
+      releaseGeneration(); holdGeneration = false
+    }
     await expect(dialog).toBeVisible()
     await expect(dialog.locator('.ga-qr-card')).toHaveCount(count)
     await expect(dialog.getByRole('button', { name: 'Download PDF', exact: true })).toBeFocused()
@@ -206,8 +215,23 @@ try {
   await open(1, false, false, true)
   await downloadPdf('unicode-name')
   await done().click()
+  isDswd = true
+  holdGeneration = true
+  await page.evaluate(() => sessionStorage.setItem('qr-layout-role', 'DSWD_STAFF'))
+  await open(1)
+  await downloadPdf('dswd-card')
+  await done().click()
+  await expect(page.getByRole('button', { name: 'Replace lost QR', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Generate remaining QR credentials', exact: true })).toBeDisabled()
+  await expect(page.getByText('Ask the System Administrator to replace a lost card.', { exact: false })).toBeVisible()
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.getByText('Issue beneficiary QR cards', { exact: true }).scrollIntoViewIfNeeded()
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
+    await page.screenshot({ path: resolve(output, `dswd-issuance-${width}.png`) })
+  }
   assert.deepEqual(errors, [])
-  console.log('Enlarged previews, compact direct PDF downloads, Unicode names, print isolation, errors, double-click protection, backups and cleanup passed. Nine synthetic PDFs written for page and QR verification.')
+  console.log('Admin and DSWD issuance, enlarged previews, compact PDFs, Unicode, print isolation, errors, saving guards and backups passed. DSWD replacement is hidden; all credentials and APIs are synthetic.')
 } finally {
   await browser?.close()
   await vite.close()

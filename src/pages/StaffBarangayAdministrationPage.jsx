@@ -293,19 +293,29 @@ function StaffAccountCreatedDialog({ account, onClose }) {
 
 function BarangayFormDialog({ barangay, cities, onClose, onSave }) {
   const dialogRef = useRef(null)
+  const errorRef = useRef(null)
+  const savingRef = useRef(false)
   const [form, setForm] = useState(() => barangay ? { barangayCode: barangay.barangayCode ?? '', barangayName: barangay.barangayName, city: barangay.city, province: barangay.province } : emptyBarangay)
   const [isSaving, setIsSaving] = useState(false)
   const [areaText, setAreaText] = useState(() => (barangay?.serviceAreas || []).join('\n'))
   const [formError, setFormError] = useState('')
-  useEffect(() => { dialogRef.current?.showModal() }, [])
-  function change(field, value) { setForm((current) => ({ ...current, [field]: value })) }
+  useEffect(() => {
+    dialogRef.current?.showModal()
+    dialogRef.current?.querySelector('#barangay-city')?.focus({ preventScroll: true })
+  }, [])
+  useEffect(() => { if (formError) errorRef.current?.focus() }, [formError])
+  function change(field, value) { setForm((current) => ({ ...current, [field]: value })); setFormError('') }
   async function submit(event) {
-    event.preventDefault(); setIsSaving(true)
+    event.preventDefault()
+    if (savingRef.current) return
+    savingRef.current = true
+    setIsSaving(true)
+    setFormError('')
     try {
       await onSave({ ...form, serviceAreas: areaText.split(/\r?\n/).map(value => value.trim()).filter(Boolean) })
       dialogRef.current?.close()
     } catch (error) { setFormError(getAuthErrorMessage(error)) }
-    finally { setIsSaving(false) }
+    finally { savingRef.current = false; setIsSaving(false) }
   }
   return (
     <dialog
@@ -314,74 +324,80 @@ function BarangayFormDialog({ barangay, cities, onClose, onSave }) {
       onClose={onClose}
       aria-labelledby="barangay-form-title"
       aria-describedby="barangay-form-description"
-      className="m-auto max-h-[calc(100dvh-1rem)] w-[min(42rem,calc(100%-1rem))] overflow-y-auto rounded-2xl border border-line bg-white p-0 text-ink shadow-2xl backdrop:bg-slate-950/60 backdrop:backdrop-blur-[3px] sm:max-h-[calc(100dvh-2rem)] sm:w-[min(42rem,calc(100%-2rem))]"
+      className="m-auto max-h-[calc(100dvh-1rem)] w-[min(46rem,calc(100%-1rem))] overflow-hidden rounded-xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/55 sm:max-h-[calc(100dvh-2rem)] sm:w-[min(46rem,calc(100%-2rem))]"
     >
-      <form onSubmit={submit}>
-        <header className="border-b border-line bg-gradient-to-br from-white via-white to-blue-50/70 p-5 sm:p-7">
-          <div className="flex items-start gap-4">
-            <span aria-hidden="true" className="grid size-12 shrink-0 place-items-center rounded-xl bg-brand-navy text-white shadow-sm sm:size-14">
-              <RoleIcon role="BARANGAY_FACILITATOR" className="size-6 sm:size-7" />
+      <form onSubmit={submit} aria-busy={isSaving} className="flex max-h-[calc(100dvh-1rem)] flex-col sm:max-h-[calc(100dvh-2rem)]">
+        <header className="shrink-0 border-b border-line px-4 py-4 sm:px-6 sm:py-5">
+          <div className="flex items-start gap-3">
+            <span aria-hidden="true" className="hidden size-11 shrink-0 place-items-center rounded-lg bg-info-soft text-brand-blue sm:grid">
+              <RoleIcon role="BARANGAY_FACILITATOR" className="size-6" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-extrabold uppercase tracking-[0.12em] text-brand-blue">Service-area registry</p>
-              <h2 id="barangay-form-title" className="mt-2 text-2xl font-extrabold tracking-tight sm:text-3xl">{barangay ? 'Edit barangay record' : 'Register a barangay'}</h2>
-              <p id="barangay-form-description" className="mt-2 max-w-xl text-sm leading-6 text-muted-copy">Create an accurate service-area record using the barangay’s official name and local-government jurisdiction.</p>
+              <p className="text-xs font-semibold text-brand-blue">Service-area registry</p>
+              <h2 id="barangay-form-title" className="mt-1 text-xl font-bold tracking-tight sm:text-2xl">{barangay ? 'Edit barangay record' : 'Register a barangay'}</h2>
             </div>
             <button type="button" disabled={isSaving} onClick={() => dialogRef.current?.close()} aria-label="Close barangay form" className="grid size-11 shrink-0 cursor-pointer place-items-center rounded-lg border border-line bg-white text-copy transition-colors hover:border-blue-200 hover:bg-info-soft hover:text-brand-blue focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue disabled:cursor-not-allowed disabled:opacity-50">
               <Icon name="close" />
             </button>
           </div>
+          <p id="barangay-form-description" className="mt-2 text-sm leading-5 text-muted-copy">Use the official location names from your local records.</p>
         </header>
 
-        <div data-dialog-stagger className="space-y-5 p-5 sm:p-7">
-          <p className="text-xs font-semibold leading-5 text-muted-copy"><span className="font-extrabold text-brand-red">*</span> Required information</p>
+        <div onFocusCapture={event => { if (event.target.matches('input, textarea')) event.target.scrollIntoView({ block: 'nearest' }) }} className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain scroll-py-4 px-4 py-5 sm:px-6">
+          <ol aria-label="Location hierarchy" className="flex items-center gap-2 rounded-lg border border-line bg-slate-50 px-3 py-3 text-xs font-semibold text-copy sm:gap-3 sm:text-sm">
+            <li className="flex min-w-0 flex-1 items-center gap-2"><Icon name="office" className="size-5 shrink-0 text-muted-copy" /><span>City / municipality</span></li>
+            <li className="flex min-w-0 flex-1 items-center gap-2"><Icon name="chevronRight" className="size-4 shrink-0 text-muted-copy" /><RoleIcon role="BARANGAY_FACILITATOR" className="hidden size-5 shrink-0 text-brand-blue sm:block" /><span>Barangay</span></li>
+            <li className="flex min-w-0 flex-1 items-center gap-2"><Icon name="chevronRight" className="size-4 shrink-0 text-muted-copy" /><Icon name="location" className="hidden size-5 shrink-0 text-muted-copy sm:block" /><span>Sitio / Purok</span></li>
+          </ol>
+          {formError && <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg border border-red-200 bg-danger-soft p-3 text-sm text-brand-red outline-none focus-visible:ring-2 focus-visible:ring-brand-red"><p className="flex items-center gap-2 font-bold"><Icon name="info" className="size-4 shrink-0" />Barangay could not be saved</p><p className="mt-1 leading-5">{formError}</p></div>}
+          <p className="text-xs leading-5 text-muted-copy"><span className="font-bold text-brand-red">*</span> Required fields</p>
 
-          <fieldset className="rounded-2xl border border-line bg-white p-4 sm:p-5">
-            <legend className="px-2 text-sm font-extrabold text-ink">Barangay identity</legend>
-            <div className="mt-1 grid gap-5">
+          <fieldset disabled={isSaving} className="min-w-0">
+            <legend className="text-sm font-bold text-ink">Local-government jurisdiction</legend>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <Field id="barangay-city" label="City or municipality" list="barangay-cities" required autoFocus maxLength="100" placeholder="e.g. Cebu City" value={form.city} onChange={(value) => change('city', value)} />
+              <Field id="barangay-province" label="Province" required maxLength="100" placeholder="e.g. Cebu" value={form.province} onChange={(value) => change('province', value)} />
+            </div>
+            <datalist id="barangay-cities">{cities.map(city => <option key={city} value={city} />)}</datalist>
+          </fieldset>
+
+          <fieldset disabled={isSaving} className="min-w-0 border-t border-line pt-4">
+            <legend className="pr-3 text-sm font-bold text-ink">Barangay identity</legend>
+            <div className="mt-1 grid gap-4 sm:grid-cols-[1.5fr_1fr]">
               <Field
                 id="barangay-name"
                 label="Official barangay name"
-                description="Enter the complete name used in official local-government records."
                 required
-                autoFocus
                 maxLength="100"
+                placeholder="e.g. San Nicolas Proper"
                 value={form.barangayName}
                 onChange={(value) => change('barangayName', value)}
               />
               <Field
                 id="barangay-code"
                 label="Barangay code (optional)"
-                description="Add the official administrative code when one is available."
+                description="Use the official code, if available."
                 maxLength="20"
+                placeholder="Enter barangay code"
                 value={form.barangayCode}
                 onChange={(value) => change('barangayCode', value)}
               />
             </div>
           </fieldset>
 
-          <fieldset className="rounded-2xl border border-line bg-slate-50/70 p-4 sm:p-5">
-            <legend className="px-2 text-sm font-extrabold text-ink">Local-government jurisdiction</legend>
-            <p className="mb-4 mt-1 text-xs leading-5 text-muted-copy">This determines where the barangay appears in staff assignments and service-area filters.</p>
-            <div className="grid gap-5 sm:grid-cols-2">
-              <Field id="barangay-city" label="City or municipality" list="barangay-cities" required maxLength="100" value={form.city} onChange={(value) => change('city', value)} />
-              <datalist id="barangay-cities">{cities.map(city => <option key={city} value={city} />)}</datalist>
-              <Field id="barangay-province" label="Province" required maxLength="100" value={form.province} onChange={(value) => change('province', value)} />
-            </div>
+          <fieldset disabled={isSaving} className="min-w-0 border-t border-line pt-4">
+            <legend className="pr-3 text-sm font-bold text-ink">Sitios / Puroks in this Barangay</legend>
+            <label htmlFor="barangay-service-areas" className="ga-label mt-1">Confirmed Sitios / Puroks <span className="font-normal text-muted-copy">(optional)</span></label>
+            <textarea id="barangay-service-areas" rows="3" value={areaText} onChange={event => { setAreaText(event.target.value); setFormError('') }} placeholder={'e.g. Sitio Grotto\nPurok 1'} className="ga-input mt-2 min-h-24 resize-y py-3 leading-6" aria-describedby="barangay-area-help" />
+            <p id="barangay-area-help" className="mt-2 text-xs leading-5 text-muted-copy">One confirmed area per line. Keep “Sitio” or “Purok” in its name. Leave blank if no areas are confirmed yet.</p>
           </fieldset>
-
-          <fieldset className="rounded-lg border border-line p-4"><legend className="px-2 text-sm font-bold">Sitios / Puroks in this Barangay</legend><label htmlFor="barangay-service-areas" className="ga-label">Confirmed Sitios / Puroks</label><textarea id="barangay-service-areas" rows="5" value={areaText} onChange={event => { setAreaText(event.target.value); setFormError('') }} className="ga-input mt-2 min-h-32 py-3" aria-describedby="barangay-area-help" /><p id="barangay-area-help" className="mt-2 text-xs leading-5 text-muted-copy">Enter one area per line after checking the local records. Include Sitio or Purok in the name where appropriate. Existing beneficiary text remains available for review.</p></fieldset>
-          {formError && <p role="alert" className="rounded-lg border border-red-200 bg-danger-soft p-3 text-sm text-brand-red">{formError}</p>}
-          <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy">
-            <span aria-hidden="true" className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-white text-brand-blue shadow-sm"><Icon name="info" className="size-4" strokeWidth={2} /></span>
-            <p><strong className="text-ink">Before saving:</strong> verify the spelling and jurisdiction. These details will be used when assigning Barangay Facilitator accounts.</p>
-          </div>
+          <p className="flex items-start gap-2 text-xs leading-5 text-muted-copy"><Icon name="info" className="mt-0.5 size-4 shrink-0" /><span>Check the location names before saving. Staff assignments and service-area filters use this record.</span></p>
         </div>
 
-        <footer className="flex flex-col-reverse gap-3 border-t border-line bg-slate-50/80 p-5 sm:flex-row sm:items-center sm:justify-end sm:px-7">
-          <button type="button" disabled={isSaving} onClick={() => dialogRef.current?.close()} className="ga-btn-secondary">Cancel</button>
-          <button type="submit" disabled={isSaving} className="ga-btn-primary">
-            {isSaving ? <LoadingLabel>{barangay ? 'Saving changes...' : 'Registering barangay...'}</LoadingLabel> : <><Icon name={barangay ? 'check' : 'plus'} />{barangay ? 'Save changes' : 'Register barangay'}</>}
+        <footer className="flex shrink-0 items-center justify-end gap-3 border-t border-line bg-white px-4 py-4 sm:px-6">
+          <button type="button" disabled={isSaving} onClick={() => dialogRef.current?.close()} className="ga-btn-secondary px-3 text-sm sm:px-5">Cancel</button>
+          <button type="submit" disabled={isSaving} className="ga-btn-primary min-w-0 flex-1 px-3 text-sm sm:flex-none sm:px-5">
+            {isSaving ? <LoadingLabel>{barangay ? 'Saving...' : 'Registering...'}</LoadingLabel> : <><Icon name={barangay ? 'check' : 'plus'} className="size-4 shrink-0" />{barangay ? 'Save changes' : 'Register barangay'}</>}
           </button>
         </footer>
       </form>

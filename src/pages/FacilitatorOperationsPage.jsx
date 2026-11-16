@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
+import QrIssuancePanel from '../components/distributions/QrIssuancePanel.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Icon } from '../components/ui/icon.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
@@ -139,6 +140,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
   const [pendingAttempt, setPendingAttempt] = useState(null)
   const [isPreviewing, setIsPreviewing] = useState(false)
   const [isVerifying, setIsVerifying] = useState(false)
+  const [isQrIssuing, setIsQrIssuing] = useState(false)
   const qrRequestPending = useRef(false)
   const isFacilitator = session.user.role === 'BARANGAY_FACILITATOR'
   const isAdmin = session.user.role === 'SYSTEM_ADMIN'
@@ -495,7 +497,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
       ) : (
         <>
           <section className="ga-card mt-7 grid gap-5 p-5 md:grid-cols-[minmax(0,1fr)_minmax(16rem,0.7fr)] md:items-end sm:p-6" aria-label="Selected distribution event">
-            <DistributionSelector distributions={distributions} selectedId={selectedId} onChange={selectDistribution} disabled={isPreviewing || isVerifying || isScheduleBusy || Boolean(scheduleAction) || Boolean(reschedule)} />
+            <DistributionSelector distributions={distributions} selectedId={selectedId} onChange={selectDistribution} disabled={isPreviewing || isVerifying || isQrIssuing || isScheduleBusy || Boolean(scheduleAction) || Boolean(reschedule)} />
             <dl className="grid min-w-0 grid-cols-1 gap-4 rounded-lg bg-slate-50 p-4 text-sm [overflow-wrap:anywhere] sm:grid-cols-2">
               <div><dt className="text-xs font-semibold text-muted-copy">Location</dt><dd className="mt-1 font-bold text-ink">{selectedDistribution?.location}</dd></div>
               <div><dt className="text-xs font-semibold text-muted-copy">Event time</dt><dd className="mt-1 font-bold text-ink">{selectedDistribution?.startTime}–{selectedDistribution?.endTime}</dd></div>
@@ -505,6 +507,8 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
 
             {view === 'queue' && !isAdmin && selectedDistribution?.status === 'OPEN' && manualVerificationAllowed(selectedDistribution) && <button type="button" disabled={isScheduleBusy || Boolean(scheduleAction) || Boolean(reschedule)} onClick={() => onNavigate(`/manual-verification?distribution=${encodeURIComponent(selectedId)}`)} className="ga-btn-secondary md:col-span-2 md:justify-self-start">Open manual identity review</button>}
           </section>
+
+          {isDswd && view === 'qr' && selectedDistribution && <QrIssuancePanel key={selectedId} distribution={selectedDistribution} accessToken={session.accessToken} onSessionExpired={onSessionExpired} claimId={verificationResult?.claim?.claimId} onBusyChange={setIsQrIssuing} />}
 
           {view === 'queue' ? (
             <QueueView
