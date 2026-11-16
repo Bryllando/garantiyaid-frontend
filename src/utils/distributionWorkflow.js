@@ -1,7 +1,7 @@
+import { philippineDate } from './philippineDate.js'
+
 export function nextDistributionDate(now = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(now.getTime() + 86_400_000))
-  const values = Object.fromEntries(parts.map(part => [part.type, part.value]))
-  return `${values.year}-${values.month}-${values.day}`
+  return philippineDate(new Date(now.getTime() + 86_400_000))
 }
 
 export function distributionWindowEnded(distribution, now = new Date()) {

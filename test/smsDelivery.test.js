@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { canRetrySms, smsDeliveryNotice, smsStatusLabel } from '../src/utils/smsDelivery.js'
+import { canRetrySms, smsDeliveryNotice, smsStatusLabel, smsNeedsReview } from '../src/utils/smsDelivery.js'
 
 test('SMS wording distinguishes simulation, provider acceptance and unconfirmed submissions', () => {
   assert.match(smsDeliveryNotice(true), /No real SMS/)
@@ -18,4 +18,10 @@ test('SMS wording distinguishes simulation, provider acceptance and unconfirmed 
   const oldWorker = { status: 'FAILED', simulated: false, lastErrorCode: 'SMS_SIMULATED_BY_OLD_WORKER' }
   assert.equal(smsStatusLabel(oldWorker), 'Not sent (old worker)')
   assert.equal(canRetrySms(oldWorker), true)
+  for (const lastErrorCode of ['NOTIFICATION_CONTEXT_CHANGED', 'NOTIFICATION_REVIEW_REQUIRED']) {
+    const row = { status: 'FAILED', lastErrorCode }
+    assert.equal(smsNeedsReview(row), true)
+    assert.equal(smsStatusLabel(row), 'Review needed')
+    assert.equal(canRetrySms(row), false)
+  }
 })

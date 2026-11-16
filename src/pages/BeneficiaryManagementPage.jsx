@@ -1,4 +1,5 @@
 import { enrollmentLocation, readEnrollmentLocation } from '../utils/enrollmentLocation.js'
+import { philippineDate } from '../utils/philippineDate.js'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
@@ -127,7 +128,7 @@ function BeneficiaryFormDialog({ assignedBarangay, barangays, beneficiary, isFac
               <FormField label="First name" id="beneficiary-first-name" required placeholder="e.g. Juan" value={form.firstName} onChange={value => change('firstName', value)} />
               <FormField label="Middle name" id="beneficiary-middle-name" optional placeholder="If applicable" value={form.middleName} onChange={value => change('middleName', value)} />
               <FormField label="Last name" id="beneficiary-last-name" required placeholder="e.g. Dela Cruz" value={form.lastName} onChange={value => change('lastName', value)} />
-              <div><label htmlFor="beneficiary-birth-date" className="ga-label inline-flex items-center gap-2"><Icon name="calendar" className="size-4 text-brand-blue" />Birth date</label><input id="beneficiary-birth-date" type="date" required max={new Date().toISOString().slice(0, 10)} value={form.birthDate} onChange={event => change('birthDate', event.target.value)} className="ga-input mt-2 min-w-0" /></div>
+              <div><label htmlFor="beneficiary-birth-date" className="ga-label inline-flex items-center gap-2"><Icon name="calendar" className="size-4 text-brand-blue" />Birth date</label><input id="beneficiary-birth-date" type="date" required max={philippineDate()} value={form.birthDate} onChange={event => change('birthDate', event.target.value)} className="ga-input mt-2 min-w-0" /></div>
               <div><label htmlFor="beneficiary-sex" className="ga-label">Sex</label><select id="beneficiary-sex" required value={form.sex} onChange={event => change('sex', event.target.value)} className="ga-input mt-2"><option value="">Select sex</option>{['FEMALE', 'MALE', 'OTHER', 'UNKNOWN'].map(value => <option key={value} value={value}>{humanize(value)}</option>)}</select></div>
               <FormField label="PhilSys number" id="beneficiary-philsys" icon="idCard" optional maxLength="50" value={form.philsysNumber} onChange={value => change('philsysNumber', value)} />
             </div></fieldset>
