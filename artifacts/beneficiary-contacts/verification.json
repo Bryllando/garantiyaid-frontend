@@ -1,0 +1,10 @@
+{
+  "passed": true,
+  "checks": [
+    "Original file still imports without optional contacts; the missing-column explanation is visible",
+    "Updated Excel auto-matches both contact columns and ten barangays; identity example is masked; desktop and mobile layouts fit",
+    "Skipped identity values stay empty; included values reach the real validator unchanged; explicit confirmation is still required"
+  ],
+  "actualDatabaseWrites": 0,
+  "actualMessagesSent": false
+}

@@ -13,7 +13,7 @@ const aliases = {
   address: ['address', 'completeaddress', 'homeaddress'], sitioPurok: ['sitiopurok', 'sitio', 'purok'],
   barangayId: ['barangay', 'barangayname', 'barangaycode', 'barangayid'],
   contactNumber: ['mobilenumber', 'contactnumber', 'phone', 'mobile', 'phonenumber'],
-  email: ['email', 'emailaddress'], philsysNumber: ['philsysnumber', 'philsys', 'nationalidnumber'],
+  email: ['email', 'emailaddress'], philsysNumber: ['philsysnumber', 'philsys', 'nationalidnumber', 'philsyscardnumber', 'philsyscardnumberpcn', 'pcn'],
   programId: ['assistanceprogram', 'program', 'programname', 'programcode', 'programid'],
 }
 export const readBeneficiaryImportFile = file => readStaffImportFile(file, { label: 'beneficiary' })

@@ -5,6 +5,7 @@ import { getAuthErrorMessage, isSessionExpiredError, requestClaimDisputes, reque
 import { connectStaffRealtime } from '../realtime/staffRealtime.js'
 import { eventWorkRows } from '../utils/eventOperations.js'
 import { monitoringActionHref, monitoringLocation, readMonitoringLocation } from '../utils/monitoringLocation.js'
+import { createLiveRefresh } from '../utils/liveRefresh.js'
 
 const date = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeZone: 'Asia/Manila' })
 const timestamp = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Manila' })
@@ -41,12 +42,8 @@ function MonitoringWorkspace({ session, onLogout, onNavigate, onSessionExpired }
   useEffect(() => { window.history.replaceState(window.history.state, '', monitoringLocation(query)) }, [query])
 
   useEffect(() => {
-    let active = true, timer, connectedOnce = false
-    const update = () => {
-      if (!active) return
-      clearTimeout(timer)
-      timer = setTimeout(() => { if (active) setRefresh((value) => value + 1) }, 300)
-    }
+    let active = true, connectedOnce = false
+    const update = createLiveRefresh(session.accessToken, () => { if (active) setRefresh(value => value + 1) })
     const disconnect = connectStaffRealtime(session.accessToken, {
       onReady: () => { if (active) { setConnection('connected'); if (connectedOnce) update(); connectedOnce = true } },
       onUpdate: update,
@@ -58,7 +55,7 @@ function MonitoringWorkspace({ session, onLogout, onNavigate, onSessionExpired }
       },
     })
     const safetyRefresh = setInterval(() => { if (document.visibilityState === 'visible') update() }, 60_000)
-    return () => { active = false; clearTimeout(timer); clearInterval(safetyRefresh); disconnect() }
+    return () => { active = false; update.cancel(); clearInterval(safetyRefresh); disconnect() }
   }, [onSessionExpired, session.accessToken])
 
   useEffect(() => {

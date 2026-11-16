@@ -17,7 +17,14 @@ const aliases = {
   requiredDocumentTypes: ['requireddocuments', 'requireddocumenttypes', 'documents', 'documentrequirements'],
 }
 export const readProgramImportFile = file => readStaffImportFile(file, { label: 'program' })
-export const programTableFromSheet = data => tableFromSheet(data, { label: 'programs', maxCellLength: 5000 })
+export function programTableFromSheet(data) {
+  const table = tableFromSheet(data, { label: 'programs', maxCellLength: 5000 })
+  const headers = table.headers.map(key)
+  if (headers.includes('barangayname') && headers.includes('province') && !headers.includes('programname') && !headers.includes('programtype')) {
+    throw new Error('This is a barangay list. Open Staff and barangays → Barangays → Import barangays. For programs, choose a file with program names, codes and types.')
+  }
+  return table
+}
 export const suggestProgramColumns = headers => Object.fromEntries(PROGRAM_IMPORT_FIELDS.map(([field]) => [field, String(headers.findIndex(header => aliases[field].includes(key(header))))]))
 const splitDocuments = value => String(value ?? '').split(/[;|,]/).map(item => item.trim()).filter(Boolean)
 export function sourceDocumentTypes(table, column) {

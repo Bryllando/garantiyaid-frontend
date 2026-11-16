@@ -5,11 +5,30 @@ import { BIOMETRIC_FOLLOW_UP_KEY } from '../utils/biometricFollowUp.js'
 
 const API_CONNECTION_ERROR = 'Unable to connect to GarantiyAid. Check your connection and try again. If the problem continues, contact your system administrator.'
 const apiRetryAt = new Map()
+const apiCooldownListeners = new Map()
+const pendingReads = new Map()
 
-function rateLimitError(seconds) {
-  const error = new Error(`Too many requests. Try again in ${seconds >= 60 ? `${Math.ceil(seconds / 60)} minute(s)` : `${seconds} second(s)`}.`)
-  Object.assign(error, { status: 429, code: 'RATE_LIMIT_EXCEEDED', retryAfterSeconds: seconds })
+function rateLimitError(seconds, retryAt) {
+  const value = seconds >= 60 ? Math.ceil(seconds / 60) : seconds
+  const unit = seconds >= 60 ? 'minute' : 'second'
+  const error = new Error(`Requests are temporarily paused. Try again in ${value} ${unit}${value === 1 ? '' : 's'}.`)
+  Object.assign(error, { status: 429, code: 'RATE_LIMIT_EXCEEDED', scope: 'garantiyaid-api', retryAfterSeconds: seconds, retryAt })
   return error
+}
+
+export function getApiRetryAfterSeconds(token, now = Date.now()) {
+  const key = token || 'anonymous'
+  const remaining = Math.max(0, Math.ceil(((apiRetryAt.get(key) ?? 0) - now) / 1000))
+  if (!remaining) apiRetryAt.delete(key)
+  return remaining
+}
+
+export function subscribeApiCooldown(token, listener) {
+  const key = token || 'anonymous'
+  if (!apiCooldownListeners.has(key)) apiCooldownListeners.set(key, new Set())
+  const listeners = apiCooldownListeners.get(key)
+  listeners.add(listener)
+  return () => { listeners.delete(listener); if (!listeners.size) apiCooldownListeners.delete(key) }
 }
 
 function queryString(values) {
@@ -21,11 +40,21 @@ function queryString(values) {
   return serialized ? `?${serialized}` : ''
 }
 
-async function requestJson(path, { body, headers, token, signal, method = 'POST' } = {}) {
+function requestJson(path, options = {}) {
+  if (options.method !== 'GET' || options.signal) return performJsonRequest(path, options)
+  const key = JSON.stringify([options.token || '', path, options.headers ?? null])
+  if (pendingReads.has(key)) return pendingReads.get(key)
+  const pending = performJsonRequest(path, options)
+  pendingReads.set(key, pending)
+  const clear = () => pendingReads.delete(key)
+  pending.then(clear, clear)
+  return pending
+}
+
+async function performJsonRequest(path, { body, headers, token, signal, method = 'POST' } = {}) {
   const cooldownKey = token || 'anonymous'
-  const remaining = Math.ceil(((apiRetryAt.get(cooldownKey) ?? 0) - Date.now()) / 1000)
-  if (remaining > 0) throw rateLimitError(remaining)
-  apiRetryAt.delete(cooldownKey)
+  const remaining = getApiRetryAfterSeconds(token)
+  if (remaining > 0) throw rateLimitError(remaining, apiRetryAt.get(cooldownKey))
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
   let response
   try {
@@ -53,10 +82,15 @@ async function requestJson(path, { body, headers, token, signal, method = 'POST'
     error.code = payload?.error?.code
     error.details = payload?.error?.details
     error.data = payload?.data
+    error.scope = payload?.error?.scope
     if (response.status === 429) {
       const seconds = Number(payload?.error?.retryAfterSeconds ?? response.headers?.get?.('Retry-After'))
       error.retryAfterSeconds = Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 60
-      if (payload?.error?.scope === 'garantiyaid-api') apiRetryAt.set(cooldownKey, Date.now() + error.retryAfterSeconds * 1000)
+      error.retryAt = Date.now() + error.retryAfterSeconds * 1000
+      if (payload?.error?.scope === 'garantiyaid-api') {
+        apiRetryAt.set(cooldownKey, Math.max(apiRetryAt.get(cooldownKey) ?? 0, error.retryAt))
+        apiCooldownListeners.get(cooldownKey)?.forEach(listener => listener())
+      }
     }
     throw error
   }

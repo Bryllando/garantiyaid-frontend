@@ -13,7 +13,7 @@ function Link({ href, onNavigate, children, className = 'ga-admin-link' }) {
   }}>{children}</a>
 }
 
-export default function DswdWorkOverview({ session, overview, error, liveStatus, reloadCount, onRefresh, onNavigate, onSessionExpired }) {
+export default function DswdWorkOverview({ session, overview, liveStatus, reloadCount, onRefresh, refreshDisabled, onNavigate, onSessionExpired }) {
   const [reviews, setReviews] = useState(null)
   const [reviewError, setReviewError] = useState('')
   const [events, setEvents] = useState(null)
@@ -37,13 +37,12 @@ export default function DswdWorkOverview({ session, overview, error, liveStatus,
   return <div>
     <header className="ga-page-header flex flex-wrap items-start justify-between gap-4 border-b border-line pb-4">
       <div><h1 className="ga-page-title">DSWD overview</h1><p className="ga-page-copy">Review enrollment submissions and follow up on distribution work across authorized barangays.</p></div>
-      <button type="button" onClick={onRefresh} className="ga-btn-secondary">Refresh records</button>
+      <button type="button" onClick={onRefresh} disabled={refreshDisabled} className="ga-btn-secondary">Refresh records</button>
     </header>
     <div className="my-3 space-y-1 text-xs leading-5 text-muted-copy" role="status">
       <p>Summary last updated: {overview.generatedAt}</p>
       <p>{liveStatus === 'connected' ? 'Live updates connected. Records also refresh every minute.' : liveStatus === 'connecting' ? 'Connecting to live updates. Records refresh every minute.' : 'Live updates disconnected. Records refresh every minute; use Refresh records to check now.'}</p>
     </div>
-    {error && <p role="alert" className="mb-4 border-l-2 border-brand-amber bg-warning-soft p-3 text-sm">Summary refresh failed. Showing the last successful figures. {error}</p>}
     <dl className="ga-admin-summary grid grid-cols-2 lg:grid-cols-4" aria-label="DSWD work summary">
       {[
         ['Enrollment reviews', reviewCount, reviewError ? 'Last available review count' : 'Pending or under validation'],

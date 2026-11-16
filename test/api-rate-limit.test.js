@@ -2,6 +2,26 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { reissueDistributionQrToken, requestPrograms } from '../src/auth/staffAuth.js'
 
+test('simultaneous identical reads share one request, stay account-scoped and do not cache later reads', async t => {
+  let calls = 0
+  const release = []
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls++
+    await new Promise(resolve => release.push(resolve))
+    return new Response(JSON.stringify({ data: { programs: [], pagination: {} } }))
+  })
+  const first = requestPrograms('same-read')
+  const second = requestPrograms('same-read')
+  const other = requestPrograms('other-read')
+  assert.equal(calls, 2, 'Only identical reads from the same account may be shared')
+  release.splice(0).forEach(resolve => resolve())
+  await Promise.all([first, second, other])
+  const later = requestPrograms('same-read')
+  assert.equal(calls, 3, 'A later refresh must request current data')
+  release.splice(0).forEach(resolve => resolve())
+  await later
+})
+
 test('API cooldown respects Retry-After, isolates accounts and never automatically retries a write', async t => {
   let now = 10000, calls = 0
   t.mock.method(Date, 'now', () => now)

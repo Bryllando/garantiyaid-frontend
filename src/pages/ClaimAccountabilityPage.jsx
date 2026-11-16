@@ -7,6 +7,7 @@ import { Icon } from '../components/ui/icon.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
 import { connectStaffRealtime } from '../realtime/staffRealtime.js'
+import { createLiveRefresh } from '../utils/liveRefresh.js'
 import { claimChecks, claimWorkflow, disputeLedgerHref } from '../utils/claimWorkflow.js'
 import { verificationLabels } from '../utils/claimVerification.js'
 import {
@@ -325,8 +326,7 @@ export default function ClaimAccountabilityPage({ session, onLogout, onNavigate,
 
   useEffect(() => {
     if (!selectedId) return undefined
-    let timer
-    const scheduleRefresh = () => { clearTimeout(timer); timer = setTimeout(refreshRecords, 300) }
+    const scheduleRefresh = createLiveRefresh(session.accessToken, refreshRecords)
     const disconnect = connectStaffRealtime(session.accessToken, {
       onReady: () => { setConnection('connected'); scheduleRefresh() },
       onUpdate: (_event, payload) => { if (payload?.distributionId === selectedId) scheduleRefresh() },
@@ -338,7 +338,7 @@ export default function ClaimAccountabilityPage({ session, onLogout, onNavigate,
     })
     // Disputes have no dedicated live event; visible registers also refresh every minute.
     const safetyRefresh = setInterval(() => { if (document.visibilityState === 'visible') scheduleRefresh() }, 60_000)
-    return () => { clearTimeout(timer); clearInterval(safetyRefresh); disconnect() }
+    return () => { scheduleRefresh.cancel(); clearInterval(safetyRefresh); disconnect() }
   }, [onSessionExpired, refreshRecords, selectedId, session.accessToken])
 
   useEffect(() => {

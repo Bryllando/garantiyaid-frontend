@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "checks": [
+    "Barangay file rejected before program column matching",
+    "Immediate submission spinner; lost response returns to safe confirmation with the same approval key",
+    "Percentage, created/correction counts and remaining records use backend checkpoints; no timed fake progress; desktop and mobile fit",
+    "Rate-limit backoff preserves counts; stopped jobs stop spinning; resume continues the same import",
+    "Results appear only after the results API succeeds; downloaded CSV matches actual created records and draft status",
+    "Shared staff and beneficiary progress retains its data; unavailable imports stop polling and spinning"
+  ],
+  "actualDatabaseWrites": 0,
+  "actualMessagesSent": false
+}

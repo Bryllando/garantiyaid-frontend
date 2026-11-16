@@ -24,6 +24,7 @@ import {
   reverseBenefitCredit,
 } from '../auth/staffAuth.js'
 import { connectStaffRealtime } from '../realtime/staffRealtime.js'
+import { createLiveRefresh } from '../utils/liveRefresh.js'
 import { claimChecks } from '../utils/claimWorkflow.js'
 import { creditReviewBlockers, readCreditQueueLocation } from '../utils/ledgerReview.js'
 
@@ -160,7 +161,11 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
   useEffect(() => {
     if (!canAccess) return undefined
     let active = true
-    let refreshTimer
+    const refresh = createLiveRefresh(session.accessToken, () => {
+      if (!active) return
+      setIsRefreshing(true)
+      setRefreshKey(value => value + 1)
+    })
     const disconnect = connectStaffRealtime(session.accessToken, {
       onReady: () => {
         if (!active) return
@@ -170,11 +175,7 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
       onUpdate: (eventName) => {
         if (!active) return
         setLiveMessage(eventLabels[eventName] ?? 'Operations data updated')
-        clearTimeout(refreshTimer)
-        refreshTimer = setTimeout(() => {
-          setIsRefreshing(true)
-          setRefreshKey((value) => value + 1)
-        }, 400)
+        refresh()
       },
       onError: (error) => {
         if (!active) return
@@ -189,11 +190,11 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
       },
     })
     const safetyRefresh = setInterval(() => {
-      if (document.visibilityState === 'visible') setRefreshKey((value) => value + 1)
+      if (document.visibilityState === 'visible') refresh()
     }, 60_000)
     return () => {
       active = false
-      clearTimeout(refreshTimer)
+      refresh.cancel()
       clearInterval(safetyRefresh)
       disconnect()
     }

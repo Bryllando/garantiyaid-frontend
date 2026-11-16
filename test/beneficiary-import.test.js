@@ -6,6 +6,22 @@ import { startBeneficiaryImport } from '../src/auth/staffAuth.js'
 const headers = ['First name', 'Surname', 'Date of birth', 'Gender', 'Complete address', 'Barangay', 'Mobile', 'Program']
 const table = () => beneficiaryTableFromSheet([headers, ['José', 'Dela Cruz', '12/31/1990', 'M', 'Test street', 'Poblacion', '09171234567', 'AID']])
 
+test('recognizes card-number headings and preserves mobile and 16-digit identity references as text', () => {
+  for (const heading of ['PhilSys number', 'PhilSys card number', 'PhilSys card number (PCN)', 'PCN', 'National ID number']) {
+    const input = beneficiaryTableFromSheet([
+      ['First name', 'Last name', 'Birth date', 'Sex', 'Address', 'Barangay code', 'Mobile number', heading],
+      ['Maria', 'Villanueva', '1958-04-12', 'FEMALE', 'Apas, Cebu City', '0730600003', '09000000001', '0000000000000001'],
+    ])
+    const columns = suggestBeneficiaryColumns(input.headers)
+    assert.equal(columns.contactNumber, '6'); assert.equal(columns.philsysNumber, '7')
+    const [row] = mapBeneficiaryImportRows(input, columns, { barangays: { '0730600003': 'apas' } })
+    assert.equal(row.contactNumber, '09000000001'); assert.equal(row.philsysNumber, '0000000000000001')
+    assert.equal(row.barangayId, 'apas'); assert.equal(row.isVerified, undefined)
+    const [withoutId] = mapBeneficiaryImportRows(input, { ...columns, philsysNumber: '-1' }, { barangays: { '0730600003': 'apas' } })
+    assert.equal(withoutId.philsysNumber, '')
+  }
+})
+
 test('beneficiary mapping preserves names and phone numbers, requires explicit date and program choices', () => {
   const input = table(); const columns = suggestBeneficiaryColumns(input.headers)
   const options = { dateFormat: 'MDY', barangays: { Poblacion: 'b1' }, programs: { AID: 'p1' }, includeProgram: true }

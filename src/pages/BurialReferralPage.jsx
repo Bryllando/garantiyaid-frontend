@@ -4,6 +4,7 @@ import DashboardShell from '../components/layout/DashboardShell.jsx'
 import BurialReferralLetter from '../components/beneficiaries/BurialReferralLetter.jsx'
 import { Icon } from '../components/ui/icon.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
+import { useApiCooldown } from '../hooks/useApiCooldown.js'
 import { requestBurialReferrals, requestBurialReferral, saveBurialReferral, requestBeneficiary, requestBeneficiaryDocuments, uploadBeneficiaryDocument, reviewBeneficiaryDocument, downloadBeneficiaryDocument, isSessionExpiredError, getAuthErrorMessage } from '../auth/staffAuth.js'
 
 const labels = { DRAFT: 'Draft', IN_REVIEW: 'Awaiting review', NEEDS_CORRECTION: 'Needs correction', READY: 'Ready for signature', ISSUED: 'Issued · awaiting response', CLOSED: 'Response recorded' }
@@ -96,6 +97,7 @@ export default function BurialReferralPage({ session, onLogout, onNavigate, onSe
   const applicantId = query.get('beneficiary') ?? ''
   const isBarangay = session.user.role === 'BARANGAY_FACILITATOR'
   const isReviewer = session.user.role === 'DSWD_STAFF'
+  const retryAfter = useApiCooldown(session.accessToken)
   const [list, setList] = useState(null)
   const [referral, setReferral] = useState(null)
   const [applicant, setApplicant] = useState(null)
@@ -211,9 +213,10 @@ export default function BurialReferralPage({ session, onLogout, onNavigate, onSe
 
   return <DashboardShell breadcrumbs={['Beneficiary services', 'Burial referrals']} currentPath="/burial-referrals" pageTitle="Burial referrals" onLogout={onLogout} onNavigate={navigate} user={session.user}>
     <div className={id || applicantId ? 'mx-auto w-full max-w-5xl' : undefined}>
-    <header className="ga-page-header flex flex-wrap items-end justify-between gap-4 border-b border-line pb-5"><div><h1 className="ga-page-title">Burial referrals</h1><p className="ga-page-copy">Prepare a letter for the receiving office and track its response. A referral is not an assistance approval or payment.</p></div><div className="flex flex-wrap gap-2">{(id || applicantId) && <button className="ga-btn-secondary" disabled={busy || retryPending} onClick={() => onNavigate('/burial-referrals')}><Icon name="arrowLeft" className="size-4" />Back to referrals</button>}<button className="ga-btn-secondary" disabled={loading || busy || retryPending || editing} onClick={() => setReload(value => value + 1)}><Icon name="reset" className="size-4" />Refresh</button>{!id && !applicantId && isBarangay && <button className="ga-btn-primary" onClick={() => onNavigate('/beneficiaries')}><Icon name="people" className="size-4" />Choose applicant</button>}</div></header>
+    <header className="ga-page-header flex flex-wrap items-end justify-between gap-4 border-b border-line pb-5"><div><h1 className="ga-page-title">Burial referrals</h1><p className="ga-page-copy">Prepare a letter for the receiving office and track its response. A referral is not an assistance approval or payment.</p></div><div className="flex flex-wrap gap-2">{(id || applicantId) && <button className="ga-btn-secondary" disabled={busy || retryPending} onClick={() => onNavigate('/burial-referrals')}><Icon name="arrowLeft" className="size-4" />Back to referrals</button>}<button className="ga-btn-secondary" disabled={loading || busy || retryPending || retryAfter > 0 || (editing && Boolean(applicant))} onClick={() => setReload(value => value + 1)}><Icon name="reset" className="size-4" />Refresh</button>{!id && !applicantId && isBarangay && <button className="ga-btn-primary" onClick={() => onNavigate('/beneficiaries')}><Icon name="people" className="size-4" />Choose applicant</button>}</div></header>
+    {retryAfter > 0 && <p role="status" className="my-4 border border-line bg-warning-soft p-4 text-sm">Requests are paused. Try again in {retryAfter} {retryAfter === 1 ? 'second' : 'seconds'}. Your entered details are kept; saves are not submitted automatically.</p>}
     {error && <div role="alert" className="my-4 border-l-4 border-brand-red bg-danger-soft p-4 text-sm text-brand-red">{error}<p className="mt-2">{id || applicantId ? 'Your entered details are kept. Retry the same action after a connection failure; refresh if another staff member changed the record.' : 'Your search and status selection are kept. Refresh to try again.'}</p></div>}
-    {retryPending && <div role="status" className="my-4 border border-line bg-white p-4 text-sm"><p>The last save has an uncertain result. Its original request is kept for a safe retry.</p><button className="ga-btn-secondary mt-3" disabled={busy} onClick={() => mutate(pending.current.body, pending.current.action)}>Retry last save</button></div>}
+    {retryPending && <div role="status" className="my-4 border border-line bg-white p-4 text-sm"><p>The last save has an uncertain result. Its original request is kept for a safe retry.</p><button className="ga-btn-secondary mt-3" disabled={busy || retryAfter > 0} onClick={() => mutate(pending.current.body, pending.current.action)}>Retry last save</button></div>}
     {!id && !applicantId ? <>
       <form aria-label="Find burial referrals" className="ga-card my-5 grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_14rem] sm:p-5 xl:grid-cols-[minmax(0,1fr)_14rem_auto]" onSubmit={event => { event.preventDefault(); setFilters(current => ({ ...current, search: search.trim(), page: 1 })) }}>
         <div className="min-w-0">
@@ -225,7 +228,7 @@ export default function BurialReferralPage({ session, onLogout, onNavigate, onSe
         </div>
         <div className="min-w-0"><label htmlFor="burial-status" className="ga-label">Status</label><select id="burial-status" value={filters.status} onChange={event => setFilters(current => ({ ...current, status: event.target.value, page: 1 }))} className="ga-input mt-2"><option value="">All statuses</option>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
         <div className="flex flex-wrap items-center gap-2 sm:col-span-2 xl:col-span-1 xl:self-end">
-          <button type="submit" disabled={loading} className="ga-btn-primary"><Icon name="search" className="size-4" />Search</button>
+          <button type="submit" disabled={loading || retryAfter > 0} className="ga-btn-primary"><Icon name="search" className="size-4" />Search</button>
           {hasFilters && <button type="button" onClick={clearFilters} className="ga-btn-secondary"><Icon name="close" className="size-4" />Clear filters</button>}
         </div>
       </form>
@@ -239,7 +242,7 @@ export default function BurialReferralPage({ session, onLogout, onNavigate, onSe
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-4 text-sm"><span>Page {filters.page} of {Math.max(1, list.pagination.totalPages)}</span>{list.pagination.totalPages > 1 && <div className="flex flex-wrap gap-2"><button className="ga-btn-secondary" disabled={filters.page === 1} onClick={() => setFilters(current => ({ ...current, page: current.page - 1 }))}><Icon name="chevronLeft" className="size-4" />Previous</button><button className="ga-btn-secondary" disabled={filters.page >= list.pagination.totalPages} onClick={() => setFilters(current => ({ ...current, page: current.page + 1 }))}>Next<Icon name="chevronRight" className="size-4" /></button></div>}</div>
         </>}
       </section>
-    </> : loading ? <p role="status" className="py-8">Loading referrals...</p> : applicant && <fieldset disabled={busy || retryPending} className="mt-6 min-w-0">
+    </> : loading ? <p role="status" className="py-8">Loading referrals...</p> : applicant && <fieldset disabled={busy || retryPending || retryAfter > 0} className="mt-6 min-w-0">
       {editing && isBarangay ? <ReferralEditor applicant={applicant} referral={referral} documents={documents} busy={busy} onSave={form => mutate({ ...form, ...(id ? { version: referral.version } : { beneficiaryId: applicant.beneficiaryId }) })} onUpload={file => documentTask(() => uploadBeneficiaryDocument(session.accessToken, applicant.beneficiaryId, 'OTHER', file))} onCancel={() => referral ? setEditing(false) : onNavigate('/burial-referrals')} /> : referral ? <>
         <section className="border border-line bg-white p-5 sm:p-7"><div className="flex flex-wrap justify-between gap-3"><div><h2 className="text-xl font-semibold">{personName(applicant)}</h2><p className="mt-1 text-copy">Request concerning {referral.deceasedName}</p><p className="mt-2 break-all text-xs text-muted-copy">BR-{referral.referralId.toUpperCase()}</p></div><p className="text-sm font-semibold text-brand-blue">{labels[referral.status]}</p></div>
           {referral.reviewNote && <p className="mt-4 border-l-4 border-brand-amber bg-warning-soft p-3 text-sm">Correction requested: {referral.reviewNote}</p>}

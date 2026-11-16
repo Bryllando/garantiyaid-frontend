@@ -21,6 +21,7 @@ import {
 } from '../auth/staffAuth.js'
 import { canRetrySms, smsDeliveryNotice, smsStatusLabel } from '../utils/smsDelivery.js'
 import { connectNotificationRealtime } from '../realtime/staffRealtime.js'
+import { createLiveRefresh } from '../utils/liveRefresh.js'
 
 const emptyFilters = { distributionId: '', notificationType: '', status: '', dateFrom: '', dateTo: '' }
 const notificationTypes = ['', 'SCHEDULE_CREATED', 'SCHEDULE_UPDATED', 'SCHEDULE_CANCELLED', 'DISTRIBUTION_OPENED', 'DISTRIBUTION_REMINDER', 'CLAIM_VERIFIED', 'BENEFIT_CREDITED_SIMULATED']
@@ -256,14 +257,14 @@ function SmsNotificationWorkspace({ session, onLogout, onNavigate, onSessionExpi
 
   useEffect(() => {
     if (!authorized) return undefined
-    let refreshTimer
+    const refresh = createLiveRefresh(session.accessToken, () => setReload(value => value + 1))
     const disconnect = connectNotificationRealtime(session.accessToken, {
       onReady: () => setRealtimeStatus('connected'),
       onError: () => setRealtimeStatus('disconnected'),
       onDisconnect: () => setRealtimeStatus('disconnected'),
-      onUpdate: () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => setReload((value) => value + 1), 350) },
+      onUpdate: refresh,
     })
-    return () => { clearTimeout(refreshTimer); disconnect() }
+    return () => { refresh.cancel(); disconnect() }
   }, [authorized, session.accessToken])
 
   const distributionOptions = useMemo(() => [{ distributionId: '', title: 'All distribution events' }, ...distributions], [distributions])

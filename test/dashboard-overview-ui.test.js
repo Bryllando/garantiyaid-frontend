@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const source = readFileSync(new URL('../src/pages/DashboardPage.jsx', import.meta.url), 'utf8')
+  + readFileSync(new URL('../src/components/ui/DashboardLoadNotice.jsx', import.meta.url), 'utf8')
 
 test('overview provides role-specific tasks from the shared scoped data contract', () => {
   assert.match(source, /<AdminOverview session=/)

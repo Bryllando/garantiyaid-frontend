@@ -6,6 +6,7 @@ import { connectStaffRealtime } from '../../realtime/staffRealtime.js'
 import { LoadingLabel } from '../ui/spinner.jsx'
 import { Icon } from '../ui/icon.jsx'
 import ReconciliationPanel from './ReconciliationPanel.jsx'
+import { createLiveRefresh } from '../../utils/liveRefresh.js'
 
 const time = new Intl.DateTimeFormat('en-PH', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Manila' })
 
@@ -36,17 +37,16 @@ export default function EventOperationsReview({ distribution, token, onNavigate,
   }, [id, onSessionExpired, reload, token])
   useEffect(() => {
     let active = true
-    let timer
-    const refresh = () => { if (active) setReload((value) => value + 1) }
+    const refresh = createLiveRefresh(token, () => { if (active) setReload(value => value + 1) })
     const disconnect = connectStaffRealtime(token, {
       onReady: () => { if (active) { setConnected(true); refresh() } },
-      onUpdate: (_event, payload) => { if (payload?.distributionId === id) { clearTimeout(timer); timer = setTimeout(refresh, 400) } },
+      onUpdate: (_event, payload) => { if (payload?.distributionId === id) refresh() },
       onError: (issue) => { if (active) { setConnected(false); if (['AUTHENTICATION_REQUIRED', 'INVALID_TOKEN', 'INVALID_SESSION'].includes(issue?.data?.code)) onSessionExpired() } },
       onDisconnect: () => { if (active) setConnected(false) },
     })
     // shortcut: disputes publish no live event; poll until the API exposes one.
     const interval = setInterval(() => { if (document.visibilityState === 'visible') refresh() }, 60_000)
-    return () => { active = false; clearTimeout(timer); clearInterval(interval); disconnect() }
+    return () => { active = false; refresh.cancel(); clearInterval(interval); disconnect() }
   }, [id, onSessionExpired, token])
   const rows = data ? eventWorkRows(distribution, data.schedules, data.claims, data.disputes) : []
   const scope = `distribution=${encodeURIComponent(id)}`

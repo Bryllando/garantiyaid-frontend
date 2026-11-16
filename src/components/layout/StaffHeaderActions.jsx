@@ -10,6 +10,7 @@ import { Icon } from '../ui/icon.jsx'
 import { LoadingLabel } from '../ui/spinner.jsx'
 import { SecurityEmailStatus } from '../ui/SecurityEmailStatus.jsx'
 import { getPhilippineDayPeriod } from './philippine-day-period.js'
+import { createLiveRefresh } from '../../utils/liveRefresh.js'
 
 const philippineDate = new Intl.DateTimeFormat('en-PH', {
   timeZone: 'Asia/Manila',
@@ -144,18 +145,20 @@ export function StaffNotificationCenter({ accessToken, onNavigate }) {
 
   useEffect(() => {
     if (!accessToken) return undefined
-    return connectStaffNotificationRealtime(accessToken, {
+    const refresh = createLiveRefresh(accessToken, loadNotifications)
+    const disconnect = connectStaffNotificationRealtime(accessToken, {
       onReady: () => {
         setLiveReady(true)
-        loadNotifications()
+        refresh()
       },
       onUpdate: () => {
         setLiveMessage('New staff notification received.')
-        loadNotifications()
+        refresh()
       },
       onError: () => setLiveReady(false),
       onDisconnect: () => setLiveReady(false),
     })
+    return () => { refresh.cancel(); disconnect() }
   }, [accessToken, loadNotifications])
 
   useEffect(() => {

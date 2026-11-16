@@ -21,6 +21,7 @@ import {
   verifyDistributionQrClaim,
 } from '../auth/staffAuth.js'
 import { connectFacilitatorQueueRealtime } from '../realtime/staffRealtime.js'
+import { createLiveRefresh } from '../utils/liveRefresh.js'
 import { queueNextAction } from '../utils/claimWorkflow.js'
 import { cameraConstraints, cameraErrorMessage, createQrDetector } from '../utils/camera.js'
 import { CameraDeviceSelect } from '../components/ui/camera-device-select.jsx'
@@ -156,16 +157,8 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     if (!authorized || view !== 'queue') return undefined
     let active = true
     let connectedOnce = false
-    let queueTimer
-    let distributionTimer
-    const refreshQueue = () => {
-      clearTimeout(queueTimer)
-      queueTimer = setTimeout(() => setQueueReload((count) => count + 1), 250)
-    }
-    const refreshDistributions = () => {
-      clearTimeout(distributionTimer)
-      distributionTimer = setTimeout(() => setDistributionReload((count) => count + 1), 250)
-    }
+    const refreshQueue = createLiveRefresh(session.accessToken, () => setQueueReload(count => count + 1))
+    const refreshDistributions = createLiveRefresh(session.accessToken, () => setDistributionReload(count => count + 1))
     const disconnect = connectFacilitatorQueueRealtime(session.accessToken, {
       onReady: () => {
         if (!active) return
@@ -189,8 +182,8 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     })
     return () => {
       active = false
-      clearTimeout(queueTimer)
-      clearTimeout(distributionTimer)
+      refreshQueue.cancel()
+      refreshDistributions.cancel()
       disconnect()
     }
   }, [authorized, onSessionExpired, session.accessToken, view])

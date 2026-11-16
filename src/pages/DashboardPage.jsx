@@ -1,11 +1,15 @@
 import AdminOverview from '../components/admin/AdminOverview.jsx'
 import DswdWorkOverview from '../components/dswd/DswdWorkOverview.jsx'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
+import DashboardLoadNotice from '../components/ui/DashboardLoadNotice.jsx'
+import { useApiCooldown } from '../hooks/useApiCooldown.js'
+import { createLiveRefresh } from '../utils/liveRefresh.js'
 import { Icon } from '../components/ui/icon.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
 import {
   getAuthErrorMessage,
+  getApiRetryAfterSeconds,
   getDashboardNavigation,
   isSessionExpiredError,
   requestDashboardOverview,
@@ -109,13 +113,25 @@ function DashboardSkeleton() {
 
 function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
   const [overview, setOverview] = useState(null)
-  const [error, setError] = useState('')
+  const [requestError, setRequestError] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [reloadCount, setReloadCount] = useState(0)
   const [liveStatus, setLiveStatus] = useState('connecting')
   const [draftEvents, setDraftEvents] = useState([])
   const [draftError, setDraftError] = useState('')
   const [draftLoading, setDraftLoading] = useState(() => session.user.role === 'SYSTEM_ADMIN')
+  const fetching = useRef(false)
+  const previousCooldown = useRef(0)
+  const retrySeconds = useApiCooldown(session.accessToken)
+  const error = requestError ? getAuthErrorMessage(requestError) : ''
+  const rateLimited = requestError?.status === 429 || retrySeconds > 0
+  const refreshDashboard = useCallback(() => {
+    if (fetching.current || getApiRetryAfterSeconds(session.accessToken)) return
+    fetching.current = true
+    setIsLoading(true)
+    setRequestError(null)
+    setReloadCount(count => count + 1)
+  }, [session.accessToken])
   const role = session.user.role
   const content = roleContent[role] ?? roleContent.DSWD_STAFF
   const modules = getDashboardNavigation(role).flatMap((item) => item.children ?? [item]).filter((item) => item.href && item.href !== '/dashboard')
@@ -123,14 +139,15 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
   const featuredModules = (featuredModuleHrefs[role] ?? []).map((href) => moduleByHref.get(href)).filter(Boolean)
 
   useEffect(() => {
+    const previous = previousCooldown.current
+    previousCooldown.current = retrySeconds
+    if (previous > 0 && retrySeconds === 0 && document.visibilityState === 'visible') refreshDashboard()
+  }, [refreshDashboard, retrySeconds])
+
+  useEffect(() => {
     let active = true
     let connectedOnce = false
-    let refreshTimer
-    const refresh = () => {
-      if (!active) return
-      clearTimeout(refreshTimer)
-      refreshTimer = setTimeout(() => setReloadCount((count) => count + 1), 250)
-    }
+    const refresh = createLiveRefresh(session.accessToken, refreshDashboard)
     const disconnect = connectOverviewRealtime(session.accessToken, {
       onReady: () => {
         if (!active) return
@@ -146,20 +163,21 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
       },
       onDisconnect: () => { if (active) setLiveStatus('reconnecting') },
     })
-    const safetyRefresh = ['DSWD_STAFF', 'BARANGAY_FACILITATOR'].includes(role) ? setInterval(() => { if (document.visibilityState === 'visible') refresh() }, 60_000) : undefined
-    return () => { active = false; clearTimeout(refreshTimer); clearInterval(safetyRefresh); disconnect() }
-  }, [onSessionExpired, role, session.accessToken])
+    const safetyRefresh = setInterval(() => { if (document.visibilityState === 'visible') refresh() }, 60_000)
+    return () => { active = false; refresh.cancel(); clearInterval(safetyRefresh); disconnect() }
+  }, [onSessionExpired, refreshDashboard, session.accessToken])
 
   useEffect(() => {
     let active = true
+    fetching.current = true
     requestDashboardOverview(session.accessToken)
-      .then((data) => { if (active) { setOverview(data); setError('') } })
+      .then((data) => { if (active) { setOverview(data); setRequestError(null) } })
       .catch((requestError) => {
         if (!active) return
         if (isSessionExpiredError(requestError)) return onSessionExpired()
-        setError(getAuthErrorMessage(requestError))
+        setRequestError(requestError)
       })
-      .finally(() => { if (active) setIsLoading(false) })
+      .finally(() => { if (active) { fetching.current = false; setIsLoading(false) } })
     return () => { active = false }
   }, [onSessionExpired, reloadCount, session.accessToken])
 
@@ -188,24 +206,17 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
 
   return (
     <DashboardShell breadcrumbs={['Operations', 'Overview']} currentPath="/dashboard" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Overview" showAssistant={role === 'SYSTEM_ADMIN'} user={session.user}>
-      {isLoading ? <DashboardSkeleton /> : error && !overview ? (
-        <section className="ga-card mx-auto max-w-2xl border-amber-200 p-6 sm:p-8" role="alert" aria-labelledby="dashboard-error-title">
-          <span aria-hidden="true" className="grid size-12 place-items-center rounded-xl bg-warning-soft text-brand-amber"><Icon name="info" className="size-6" /></span>
-          <p className="ga-eyebrow mt-5 text-brand-amber">Dashboard unavailable</p>
-          <h1 id="dashboard-error-title" className="mt-2 text-2xl font-bold text-ink">We could not load operations data</h1>
-          <p className="mt-3 max-w-2xl text-base leading-7 text-muted-copy">{error}</p>
-          <button type="button" onClick={() => { setError(''); setIsLoading(true); setReloadCount((count) => count + 1) }} className="ga-btn-primary mt-5"><Icon name="reset" />Try again</button>
-        </section>
+      {overview && (error || retrySeconds > 0) && <DashboardLoadNotice compact error={error} rateLimited={rateLimited} retrySeconds={retrySeconds} busy={isLoading} onRetry={refreshDashboard} />}
+      {isLoading && !overview ? <DashboardSkeleton /> : error && !overview ? (
+        <DashboardLoadNotice error={error} rateLimited={rateLimited} retrySeconds={retrySeconds} busy={isLoading} onRetry={refreshDashboard} />
       ) : role === 'SYSTEM_ADMIN' ? <>
-        {error && <p role="status" className="mb-4 border-l-4 border-brand-amber bg-warning-soft p-3 text-sm">Latest figures could not be loaded. Showing the last available update.</p>}
-        <AdminOverview session={session} overview={overview} draftEvents={draftEvents} draftError={draftError} draftLoading={draftLoading} liveStatus={liveStatus} reloadCount={reloadCount} onRefresh={() => setReloadCount((count) => count + 1)} onNavigate={onNavigate} onSessionExpired={onSessionExpired} />
-      </> : role === 'DSWD_STAFF' ? <DswdWorkOverview session={session} overview={overview} error={error} liveStatus={liveStatus} reloadCount={reloadCount} onRefresh={() => setReloadCount((count) => count + 1)} onNavigate={onNavigate} onSessionExpired={onSessionExpired} /> : (
+        <AdminOverview session={session} overview={overview} draftEvents={draftEvents} draftError={draftError} draftLoading={draftLoading} liveStatus={liveStatus} reloadCount={reloadCount} onRefresh={refreshDashboard} refreshDisabled={isLoading || retrySeconds > 0} onNavigate={onNavigate} onSessionExpired={onSessionExpired} />
+      </> : role === 'DSWD_STAFF' ? <DswdWorkOverview session={session} overview={overview} liveStatus={liveStatus} reloadCount={reloadCount} onRefresh={refreshDashboard} refreshDisabled={isLoading || retrySeconds > 0} onNavigate={onNavigate} onSessionExpired={onSessionExpired} /> : (
         <div className="ga-dashboard-ready">
-          {error && <p role="status" className="mb-4 border-l-4 border-brand-amber bg-warning-soft p-3 text-sm">Latest figures could not be loaded. Showing the last available update.</p>}
           <header className="ga-page-header flex flex-wrap items-start justify-between gap-4 border-b border-line pb-4">
             <div><h1 id="overview-title" className="ga-page-title">{content.heading}</h1><p className="ga-page-copy">{content.description}</p></div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => setReloadCount((count) => count + 1)} className="ga-btn-secondary">Refresh records</button>
+              <button type="button" onClick={refreshDashboard} disabled={isLoading || retrySeconds > 0} className="ga-btn-secondary">Refresh records</button>
               <a href={content.primary.href} onClick={(event) => navigateLink(event, content.primary.href, onNavigate)} className="ga-btn-primary">{content.primary.label}</a>
             </div>
           </header>

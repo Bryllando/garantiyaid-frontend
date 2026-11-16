@@ -14,7 +14,7 @@ function Link({ href, children, onNavigate, className = 'ga-admin-link' }) {
   }}>{children}</a>
 }
 
-export default function AdminOverview({ session, overview, draftEvents, draftError, draftLoading, liveStatus, reloadCount, onRefresh, onNavigate, onSessionExpired }) {
+export default function AdminOverview({ session, overview, draftEvents, draftError, draftLoading, liveStatus, reloadCount, onRefresh, refreshDisabled, onNavigate, onSessionExpired }) {
   const [reviews, setReviews] = useState(null)
   const [reviewError, setReviewError] = useState('')
   useEffect(() => {
@@ -47,7 +47,7 @@ export default function AdminOverview({ session, overview, draftEvents, draftErr
   return <div className="ga-admin-overview">
     <header className="ga-page-header flex flex-wrap items-start justify-between gap-4 border-b border-line pb-4">
       <div><h1 className="ga-page-title">Administration overview</h1><p className="ga-page-copy">Programs, beneficiary reviews, and distribution records across authorized barangays.</p></div>
-      <button type="button" className="ga-btn-secondary" onClick={onRefresh}>Refresh records</button>
+      <button type="button" className="ga-btn-secondary" onClick={onRefresh} disabled={refreshDisabled}>Refresh records</button>
     </header>
     <div className="my-3 flex flex-wrap justify-between gap-2 text-xs text-muted-copy" role="status">
       <span>Updated {overview.generatedAt}</span>

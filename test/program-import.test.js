@@ -4,6 +4,18 @@ import { programTableFromSheet, suggestProgramColumns, sourceDocumentTypes, sugg
 
 const headers = ['Program name', 'Code', 'Type', 'Grant', 'Budget', 'Start date', 'End date', 'Documents', 'Status']
 const input = ['Medical assistance', 'MED-2026', 'Cash assistance', 'PHP 1,500.50', '15,000', '12/01/2026', '12/31/2026', 'Valid ID;Medical Certificate', 'ACTIVE']
+
+test('directs a barangay registry file to the barangay importer without blocking program lists with location columns', () => {
+  assert.throws(() => programTableFromSheet([
+    ['Barangay name', 'Barangay code', 'City / Municipality', 'Province'],
+    ['Apas', '0730600003', 'Cebu City', 'Cebu'],
+  ]), /This is a barangay list.*Import barangays/)
+  const table = programTableFromSheet([
+    ['Program name', 'Program code', 'Program type', 'Barangay name', 'Province'],
+    ['Food assistance', 'FOOD-2026', 'FOOD', 'Apas', 'Cebu'],
+  ])
+  assert.equal(table.rows.length, 1)
+})
 test('maps external columns, explicit dates and required documents without importing active status', () => {
   const table = programTableFromSheet([headers, input]); const columns = suggestProgramColumns(table.headers)
   assert.deepEqual(sourceDocumentTypes(table, columns.requiredDocumentTypes), ['Medical Certificate', 'Valid ID'])

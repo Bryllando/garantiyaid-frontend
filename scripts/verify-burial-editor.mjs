@@ -17,7 +17,7 @@ page.setDefaultTimeout(10000)
 page.setDefaultNavigationTimeout(30000)
 await page.emulateMedia({ reducedMotion: 'reduce' })
 const errors = [], writes = [], savedByKey = new Map()
-let uploads = 0, loseSave = false, referral
+let uploads = 0, loseSave = false, referral, failApplicant = true, limitSave = false, saveAttempts = 0
 const applicant = { beneficiaryId: randomUUID(), firstName: 'Dana TEST', lastName: 'Reyes', status: 'ACTIVE', address: 'Test address', barangay: { barangayName: 'Test North', city: 'Test City' } }
 const documents = ['ACCEPTED', 'REJECTED', 'SUPERSEDED', 'REMOVED'].map((reviewStatus, index) => ({ documentId: randomUUID(), documentType: 'VALID_ID', originalFileName: `test-id-${index}.pdf`, reviewStatus }))
 const input = { deceasedName: 'Ramon TEST Reyes', deathDate: '2026-01-10', relationship: 'Child', sendingOffice: 'TEST Barangay Office', receivingOffice: 'TEST Receiving Office', receivingAddress: 'TEST Street, Test City', signatoryName: 'TEST Authorized Officer', signatoryPosition: 'Designated officer', purpose: 'Synthetic request for assessment of funeral expenses.' }
@@ -31,7 +31,10 @@ await page.route('**/api/v1/**', async route => {
   let data = {}
   if (path === '/health') data = { status: 'ok' }
   else if (path === '/staff-notifications') data = { notifications: [], unreadCount: 0, pagination: { total: 0 } }
-  else if (path === `/beneficiaries/${applicant.beneficiaryId}`) data = { beneficiary: applicant }
+  else if (path === `/beneficiaries/${applicant.beneficiaryId}`) {
+    if (failApplicant) return route.fulfill({ status: 503, json: { error: { message: 'TEST ONLY applicant connection failure.' } } })
+    data = { beneficiary: applicant }
+  }
   else if (path.endsWith('/documents')) {
     if (request.method() === 'POST') {
       uploads++
@@ -40,6 +43,11 @@ await page.route('**/api/v1/**', async route => {
       documents.push(document); data = { document }
     } else data = { documents }
   } else if (path.startsWith('/burial-referrals') && ['POST', 'PATCH'].includes(request.method())) {
+    saveAttempts++
+    if (limitSave) {
+      limitSave = false
+      return route.fulfill({ status: 429, headers: { 'Retry-After': '3' }, json: { error: { code: 'RATE_LIMIT_EXCEEDED', scope: 'garantiyaid-api', message: 'TEST ONLY rate limit.' } } })
+    }
     const body = request.postDataJSON(), key = request.headers()['idempotency-key']
     const checked = (request.method() === 'POST' ? createBurialSchema : editBurialSchema).safeParse(body)
     assert.equal(checked.success, true, JSON.stringify(checked.error?.issues))
@@ -60,8 +68,13 @@ const file = size => ({ name: 'test-death-certificate.pdf', mimeType: 'applicati
 
 try {
   await page.goto(`${origin}/burial-referrals?beneficiary=${applicant.beneficiaryId}`)
+  await expect(page.getByRole('alert')).toContainText('TEST ONLY applicant connection failure.')
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled()
+  failApplicant = false
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
   const editor = page.getByRole('region', { name: 'Prepare burial referral', exact: true })
   await expect(editor).toContainText('Dana TEST Reyes')
+  console.log('PASS: initial applicant load failure can be retried on the same page without losing the applicant link.')
   for (const [key, value] of Object.entries(input)) await page.locator(`#burial-${key}`).fill(value)
   await expect(page.locator('#burial-deceasedName').locator('..').locator('svg')).toHaveAttribute('aria-hidden', 'true')
   for (const width of [1920, 1440, 768, 390, 320]) {
@@ -112,6 +125,15 @@ try {
   await page.screenshot({ path: `${output}/attachments-1440.png`, fullPage: true })
   console.log('PASS: centered 1920–320px layout, SVG labels, existing/upload selection, file retention, remove/re-add, rejected/superseded exclusion and upload limits.')
 
+  limitSave = true
+  await page.getByRole('button', { name: 'Save draft', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Requests are paused.' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save draft', exact: true })).toBeDisabled()
+  await expect(page.locator('#burial-purpose')).toHaveValue(input.purpose)
+  await expect(page.getByRole('button', { name: 'Save draft', exact: true })).toBeEnabled({ timeout: 10000 })
+  assert.equal(saveAttempts, 1, 'A throttled save must not retry automatically')
+  assert.equal(savedByKey.size, 0)
+  console.log('PASS: rate-limit countdown preserves fields and reenables actions without automatically saving.')
   loseSave = true
   await page.getByRole('button', { name: 'Save draft', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Retry last save', exact: true })).toBeVisible()

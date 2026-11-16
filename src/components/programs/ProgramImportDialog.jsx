@@ -3,6 +3,8 @@ import { isSessionExpiredError, previewProgramImport, startProgramImport, reques
 import ImportProgress, { ImportPagination, StaffImportHistory as ImportHistory } from '../admin/StaffImportProgress.jsx'
 import { downloadStaffCsv, importTemplateRows, STAFF_IMPORT_LIMIT, STAFF_IMPORT_FILE_LIMIT_MB } from '../../utils/staffImport.js'
 import ImportTemplateGuide from '../ui/ImportTemplateGuide.jsx'
+import { Icon } from '../ui/icon.jsx'
+import { LoadingLabel, Spinner } from '../ui/spinner.jsx'
 import { programTemplateGuide, templateFileName } from '../../utils/importTemplateGuides.js'
 import { PROGRAM_IMPORT_FIELDS, programTableFromSheet, readProgramImportFile, suggestProgramColumns, PROGRAM_DOCUMENT_TYPES, sourceDocumentTypes, suggestProgramDocument, mapProgramImportRows, programCorrectionsCsv } from '../../utils/programImport.js'
 
@@ -17,6 +19,7 @@ export default function ProgramImportDialog({ accessToken, onClose, onImported, 
   const busyRef = useRef(false)
   const [step, setStep] = useState(0)
   const [busy, setBusy] = useState(false)
+  const [downloading, setDownloading] = useState('')
   const [error, setError] = useState('')
   const [sheets, setSheets] = useState([])
   const [sheetIndex, setSheetIndex] = useState(0)
@@ -76,8 +79,15 @@ export default function ProgramImportDialog({ accessToken, onClose, onImported, 
     setSubmittedRows(rows); setReview(checked); setConfirmed(false); setUncertain(false); setReviewPage(0); setErrorsOnly(false); setStep(2)
   }
   async function start() {
+    setJob(null); setStep(3)
     try { setJob(await startProgramImport(accessToken, submittedRows, review.approvalId)); setUncertain(false); setStep(3) }
-    catch (error) { setUncertain(!error.status || error.status >= 500 || error.code === 'PROGRAM_IMPORT_CONCURRENT'); throw error }
+    catch (error) { setStep(2); setUncertain(!error.status || error.status >= 500 || error.code === 'PROGRAM_IMPORT_CONCURRENT'); throw error }
+  }
+  async function downloadResults(filename, rows) {
+    if (busyRef.current) return
+    setDownloading(filename)
+    try { await run(() => downloadStaffCsv(filename, rows)) }
+    finally { setDownloading('') }
   }
   function showResult(completed) { setResult(completed); setResultPage(0); setStep(4); onImported() }
   function openDraft(program) { close(); onOpenProgram(program) }
@@ -92,7 +102,7 @@ export default function ProgramImportDialog({ accessToken, onClose, onImported, 
     <div className="space-y-5 p-5 sm:p-7">
       <ol aria-label="Import steps" className="flex flex-wrap gap-x-6 gap-y-2 border-b border-line pb-4 text-sm">{steps.map((label, index) => <li key={label} aria-current={step === index ? 'step' : undefined} className={step === index ? 'font-semibold text-brand-blue' : 'text-copy'}>{index + 1}. {label}</li>)}</ol>
       {error && <p ref={errorRef} tabIndex={-1} role="alert" className="border-l-4 border-brand-red bg-danger-soft p-3 text-sm leading-6 text-brand-red">{error}</p>}
-      <div role="status" className="sr-only">{busy ? 'Checking program import. Please wait.' : ''}</div>
+      <div role="status" className="sr-only">{busy && step !== 3 ? downloading ? 'Preparing the CSV download.' : 'Checking program import. Please wait.' : ''}</div>
 
       {step === 0 && <div className="max-w-3xl space-y-5">
         <ImportHistory accessToken={accessToken} api={api} label="programs" disabled={busy} onSessionExpired={onSessionExpired} onOpen={existing => { setJob(existing); setStep(3); setError('') }} />
@@ -128,17 +138,18 @@ export default function ProgramImportDialog({ accessToken, onClose, onImported, 
         <div tabIndex={0} role="region" aria-label="Program import review" className="max-h-[24rem] overflow-auto border border-line"><table className="w-full min-w-[840px] text-left text-sm"><thead className="sticky top-0 bg-slate-50"><tr>{['Row', 'Program details', 'Amounts / requirements', 'Review', 'Actions'].map(label => <th key={label} scope="col" className="p-3">{label}</th>)}</tr></thead><tbody className="divide-y divide-line">{visibleRows.slice(reviewPage * 25, reviewPage * 25 + 25).map(row => <tr key={row.sourceRow}><td className="p-3 align-top">{row.sourceRow}</td><td className="max-w-64 break-words p-3 align-top"><p className="font-semibold">{row.record.programName || 'Missing name'}</p><p>{row.record.programCode} · {row.record.programType}</p><p className="mt-1 text-xs">Start: {row.record.applicationStartDate?.slice(0, 10) || 'Not set'}</p><p className="text-xs">End: {row.record.applicationEndDate?.slice(0, 10) || 'Not set'}</p>{row.record.description && <details className="mt-2"><summary className="min-h-11 cursor-pointer text-brand-blue">Description</summary><p className="whitespace-pre-wrap text-xs leading-5">{row.record.description}</p></details>}</td><td className="max-w-56 p-3 align-top"><p>Grant: {row.record.grantAmount == null || row.record.grantAmount === '' ? 'Not set' : `PHP ${row.record.grantAmount}`}</p><p>Budget: {row.record.budgetAmount == null || row.record.budgetAmount === '' ? 'Not set' : `PHP ${row.record.budgetAmount}`}</p><p className="mt-2 text-xs">{row.record.requiredDocumentTypes?.length ? row.record.requiredDocumentTypes.map(documentLabel).join(', ') : 'No required documents set'}</p></td><td className="max-w-72 p-3 align-top">{row.issues.length ? <ul className="list-disc space-y-1 pl-4 text-brand-red">{row.issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul> : <><span className="font-semibold text-brand-green">Ready to save as Draft</span><p className="mt-1 text-xs text-copy">Add eligibility rules after import.</p></>}</td><td className="p-3 align-top"><button type="button" disabled={busy || uncertain || submittedRows.length === 1} onClick={() => run(() => checkRows(submittedRows.filter(item => item.sourceRow !== row.sourceRow)))} className="min-h-11 text-brand-blue underline" aria-label={`Exclude row ${row.sourceRow}`}>Exclude</button></td></tr>)}</tbody></table></div>
         {!review.invalidCount && <label className="flex min-h-11 items-start gap-3 text-sm leading-6"><input type="checkbox" checked={confirmed} disabled={busy || uncertain} onChange={event => setConfirmed(event.target.checked)} className="mt-1 size-5 shrink-0" />I have checked these programs. They will be saved as Draft and require eligibility rules and review before activation.</label>}
 
-        <div className="flex flex-wrap gap-3"><button type="button" disabled={busy || uncertain} onClick={() => { setStep(1); setReview(null); setError('') }} className="ga-btn-secondary">Back to column matching</button><button type="button" disabled={busy || review.invalidCount > 0 || !confirmed} onClick={() => run(start)} className="ga-btn-primary">{busy ? 'Submitting import…' : uncertain ? 'Retry confirmation' : `Import ${review.validCount.toLocaleString('en-US')} programs`}</button></div>
+        <div className="flex flex-wrap gap-3"><button type="button" disabled={busy || uncertain} onClick={() => { setStep(1); setReview(null); setError('') }} className="ga-btn-secondary">Back to column matching</button><button type="button" disabled={busy || review.invalidCount > 0 || !confirmed} onClick={() => run(start)} className="ga-btn-primary">{busy ? <LoadingLabel>Submitting import…</LoadingLabel> : uncertain ? 'Retry confirmation' : `Import ${review.validCount.toLocaleString('en-US')} programs`}</button></div>
       </div>}
 
+      {step === 3 && !job && busy && <div role="status" aria-live="polite" className="flex items-start gap-3 rounded border border-line bg-slate-50 p-5"><Spinner aria-hidden="true" className="mt-0.5 size-5 text-brand-blue" /><div><h3 className="font-semibold">Submitting your import</h3><p className="mt-2 text-sm leading-6 text-copy">Waiting for the server to accept {submittedRows.length.toLocaleString('en-US')} programs. The progress will appear once the import is registered.</p></div></div>}
       {step === 3 && job && <ImportProgress api={api} label="programs" accessToken={accessToken} initialJob={job} onResult={showResult} onSessionExpired={onSessionExpired} />}
       {step === 4 && result && <div className="space-y-5">
         <p role="status" className="font-semibold">{result.createdCount.toLocaleString('en-US')} draft programs created · {result.failedCount} need correction.</p>
         <p className="text-sm leading-6 text-copy">Saved results are available until {new Date(result.expiresAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })} PHT. The programs remain in the system.</p>
         {result.status === 'FAILED' && <div className="border-l-4 border-brand-amber bg-warning-soft p-3 text-sm"><p>{result.totalCount - result.processedCount} records remain unprocessed.</p><button type="button" disabled={busy} onClick={() => run(async () => { setJob(await api.resume(accessToken, result.importId)); setStep(3) })} className="ga-btn-secondary mt-3">Resume remaining programs</button></div>}
-        {result.failures.length > 0 && <button type="button" disabled={busy} onClick={() => run(() => downloadStaffCsv('program-import-failed-rows.csv', programCorrectionsCsv(result.failures)))} className="ga-btn-secondary">Download failed rows</button>}
+        {result.failures.length > 0 && <button type="button" disabled={busy} onClick={() => downloadResults('program-import-failed-rows.csv', programCorrectionsCsv(result.failures))} className="ga-btn-secondary">{downloading === 'program-import-failed-rows.csv' ? <LoadingLabel>Preparing download…</LoadingLabel> : 'Download failed rows'}</button>}
         <p className="border-l-4 border-brand-blue bg-info-soft p-3 text-sm leading-6">Next: open each draft, check its details and required documents, then add eligibility rules. Activate the program only after review.</p>
-        <button type="button" disabled={busy || !result.programs.length} onClick={() => run(() => downloadStaffCsv('program-import-results.csv', [['Source row', 'Program ID', 'Program code', 'Program name', 'Status at import'], ...result.programs.map(row => [row.sourceRow, row.program.programId, row.program.programCode, row.program.programName, row.program.status])]))} className="ga-btn-secondary">Download import results</button>
+        <button type="button" disabled={busy || !result.programs.length} onClick={() => downloadResults('program-import-results.csv', [['Source row', 'Program ID', 'Program code', 'Program name', 'Status at import'], ...result.programs.map(row => [row.sourceRow, row.program.programId, row.program.programCode, row.program.programName, row.program.status])])} className="ga-btn-secondary">{downloading === 'program-import-results.csv' ? <LoadingLabel>Preparing download…</LoadingLabel> : <><Icon name="download" className="size-4" />Download import results</>}</button>
         <ImportPagination page={resultPage} total={result.programs.length} onChange={setResultPage} label="Result pages" />
         <div tabIndex={0} role="region" aria-label="Imported programs" className="max-h-[22rem] overflow-auto border border-line"><table className="w-full min-w-[620px] text-left text-sm"><thead className="sticky top-0 bg-slate-50"><tr>{['Program', 'Code', 'Status at import', 'Action'].map(label => <th key={label} scope="col" className="p-3">{label}</th>)}</tr></thead><tbody className="divide-y divide-line">{result.programs.slice(resultPage * 25, resultPage * 25 + 25).map(row => <tr key={row.sourceRow}><td className="p-3">{row.program.programName}</td><td className="p-3">{row.program.programCode}</td><td className="p-3">Draft</td><td className="p-3"><button type="button" onClick={() => openDraft(row.program)} className="min-h-11 text-brand-blue underline">Open program</button></td></tr>)}</tbody></table></div>
         <button type="button" onClick={close} className="ga-btn-primary">Done</button>

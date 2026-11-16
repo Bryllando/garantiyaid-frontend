@@ -1,5 +1,7 @@
 # Garantiyaid consultation practice
 
+For the **16 November 2026 web-only consultation**, use the [dated step-by-step guide](consultation-web-2026-11-16.md), its presentation script and module review. They distinguish the current authorized manual-identity option, live/SIMULATED notification modes, unresolved issues and actual verification evidence from older notes below.
+
 Ready for a capstone consultation and demonstration using synthetic data. Official procedure approval, deployed pilot acceptance, and actual staff/device validation remain pending. This guide follows the implemented application; it is not an approved government SOP.
 
 ## Prepare once
@@ -144,6 +146,8 @@ Bring a short screen recording of the connected journey, E01–E09, the test log
 - **Simulated wallet:** use a separate event. After its required verification, DSWD records **Credit verified claim**, then receipt/reconciliation. This does not transfer real money and has no physical handover step.
 
 ## Separate burial-referral demonstration
+
+Use the [numbered burial-referral rehearsal](burial-referral-rehearsal.md) for sample inputs, expected saved statuses, correction steps and manual-result notes.
 
 1. Barangay opens the **living applicant's** beneficiary record → **Prepare burial referral**.
 2. Enter the deceased person's details, purpose, offices, proposed signatory and attachments. Save and **Submit for review**.
