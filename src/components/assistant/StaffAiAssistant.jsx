@@ -15,7 +15,7 @@ import { LoadingLabel } from '../ui/spinner.jsx'
 import { conversationIntent, guidanceTarget, messageIntent, routingReplies } from './staff-message-intent.js'
 import AssistantTaskDetails from './AssistantTaskDetails.jsx'
 import { collectTaskDetails, detailCopy, isTaskCancellation, isTaskQuestion, nextTaskField, setTaskValue, taskReply, translated } from './task-details.js'
-import { allPages, formatPreviewTime, reminderEventMatches, selectReminderEvent, reminderFormFromTask, reminderRequest, resolveServiceArea, UNRESOLVED_AREA } from './task-preview.js'
+import { allPages, formatPreviewTime, formatReminderEvent as formatEvent, reminderEventMatches, selectReminderEvent, reminderFormFromTask, reminderRequest, resolveServiceArea, UNRESOLVED_AREA } from './task-preview.js'
 import { confirmationSnapshot, uncertainConfirmation, retryConfirmationMessage, pendingConfirmation } from './confirmation-state.js'
 import { useAssistantHistory } from './use-assistant-history.js'
 import AssistantHistory, { HistorySaveStatus } from './AssistantHistory.jsx'
@@ -49,16 +49,6 @@ const roleExperience = {
       ceb: 'Makahimo ko og reminder para ra sa scheduled beneficiaries sa imong Barangay.',
     },
   },
-}
-
-function formatEvent(distribution) {
-  const date = new Intl.DateTimeFormat('en-PH', {
-    timeZone: 'Asia/Manila',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(new Date(`${distribution.distributionDate}T00:00:00+08:00`))
-  return `${distribution.title} · ${date} · ${distribution.barangay?.barangayName || distribution.location || distribution.distributionId}`
 }
 
 function formatSchedule(value) {
@@ -547,18 +537,22 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
     setPendingTask(resolvingEvent ? { ...update.task, eventUnresolved: true } : update.task)
     setDetailError(update.error)
     if (!update.error) setEditingDetail('')
-    if (resolvingEvent) {
+    if (resolvingEvent || (!update.error && update.task.kind === 'reminder' && !update.task.values.distributionId)) {
+      const run = lookupRunRef.current + 1
       const rows = await loadDistributions()
+      if (run !== lookupRunRef.current) return
       if (!rows) { setDetailError('Unable to check authorized events. Retry before continuing.'); return }
-      const matches = reminderEventMatches(update.task.values, rows, update.task.eventQuery)
-      if (matches.length === 1) update.task = selectReminderEvent(update.task, matches[0])
-      else {
-        update.task = { ...update.task, eventUnresolved: true }
-        setEventChoices(matches)
-        update.error = matches.length ? 'Several events match. Choose the exact event below before continuing.' : 'No authorized draft or open event matches these details. Check the program, barangay and event date/time. I have not created or rescheduled an event.'
+      if (resolvingEvent) {
+        const matches = reminderEventMatches(update.task.values, rows, update.task.eventQuery)
+        if (matches.length === 1) update.task = selectReminderEvent(update.task, matches[0])
+        else {
+          update.task = { ...update.task, eventUnresolved: true }
+          setEventChoices(matches)
+          update.error = matches.length ? 'Several events match. Choose the exact event below before continuing.' : 'No authorized draft or open event matches these details. Choose an available event below or check the requested program, barangay and date/time. I have not created or rescheduled an event.'
+        }
+        setPendingTask(update.task)
+        setDetailError(update.error)
       }
-      setPendingTask(update.task)
-      setDetailError(update.error)
     }
     taskMessage(update.error || taskReply(update.task, language))
   }
@@ -566,6 +560,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
   function chooseReminderEvent(row) {
     const task = selectReminderEvent(pendingTask, row)
     setPendingTask(task)
+    setEditingDetail('')
     setEventChoices([])
     setDetailError('')
     taskMessage(`Event selected: ${formatEvent(row)}. ${taskReply(task, language)}`)
@@ -594,6 +589,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
     setReviewed(false)
     setEditingDetail('')
     setDetailError('')
+    setBusy('')
     taskMessage(translated(detailCopy.cancelled, language))
     requestAnimationFrame(() => document.getElementById('garantiyaid-ai-message')?.focus())
   }
@@ -812,8 +808,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
               {view === 'home' && chatNotice && <p role="status" className="mt-4 text-sm text-muted-copy">{chatNotice}</p>}
               {view === 'home' && error && <p role="alert" className="mt-4 border-l-2 border-brand-red bg-danger-soft p-3 text-sm text-brand-red">{error}</p>}
               {view === 'home' && pendingTask && <div className={visibleMessages.length ? 'mt-6' : ''}>
-                {eventChoices.length > 0 && <section aria-label="Matching distribution events" className="mb-4 rounded-xl border border-line bg-white p-4"><h3 className="font-semibold text-ink">Choose one existing event</h3><ol className="mt-2 space-y-2">{eventChoices.map((row, index) => <li key={row.distributionId}><button type="button" disabled={Boolean(busy)} onClick={() => chooseReminderEvent(row)} className="ga-btn-secondary min-h-11 w-full whitespace-normal text-left">{index + 1}. {formatEvent(row)} · {row.startTime}–{row.endTime} PHT · {row.status}</button></li>)}</ol></section>}
-                <AssistantTaskDetails task={pendingTask} editing={editingDetail} onEdit={(key) => { setEditingDetail(key); setDetailError('') }} onSave={(key, value) => keepTaskDetails(setTaskValue(pendingTask, key, value))} onCancel={cancelTask} onPreview={previewTask} chatOpen={taskChatOpen} onChatToggle={() => { setTaskChatOpen(!taskChatOpen); requestAnimationFrame(() => (taskChatOpen ? document.getElementById('ai-task-detail') : inputRef.current)?.focus()) }} language={language} error={detailError} busy={Boolean(busy)} />
+                <AssistantTaskDetails task={pendingTask} editing={editingDetail} onEdit={(key) => { setEditingDetail(key); setDetailError('') }} onSave={(key, value) => keepTaskDetails(setTaskValue(pendingTask, key, value))} onCancel={cancelTask} onPreview={previewTask} chatOpen={taskChatOpen} onChatToggle={() => { setTaskChatOpen(!taskChatOpen); requestAnimationFrame(() => (taskChatOpen ? document.getElementById('ai-task-detail') : inputRef.current)?.focus()) }} language={language} error={detailError} busy={Boolean(busy)} distributions={visibleDistributions} matchingEvents={eventChoices} eventLoading={busy === 'distributions'} eventLookupError={error} onRefreshEvents={() => { setDetailError(''); setEventChoices([]); return loadDistributions() }} onSelectEvent={chooseReminderEvent} />
               </div>}
               {view !== 'home' && <div data-assistant-task className="ga-assistant-task">
             {view === 'scheduler' && user?.role === 'SYSTEM_ADMIN' && (

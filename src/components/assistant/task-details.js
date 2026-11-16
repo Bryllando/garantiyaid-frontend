@@ -14,7 +14,7 @@ export const taskFields = {
     field('title', 'Event title', ['What title should the event use?', 'Ano ang pamagat ng event?', 'Unsa ang titulo sa event?']),
   ],
   reminder: [
-    field('distribution', 'Distribution event', ['Which existing distribution event?', 'Anong kasalukuyang distribution event?', 'Unsang kasamtangang distribution event?']),
+    field('distribution', 'Distribution event', ['Choose a saved event from the list. You do not need to remember its title.', 'Pumili ng naka-save na event sa listahan. Hindi kailangang tandaan ang pamagat nito.', 'Pilia ang na-save nga event sa listahan. Dili kinahanglan nga mahinumdoman nimo ang exact title.']),
     field('serviceArea', 'Recipient area', ['Which Sitio/Purok, or all scheduled service areas?', 'Anong Sitio/Purok, o lahat ng scheduled service areas?', 'Unsang Sitio/Purok, o tanang scheduled service areas?']),
     field('messageTemplate', 'Reminder message', ['What should the reminder say? Do not include personal records.', 'Ano ang mensahe? Huwag isama ang personal records.', 'Unsa ang mensahe? Ayaw iapil ang personal records.'], 'textarea'),
     field('deliveryMode', 'Queue timing', ['Queue now or schedule for later?', 'I-queue ngayon o sa ibang oras?', 'I-queue karon o sa ulahi?'], 'select', ['now', 'scheduled']),

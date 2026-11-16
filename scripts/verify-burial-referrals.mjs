@@ -94,6 +94,15 @@ export async function runBurialJourney({ staff, browserApplicant, fields, prisma
     await page.getByRole('button', { name: 'Submit for review', exact: true }).click()
     await expect(page.getByText('Awaiting review', { exact: true })).toBeVisible()
     await as('dswd', path)
+    await expect(page.getByRole('region', { name: 'Referral steps', exact: true })).toContainText('Step 2 of 4')
+    const beforeView = (await request('dswd', `/burial-referrals/${referralId}`)).data.referral
+    await page.getByRole('button', { name: 'View document', exact: true }).click()
+    const documentPreview = page.getByRole('dialog', { name: 'Document preview', exact: true })
+    await expect(documentPreview.locator('iframe')).toBeVisible()
+    await expect(documentPreview).toContainText('Previewing does not accept the document.')
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('button', { name: 'View document', exact: true })).toBeFocused()
+    assert.deepEqual((await request('dswd', `/burial-referrals/${referralId}`)).data.referral, beforeView)
     await page.getByRole('button', { name: 'Accept document', exact: true }).click()
     await expect(page.getByText(/test-only-supporting.pdf.*ACCEPTED/)).toBeVisible()
     await page.getByRole('checkbox').check()
@@ -109,8 +118,11 @@ export async function runBurialJourney({ staff, browserApplicant, fields, prisma
     await expect(letter).toContainText('TEST Maria Santos')
     await expect(letter).toContainText('TEST Jose Santos')
     const beforePrint = (await request('barangay', `/burial-referrals/${referralId}`)).data.referral
+    const download = page.waitForEvent('download')
+    await letter.getByRole('button', { name: 'Save PDF', exact: true }).click()
+    await (await download).saveAs(resolve(output, 'referral-download.pdf'))
     await page.evaluate(() => { window.printCalls = 0; window.print = () => { window.printCalls++ } })
-    await letter.getByRole('button', { name: 'Print / Save PDF', exact: true }).click()
+    await letter.getByRole('button', { name: 'Print letter', exact: true }).click()
     assert.equal(await page.evaluate(() => window.printCalls), 1)
     await page.emulateMedia({ media: 'print' })
     await page.pdf({ path: resolve(output, 'referral-letter.pdf'), format: 'A4', preferCSSPageSize: true, printBackground: true })
@@ -126,10 +138,16 @@ export async function runBurialJourney({ staff, browserApplicant, fields, prisma
     await expect(page.getByRole('button', { name: 'Preview letter', exact: true })).toBeFocused()
     check('A4 PDF export, keyboard dialog focus and 1440/390/320px letter preview; printing has no mutation')
     await as('barangay', path)
+    await expect(page.getByRole('region', { name: 'Referral steps', exact: true })).toContainText('Step 3 of 4')
+    await expect(page.getByLabel('Signed-original / dispatch reference', { exact: true })).toHaveAccessibleDescription(/logbook entry.*not the referral status/)
+    await expect(page.getByRole('button', { name: 'Record signed issuance', exact: true })).toBeDisabled()
+    await screenshot('issuance-form', 1440)
+    await screenshot('issuance-form', 320)
     await page.getByLabel('Signed-original / dispatch reference', { exact: true }).fill('TEST-ISSUE-01')
     await page.getByRole('checkbox').check()
     await page.getByRole('button', { name: 'Record signed issuance', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Record receiving-office response', exact: true })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Referral steps', exact: true })).toContainText('Step 4 of 4')
     await page.reload()
     await expect(page.getByRole('heading', { name: 'Record receiving-office response', exact: true })).toBeVisible()
     await page.getByLabel('Reported outcome', { exact: true }).selectOption('OTHER')
@@ -143,6 +161,9 @@ export async function runBurialJourney({ staff, browserApplicant, fields, prisma
     for (const width of [1440, 390, 320]) await screenshot('completed-referral', width)
     await page.getByRole('button', { name: 'Preview letter', exact: true }).click()
     await expect(letter).toContainText('ISSUED RECORD COPY')
+    const issuedDownload = page.waitForEvent('download')
+    await letter.getByRole('button', { name: 'Save PDF', exact: true }).click()
+    await (await issuedDownload).saveAs(resolve(output, 'issued-download.pdf'))
     await page.emulateMedia({ media: 'print' })
     await page.pdf({ path: resolve(output, 'issued-record-copy.pdf'), format: 'A4', preferCSSPageSize: true, printBackground: true })
     await page.emulateMedia({ media: 'screen' })
@@ -168,7 +189,7 @@ export async function runBurialJourney({ staff, browserApplicant, fields, prisma
     }
     await prisma.beneficiary.update({ where: { beneficiaryId: browserApplicant.beneficiaryId }, data: { firstName: long('TEST Long Applicant ').slice(0, 100), lastName: long('Long Surname ').slice(0, 100), address: long('TEST ONLY long address ').slice(0, 300) } })
     assert.deepEqual((await request('barangay', `/burial-referrals/${referralId}`)).data.referral.letterSnapshot, beforePrint.letterSnapshot)
-    const longInput = { ...fields, beneficiaryId: browserApplicant.beneficiaryId, deceasedName: long('TEST Long Deceased Name ').slice(0, 150), signatoryName: long('TEST Long Authorized Officer ').slice(0, 150), receivingOffice: long('TEST Office ').slice(0, 150), receivingAddress: long('TEST ONLY address ').slice(0, 300), purpose: long('TEST ONLY assessment details for testing long paragraphs. ').repeat(2).slice(0, 1500), attachments }
+    const longInput = { ...fields, beneficiaryId: browserApplicant.beneficiaryId, deceasedName: long('TEST Long Deceased Name ').slice(0, 150), signatoryName: long('TEST Long Authorized Officer ').slice(0, 150), receivingOffice: long('TEST Office ').slice(0, 150), receivingAddress: long('TEST ONLY address ').slice(0, 300), purpose: ('TEST ONLY Unicode rendering: María Peña / José Niño / 李明. ' + long('TEST ONLY assessment details for testing long paragraphs. ').repeat(2)).slice(0, 1500), attachments }
     let lengthy = (await post('barangay', '/burial-referrals', longInput, { key: randomUUID(), status: 201 })).data.referral
     lengthy = (await post('barangay', `/burial-referrals/${lengthy.referralId}/actions`, { action: 'submit', version: lengthy.version }, { key: randomUUID() })).data.referral
     lengthy = (await post('dswd', `/burial-referrals/${lengthy.referralId}/actions`, { action: 'prepare', version: lengthy.version, confirmed: true }, { key: randomUUID() })).data.referral
@@ -179,6 +200,9 @@ export async function runBurialJourney({ staff, browserApplicant, fields, prisma
       await screenshot('long-letter-preview', width)
       assert.equal(await letter.evaluate(element => element.scrollWidth <= element.clientWidth), true, `Long letter overflow at ${width}`)
     }
+    const longDownload = page.waitForEvent('download')
+    await letter.getByRole('button', { name: 'Save PDF', exact: true }).click()
+    await (await longDownload).saveAs(resolve(output, 'long-download.pdf'))
     await page.emulateMedia({ media: 'print' })
     await page.pdf({ path: resolve(output, 'long-referral-letter.pdf'), format: 'A4', preferCSSPageSize: true, printBackground: true })
     assert.deepEqual(errors, [])

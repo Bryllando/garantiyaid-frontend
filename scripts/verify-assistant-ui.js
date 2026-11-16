@@ -133,9 +133,9 @@ export async function verifyAssistantUi({ baseUrl, env, admin, facilitator, prog
       ['Queue timing', 'scheduled'], ['Date (PHT)', queueTime.slice(0, 10)], ['Queue time (PHT)', queueTime.slice(11)],
     ]) {
       const input = panel().getByLabel(label, { exact: true })
-      if (label === 'Queue timing') await input.selectOption(value)
+      if (label === 'Queue timing' || label === 'Distribution event') await input.selectOption(value)
       else await input.fill(value)
-      await panel().getByRole('button', { name: 'Keep this detail', exact: true }).click()
+      await panel().getByRole('button', { name: label === 'Distribution event' ? 'Use selected event' : 'Keep this detail', exact: true }).click()
     }
     await panel().getByRole('button', { name: 'Match records and preview', exact: true }).click()
     await expect(panel().getByLabel('Distribution event', { exact: true })).toHaveValue(distribution.distributionId)

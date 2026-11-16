@@ -1,8 +1,17 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFileSync } from 'node:fs'
-import { allPages, distributionFormFromTask, formatPreviewTime, reminderFormFromTask, reminderRequest, resolveServiceArea, uniqueMatch, UNRESOLVED_AREA } from '../src/components/assistant/task-preview.js'
+import { allPages, distributionFormFromTask, formatPreviewTime, formatReminderEvent, reminderFormFromTask, reminderRequest, resolveServiceArea, uniqueMatch, UNRESOLVED_AREA } from '../src/components/assistant/task-preview.js'
 import { setTaskValue } from '../src/components/assistant/task-details.js'
+
+test('saved-event labels distinguish the title, PHT date, barangay and program without changing records', () => {
+  const event = { title: 'Community distribution', distributionDate: '2099-12-10', barangay: { barangayName: 'Apas' }, program: { programCode: 'FOOD', programName: 'Food assistance' } }
+  const label = formatReminderEvent(event)
+  assert.ok(label.startsWith('Community distribution · '))
+  assert.ok(label.endsWith(' · Apas · FOOD'))
+  assert.notEqual(label, formatReminderEvent({ ...event, program: { programCode: 'SCHOOL' } }))
+  assert.equal(event.distributionDate, '2099-12-10')
+})
 
 test('lookup resolves only one exact authorized record, never a partial or duplicate name', () => {
   const rows = [{ programId: 'one', programName: 'Example Program', programCode: 'EX1' }, { programId: 'two', programName: 'Example Program', programCode: 'EX2' }]

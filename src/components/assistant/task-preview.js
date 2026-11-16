@@ -1,5 +1,10 @@
 const normalized = (value) => String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase()
 
+export function formatReminderEvent(distribution) {
+  const date = new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'medium' }).format(new Date(`${distribution.distributionDate}T00:00:00+08:00`))
+  return [distribution.title, date, distribution.barangay?.barangayName || distribution.location || distribution.distributionId, distribution.program?.programCode || distribution.program?.programName].filter(Boolean).join(' · ')
+}
+
 export function uniqueMatch(rows, text, keys) {
   if (!normalized(text)) return undefined
   const matches = rows.filter((row) => keys.some((key) => normalized(row[key]) === normalized(text)))

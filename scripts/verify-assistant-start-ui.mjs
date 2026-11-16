@@ -15,6 +15,11 @@ try {
   browser = await chromium.launch({ channel: 'chrome', headless: true })
   for (const role of ['SYSTEM_ADMIN', 'DSWD_STAFF', 'BARANGAY_FACILITATOR']) {
     const fixture = historyApiFixture()
+    let eventMode = 'normal', releaseEvents
+    const events = [
+      { distributionId: 'demo-event', title: 'Demo Distribution', status: 'OPEN', distributionDate: '2099-12-10', startTime: '10:00', endTime: '12:00', location: 'Apas hall', program: { programName: 'Food assistance', programCode: 'FOOD' }, barangay: { barangayName: 'Apas', city: 'Cebu City' } },
+      { distributionId: 'other-event', title: 'Demo Distribution', status: 'DRAFT', distributionDate: '2099-12-11', startTime: '08:00', endTime: '10:00', location: 'Lahug hall', program: { programName: 'School assistance', programCode: 'SCHOOL' }, barangay: { barangayName: 'Lahug', city: 'Cebu City' } },
+    ]
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' })
     await context.addInitScript(role => {
       sessionStorage.setItem('garantiyaid.accessToken', 'start-fixture')
@@ -27,6 +32,12 @@ try {
     await page.route('**/api/v1/**', async route => {
       const path = new URL(route.request().url()).pathname
       if (path.includes('/staff-assistant/conversations')) return fixture.route(route)
+      if (path === '/api/v1/distributions') {
+        if (eventMode === 'delayed') await new Promise(resolve => { releaseEvents = resolve })
+        if (eventMode === 'error') return route.fulfill({ status: 503, json: { error: { message: 'Synthetic event lookup unavailable. Refresh to retry.' } } })
+        const rows = eventMode === 'empty' ? [] : role === 'BARANGAY_FACILITATOR' ? events.slice(0, 1) : events
+        return route.fulfill({ json: { data: { distributions: rows, pagination: { page: 1, total: rows.length, totalPages: rows.length ? 1 : 0 } } } })
+      }
       if (route.request().method() !== 'GET') operations.push(path)
       return route.fulfill({ json: { success: true, data: { timestamp: new Date().toISOString(), notifications: [], unreadCount: 0, distributions: [{ distributionId: 'demo-event', title: 'Demo Distribution', status: 'OPEN', distributionDate: '2099-12-10', startTime: '10:00', endTime: '12:00' }], programs: [], barangays: [], pagination: { page: 1, total: 0, totalPages: 1 } } } })
     })
@@ -65,11 +76,12 @@ try {
         await expect(panel.getByRole('textbox', { name: 'Message Staff Assistant', exact: true })).toBeFocused()
         await task.getByRole('button', { name: 'Use guided fields', exact: true }).click()
         await expect(task.getByLabel(first, { exact: true })).toBeFocused()
-        await task.getByLabel(first, { exact: true }).fill(answer)
-        await task.getByRole('button', { name: 'Keep this detail', exact: true }).click()
+        if (slug === 'reminder') await task.getByLabel(first, { exact: true }).selectOption('demo-event')
+        else await task.getByLabel(first, { exact: true }).fill(answer)
+        await task.getByRole('button', { name: slug === 'reminder' ? 'Use selected event' : 'Keep this detail', exact: true }).click()
         await expect(task.getByLabel(next, { exact: true })).toBeFocused()
         await task.getByRole('button', { name: `Edit ${first}`, exact: true }).click()
-        await expect(task.getByLabel(first, { exact: true })).toHaveValue(answer)
+        await expect(task.getByLabel(first, { exact: true })).toHaveValue(slug === 'reminder' ? 'demo-event' : answer)
         await task.getByRole('button', { name: 'Cancel pending task', exact: true }).click()
         await expect(task).toHaveCount(0)
         await expect(panel.getByRole('textbox', { name: 'Message Staff Assistant', exact: true })).toBeFocused()
@@ -90,11 +102,63 @@ try {
         await expect(panel.getByRole('button', { name: /^Prepare a reminder/ })).toBeEnabled()
       }
     }
+    if (role === 'DSWD_STAFF') {
+      const task = panel.getByRole('region', { name: 'Prepare a reminder', exact: true })
+      const start = () => panel.getByRole('button', { name: /^Prepare a reminder/ }).click()
+      const refresh = () => task.getByRole('button', { name: 'Refresh events', exact: true }).click()
+      const cancel = () => task.getByRole('button', { name: 'Cancel pending task', exact: true }).click()
+      eventMode = 'empty'
+      await start()
+      await expect(task.getByText('No saved events available', { exact: true })).toBeVisible()
+      await expect(task.getByRole('button', { name: 'Use selected event', exact: true })).toBeDisabled()
+      eventMode = 'normal'
+      await refresh()
+      await task.getByLabel('Distribution event', { exact: true }).selectOption('other-event')
+      await expect(task.getByRole('region', { name: 'Selected event details' })).toContainText('School assistance')
+      await expect(task.getByRole('region', { name: 'Selected event details' })).toContainText('Lahug hall')
+      for (const width of [1440, 390, 320]) {
+        await page.setViewportSize({ width, height: width === 320 ? 700 : 1000 })
+        await task.getByLabel('Distribution event', { exact: true }).focus()
+        await page.keyboard.press('Tab')
+        await page.keyboard.press('Tab')
+        const useEvent = task.getByRole('button', { name: 'Use selected event', exact: true })
+        await expect(useEvent).toBeFocused()
+        const buttonBounds = await useEvent.boundingBox(), contentBounds = await panel.locator('[data-assistant-content]').boundingBox()
+        assert.ok(buttonBounds.y >= contentBounds.y && buttonBounds.y + buttonBounds.height <= contentBounds.y + contentBounds.height, `Focused event action stays visible at ${width}px.`)
+        assert.equal(await panel.evaluate(el => el.scrollWidth <= el.clientWidth + 1), true)
+        await page.screenshot({ path: `${output}/reminder-selection-${width}.png` })
+      }
+      await cancel()
+      eventMode = 'error'
+      await start()
+      await expect(panel.getByRole('alert').filter({ hasText: 'Synthetic event lookup unavailable' })).toBeVisible()
+      await expect(task.getByRole('button', { name: 'Use selected event', exact: true })).toBeDisabled()
+      eventMode = 'normal'
+      await refresh()
+      await expect(task.getByLabel('Distribution event', { exact: true })).toBeEnabled()
+      await expect(task.getByRole('alert')).toHaveCount(0)
+      await cancel()
+      eventMode = 'delayed'
+      await start()
+      await expect.poll(() => typeof releaseEvents).toBe('function')
+      await cancel()
+      await expect(task).toHaveCount(0)
+      eventMode = 'normal'
+      await start()
+      const delayed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/distributions')
+      releaseEvents()
+      await (await delayed).finished()
+      await expect(task.getByLabel('Distribution event', { exact: true })).toHaveValue('')
+      await task.getByLabel('Distribution event', { exact: true }).selectOption('demo-event')
+      await expect(task.getByLabel('Distribution event', { exact: true })).toHaveValue('demo-event')
+      await expect(task.getByRole('alert')).toHaveCount(0)
+      await cancel()
+    }
     await context.close()
   }
   assert.deepEqual(operations, [], 'starting, editing and cancelling tasks must not call business mutations or send chat/SMS')
   assert.deepEqual(errors, [])
-  console.log('PASS: repeatable task shortcuts in the same conversation, fresh fields, preserved replies, role permissions, keyboard focus, cancellation, and 320/390/1440 layouts. All APIs mocked; no SMS or distribution created.')
+  console.log('PASS: saved-event selection by ID, duplicate-title details, empty/error refresh, cancelled lookup isolation, repeatable shortcuts, role scopes, keyboard focus and 320/390/1440 layouts. All APIs mocked; no SMS or distribution created.')
 } finally {
   await browser?.close()
   await vite.close()

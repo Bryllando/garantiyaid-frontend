@@ -4,21 +4,32 @@ import tailwindcss from '@tailwindcss/vite'
 
 export function createDevProxyLogger(logger = createLogger()) {
   let lastConnectionWarning = -Infinity
+  let connectionWarningShown = false
   const logError = logger.error.bind(logger)
   logger.error = (message, options) => {
     if (['ECONNREFUSED', 'ECONNRESET'].includes(options?.error?.code) && /(?:http|ws) proxy error:/.test(message)) {
       if (Date.now() - lastConnectionWarning >= 30_000) {
         lastConnectionWarning = Date.now()
-        logger.warn(`GarantiyAid backend connection lost (${options.error.code}). Run "npm start" in garantiyaid-backend and keep that terminal open. Live updates retry automatically.`, { timestamp: true })
+        connectionWarningShown = true
+        logger.warn(`GarantiyAid backend is temporarily unreachable (${options.error.code}). It may be starting or restarting. If it stays unavailable, run "npm.cmd start" in garantiyaid-backend; keep one backend terminal running.`, { timestamp: true })
       }
       return
     }
     logError(message, options)
   }
+  logger.backendConnected = () => {
+    if (!connectionWarningShown) return
+    connectionWarningShown = false
+    logger.info('GarantiyAid backend connection restored. Live updates reconnect automatically. Refresh the affected page if it still shows an error.', { timestamp: true })
+  }
   return logger
 }
 
+const devProxyLogger = createDevProxyLogger()
+
 function configureApiProxy(proxy) {
+  proxy.on('proxyRes', () => devProxyLogger.backendConnected())
+  proxy.on('open', () => devProxyLogger.backendConnected())
   proxy.on('error', (_error, _request, response) => {
     if (!response.writeHead || response.headersSent || response.writableEnded) return
     response.writeHead(503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
@@ -43,7 +54,7 @@ export function validateProductionApiUrl(value) {
 }
 
 export default defineConfig({
-  customLogger: createDevProxyLogger(),
+  customLogger: devProxyLogger,
   plugins: [react(), tailwindcss(), { name: 'deployment-api-check', apply: 'build', configResolved(config) { validateProductionApiUrl(config.env.VITE_API_URL) } }],
   optimizeDeps: { include: ['papaparse', 'read-excel-file/web-worker'] },
   server: {

@@ -45,9 +45,10 @@ try {
   const task = panel.getByRole('region', { name: 'Prepare a reminder', exact: true })
   for (const [label, value] of [['Distribution event', distribution.title], ['Recipient area', 'All scheduled service areas'], ['Reminder message', recipient.message], ['Queue timing', 'now']]) {
     const input = task.getByLabel(label, { exact: true })
-    if (label === 'Queue timing') await input.selectOption(value)
+    if (label === 'Distribution event') await input.selectOption(distribution.distributionId)
+    else if (label === 'Queue timing') await input.selectOption(value)
     else await input.fill(value)
-    await task.getByRole('button', { name: 'Keep this detail', exact: true }).click()
+    await task.getByRole('button', { name: label === 'Distribution event' ? 'Use selected event' : 'Keep this detail', exact: true }).click()
   }
   await task.getByRole('button', { name: 'Match records and preview', exact: true }).click()
   await expect(panel.getByLabel('Sitio / Purok', { exact: true })).toHaveValue('')

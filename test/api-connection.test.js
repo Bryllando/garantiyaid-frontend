@@ -7,26 +7,40 @@ import { createServer } from 'vite'
 import config, { createDevProxyLogger, validateProductionApiUrl } from '../vite.config.js'
 import { realtimeServerUrl } from '../src/realtime/staffRealtime.js'
 
-test('development proxy reports connection outages at most once per 30 seconds and preserves other errors', (t) => {
+test('development proxy throttles outage notices, reports recovery once, and preserves other errors', (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1000 })
   const warnings = []
   const errors = []
+  const information = []
   const logger = createDevProxyLogger({
     warn: (...args) => warnings.push(args),
     error: (...args) => errors.push(args),
+    info: (...args) => information.push(args),
   })
+  logger.backendConnected()
+  assert.equal(information.length, 0, 'Normal startup does not announce a recovery.')
   const refused = { error: { code: 'ECONNREFUSED' } }
   const reset = { error: { code: 'ECONNRESET' } }
   logger.error('http proxy error: /socket.io/', refused)
   for (let i = 0; i < 5; i += 1) logger.error('ws proxy error:', refused)
   logger.error('http proxy error: /api/v1/beneficiaries', reset)
   assert.equal(warnings.length, 1)
-  assert.match(warnings[0][0], /npm start.*garantiyaid-backend/)
+  assert.match(warnings[0][0], /npm\.cmd start.*garantiyaid-backend/)
+  assert.match(warnings[0][0], /starting or restarting/)
   assert.match(warnings[0][0], /ECONNREFUSED/)
   t.mock.timers.tick(30_000)
   logger.error('ws proxy error:', reset)
   assert.equal(warnings.length, 2)
   assert.match(warnings[1][0], /ECONNRESET/)
+  logger.backendConnected()
+  logger.backendConnected()
+  assert.equal(information.length, 1)
+  assert.match(information[0][0], /connection restored/)
+  t.mock.timers.tick(30_000)
+  logger.error('http proxy error: /api/v1/health', refused)
+  logger.backendConnected()
+  assert.equal(warnings.length, 3)
+  assert.equal(information.length, 2, 'A later outage has its own recovery notice.')
 
   const unexpected = { error: { code: 'EPROTO' } }
   logger.error('ws proxy error:', unexpected)
@@ -43,6 +57,8 @@ test('production builds require a deployed HTTPS API without bundled credentials
 
 test('local API proxy forwards login and protected requests and reports an unavailable backend', async (t) => {
   const requests = []
+  const information = []
+  t.mock.method(config.customLogger, 'info', (...args) => information.push(args))
   const backend = createHttpServer(async (request, response) => {
     let body = ''
     for await (const chunk of request) body += chunk
@@ -123,6 +139,7 @@ test('local API proxy forwards login and protected requests and reports an unava
   const pollingRecovered = await fetch(`${origin}/socket.io/?EIO=4&transport=polling`)
   assert.equal(pollingRecovered.status, 200)
   await pollingRecovered.json()
+  assert.equal(information.filter(([message]) => message.includes('backend connection restored')).length, 1)
 })
 
 test('relative API addresses send live updates through the same frontend origin', (t) => {

@@ -69,6 +69,17 @@ This referral does not require a distribution event, allocation, queue, QR, face
 | Response / withdrawal document reference | TEST-RESPONSE-01 |
 | Response details and responding office | TEST ONLY simulated office response. No actual government decision or payment. |
 
+## If DSWD only sees a Draft
+
+**Save draft is not Submit for review.** A draft with no listed attachments has no DSWD review actions.
+
+1. Barangay reopens the same BR- reference and selects **Edit details**.
+2. Correct any misplaced values: receiving office is an office name; receiving address is its location; authorized signatory is a person's full name; position is that person's designation; purpose describes the request. Keep each in its own field.
+3. **Upload and attach** a supporting document, or use **Add to this referral** for an existing applicant document. Select **Save draft**, then **Submit for review**.
+4. DSWD opens the same reference and selects **Refresh**. Continue only when its status is **Awaiting review**; review/accept the listed documents before **Prepare letter for signature**.
+
+The relationship field offers suggestions and accepts another relationship. Sending office is prefilled from the applicant's Barangay. Office, address and signatory details remain manual because there is no approved office/signatory directory in the app; confirm them with the responsible office. Suggestions do not establish eligibility or signing authority.
+
 ## Numbered manual journey
 
 1. **Barangay: Beneficiary services -> Beneficiaries.** Search for the living applicant. If absent, use **Register beneficiary** with fictional details; select the saved active record. Expected saved result: one intended living applicant in the correct barangay.
@@ -79,12 +90,12 @@ This referral does not require a distribution event, allocation, queue, QR, face
 6. Choose **Save draft** once. Expected database status: **DRAFT**; screen label: **Draft**. Record the BR- reference and URL. Refresh/reopen that exact referral and check that details/attachments persisted.
 7. Choose **Submit for review**. Expected: **IN_REVIEW**, displayed as **Awaiting review**. Barangay cannot edit submitted details directly.
 8. **DSWD: Programs & enrollment -> Burial referrals.** Search by applicant or deceased name and use **Open referral**. Compare the BR- reference. Expected: the same saved **IN_REVIEW** case.
-9. Use **Download** for each listed attachment and check the file. Choose **Accept document** only for appropriate test evidence. Expected document status: **ACCEPTED** for every listed attachment; referral remains **IN_REVIEW**. Preparing stays blocked while evidence is unaccepted/unavailable.
+9. Use **View document** to open each listed attachment inside the page, or **Download** to save it. Closing the preview returns focus to its button. Previewing does not accept a document. Choose **Accept document** only for appropriate test evidence. Expected document status: **ACCEPTED** for every listed attachment; referral remains **IN_REVIEW**. Preparing stays blocked while evidence is unaccepted/unavailable.
 10. Check the review confirmation after checking parties, attachments, destination and signatory. Choose **Prepare letter for signature**. Expected: **READY**, displayed as **Ready for signature**. The reviewed snapshot, reference and review actor/time are saved together.
-11. Choose **Preview letter**. Check applicant/deceased, date, destination, purpose, attachment descriptions and signatory. Choose **Print / Save PDF**, select A4 and your browser's Save as PDF destination. Expected: **FOR SIGNATURE - not yet issued**; status remains **READY**. Supporting files must accompany the letter separately; they are not embedded in its PDF.
+11. Choose **Preview letter**. Check applicant/deceased, date, destination, purpose, attachment descriptions and signatory. **Save PDF** downloads an A4 PDF directly; **Print letter** opens the printer dialog. Expected: **FOR SIGNATURE - not yet issued**; status remains **READY**. Supporting files must accompany the letter separately; they are not embedded in its PDF.
 12. Close the preview or press Escape. Expected: focus returns to **Preview letter**. Reopen the referral: reference and reviewed details remain unchanged. Later applicant profile edits must not rewrite this prepared snapshot.
 13. **Offline signing/handoff rehearsal:** use TEST ONLY paperwork. For actual operation, the designated authorized officer must sign and the letter must be handed over/dispatched before staff confirm issuance. The app does not create or verify that handwritten signature.
-14. **Barangay or DSWD:** under **Record issuance after signing**, enter **TEST-ISSUE-01** in **Signed-original / dispatch reference**. After the synthetic handoff, check the acknowledgment and choose **Record signed issuance**. Expected: **ISSUED**, displayed as **Issued · awaiting response**. Reopen to verify issuer, time and reference.
+14. **Barangay or DSWD:** under **Record issuance after signing**, follow the three reminders for printing, obtaining the officer's signature and handing over/dispatching. Enter **TEST-ISSUE-01** in **Signed-original / dispatch reference** for this rehearsal. For actual use, enter the logbook entry, signed-copy number or dispatch record where the signed original is kept, not a status such as “Ready for signature.” After the synthetic handoff, check the acknowledgment and choose **Record signed issuance**. Expected: **ISSUED**, displayed as **Issued · awaiting response**. Reopen to verify issuer, time and reference.
 15. Choose **Preview letter** again. Expected: **ISSUED RECORD COPY - original signature is not reproduced**, the original reviewed reference/details, and TEST-ISSUE-01. Reprinting does not change status. Retain the signed original separately.
 16. In actual operation, **leave it ISSUED while waiting for an actual response**. In this isolated rehearsal only, enter **OTHER**, **TEST-RESPONSE-01** and the explicit TEST ONLY response above under **Record receiving-office response**.
 17. Choose **Save response and close referral**. Expected: **CLOSED**, displayed as **Response recorded**. Refresh/reopen: outcome, reference/note, actor/time and original letter snapshot persist. No claim, wallet payment or assistance approval is created.
