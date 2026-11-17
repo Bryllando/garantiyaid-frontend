@@ -45,6 +45,7 @@ try {
       if (path === '/staff-notifications') return respond({ notifications: [], unreadCount: 0, pagination: { totalPages: 1 } })
       if (path === '/distributions') return respond({ distributions: new URL(req.url()).searchParams.get('status') === 'DRAFT' ? [] : [event], pagination: { totalPages: 1 } })
       if (path === `/distributions/${eventId}`) return respond({ distribution: event })
+      if (path.endsWith('/slots')) return respond({ slots: [], summary: { matchingSlotCount: 0, matchingCapacity: 0, sessionCount: 0 } })
       if (path.endsWith('/schedules')) return respond({ distributionId: eventId, schedules, summary: { countsByStatus: { SCHEDULED: 1, CHECKED_IN: 0, MISSED: 0, CANCELLED: 0 }, schedulableAllocationCount: 0 }, pagination: { page: 1, total: 1, totalPages: 1 } })
       errors.push(`Unexpected API: ${path}`); return route.fulfill({ status: 400, json: { error: { code: 'UNEXPECTED', message: path } } })
     })

@@ -11,6 +11,7 @@ import LocationFields from '../components/ui/location-fields.jsx'
 import { useMotionEntry } from '../components/ui/use-motion-entry.js'
 import { DistributionSessionPlanner, DistributionSessionSummary } from '../components/distributions/DistributionSessionPlanner.jsx'
 import SlotCapacityDialog from '../components/distributions/SlotCapacityDialog.jsx'
+import AiScheduleDraft from '../components/distributions/AiScheduleDraft.jsx'
 import EventOperationsStatus from '../components/distributions/EventOperationsStatus.jsx'
 import EventOperationsReview from '../components/distributions/EventOperationsReview.jsx'
 import { distributionSetupState, distributionTimeSlots, distributionWindowEnded, nextDistributionDate } from '../utils/distributionWorkflow.js'
@@ -624,6 +625,7 @@ function DistributionManagementPage({ session, onLogout, onNavigate, onSessionEx
               {activeStage === 'queue' && <>
                 <StageHeader label="Step 3 of 4" icon="queue" title="Build the queue schedule" description="Place each allocated beneficiary into the earliest available slot that covers their service area, then review the resulting queue before opening the event." />
                 {!activeAllocations ? <LockedStage>Allocate at least one approved beneficiary before generating the queue.</LockedStage> : <div className="space-y-5 p-5 sm:p-6">
+                  {selected.status === 'DRAFT' && <AiScheduleDraft key={selectedId} accessToken={session.accessToken} distributionId={selectedId} remainingCount={workflow.newScheduleCount} disabled={Boolean(actionBusy)} onBusyChange={busy => setActionBusy(busy ? 'ai-schedules' : '')} onSessionExpired={onSessionExpired} onSaved={result => { if (result) { const message = `${result.generatedScheduleCount} appointments saved from the reviewed AI draft. The event is still a draft.`; toast.success(message); setActionFeedback({ tone: 'success', message }) } setReload(value => value + 1) }} />}
                   <div className="rounded-xl border border-line bg-slate-50 p-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div><p className="text-sm font-extrabold text-ink">{scheduled} of {activeAllocations} allocations scheduled</p><p className="mt-1 text-xs text-muted-copy">{workflow.newScheduleCount ? `${workflow.newScheduleCount} still need a new queue assignment.` : workflow.cancelledScheduleCount ? 'The remaining allocations have cancelled schedules. Review them before returning them to the queue.' : 'Every active allocation has a queue assignment.'}</p></div>

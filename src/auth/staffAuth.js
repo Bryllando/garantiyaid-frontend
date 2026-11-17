@@ -1124,6 +1124,20 @@ export async function cancelDistributionSchedule(token, distributionId, schedule
   return data.schedule
 }
 
+export async function previewAiDistributionSchedule(token, distributionId) {
+  const data = await requestJson(`/distributions/${distributionId}/schedules/ai-draft`, { token, body: {} })
+  if (!data?.draftId || !data.expiresAt || !Array.isArray(data.assignments) || !Array.isArray(data.allocations) || !Array.isArray(data.slots)) throw new Error('The server returned an incomplete AI draft. Generate a new draft.')
+  return data
+}
+
+export async function confirmAiDistributionSchedule(token, distributionId, draftId, assignments, idempotencyKey) {
+  const data = await requestJson(`/distributions/${distributionId}/schedules/ai-confirm`, {
+    token, headers: { 'Idempotency-Key': idempotencyKey }, body: { draftId, assignments, confirmed: true },
+  })
+  if (!Number.isInteger(data?.generatedScheduleCount)) throw new Error('The save result could not be confirmed. Retry this same confirmation to retrieve the result.')
+  return data
+}
+
 export async function reactivateDistributionSchedule(token, distributionId, scheduleId) {
   const data = await requestJson(`/distributions/${distributionId}/schedules/${scheduleId}/reactivate`, { token })
   if (!data?.schedule) throw new Error('The server returned an unexpected schedule response.')

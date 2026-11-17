@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import QrIssuancePanel from '../components/distributions/QrIssuancePanel.jsx'
+import { DistributionSessionPlanner, DistributionSessionSummary } from '../components/distributions/DistributionSessionPlanner.jsx'
+import SlotCapacityDialog from '../components/distributions/SlotCapacityDialog.jsx'
+import AiScheduleDraft from '../components/distributions/AiScheduleDraft.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Icon } from '../components/ui/icon.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
@@ -9,6 +12,7 @@ import { manualVerificationAllowed, eventVerificationLabel } from '../utils/clai
 import {
   cancelDistributionSchedule,
   generateDistributionSchedules,
+  generateDistributionSlots,
   getAuthErrorMessage,
   isSessionExpiredError,
   previewDistributionQrClaim,
@@ -16,10 +20,12 @@ import {
   requestDistributionQueue,
   requestAllDistributions,
   requestDistributionSlots,
+  requestEligibleDistributionEnrollments,
   requestOpenDistributions,
   reactivateDistributionSchedule,
   rescheduleDistributionSchedule,
   verifyDistributionQrClaim,
+  updateDistributionSlotCapacity,
 } from '../auth/staffAuth.js'
 import { connectFacilitatorQueueRealtime } from '../realtime/staffRealtime.js'
 import { createLiveRefresh } from '../utils/liveRefresh.js'
@@ -123,6 +129,10 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
   const [scheduleAction, setScheduleAction] = useState(null)
   const [reschedule, setReschedule] = useState(null)
   const [isScheduleBusy, setIsScheduleBusy] = useState(false)
+  const [sessionPlan, setSessionPlan] = useState(null)
+  const [sessionPlanError, setSessionPlanError] = useState('')
+  const [isLoadingSessionPlan, setIsLoadingSessionPlan] = useState(true)
+  const [capacitySlot, setCapacitySlot] = useState(null)
   const [searchInput, setSearchInput] = useState(() => new URLSearchParams(window.location.search).get('search') || '')
   const [search, setSearch] = useState(searchInput)
   const [status, setStatus] = useState(() => {
@@ -265,10 +275,32 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     return () => { active = false }
   }, [authorized, onSessionExpired, page, queueReload, search, selectedDistribution, selectedId, session.accessToken, status, view])
 
+  useEffect(() => {
+    if (!isFacilitator || view !== 'queue' || !selectedDistribution) return undefined
+    let active = true
+    Promise.all([
+      requestDistributionSlots(session.accessToken, selectedId),
+      selectedDistribution.status === 'DRAFT' ? requestEligibleDistributionEnrollments(session.accessToken, selectedId) : Promise.resolve(null),
+    ]).then(([slots, eligible]) => {
+      if (!active) return
+      setSessionPlan({ ...slots, eligible, distributionId: selectedId })
+      setSessionPlanError('')
+    }).catch((error) => {
+      if (!active) return
+      if (isSessionExpiredError(error)) return onSessionExpired()
+      setSessionPlanError(getAuthErrorMessage(error))
+    }).finally(() => { if (active) setIsLoadingSessionPlan(false) })
+    return () => { active = false }
+  }, [isFacilitator, onSessionExpired, queueReload, selectedDistribution, selectedId, session.accessToken, view])
+
   function selectDistribution(distributionId) {
     selectedIdRef.current = distributionId
     setSelectedId(distributionId)
     setQueue(null)
+    setSessionPlan(null)
+    setIsLoadingSessionPlan(true)
+    setSessionPlanError('')
+    setCapacitySlot(null)
     setQueueError('')
     setScheduleNotice('')
     setPage(1)
@@ -308,6 +340,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
 
   function refreshQueueRecords() {
     setIsLoadingQueue(true)
+    setIsLoadingSessionPlan(true)
     setQueueReload((count) => count + 1)
     setDistributionReload((count) => count + 1)
   }
@@ -327,6 +360,33 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     } finally {
       setIsScheduleBusy(false)
     }
+  }
+
+  async function createSlots(sessions) {
+    setIsScheduleBusy(true)
+    setScheduleNotice('')
+    try {
+      await generateDistributionSlots(session.accessToken, selectedId, sessions)
+      setScheduleNotice('Service sessions and time slots generated. The administrator can now allocate approved beneficiaries before queue assignment.')
+      refreshQueueRecords()
+    } catch (error) {
+      if (isSessionExpiredError(error)) onSessionExpired()
+      throw error
+    } finally { setIsScheduleBusy(false) }
+  }
+
+  async function saveCapacity(slotId, capacity) {
+    setIsScheduleBusy(true)
+    setScheduleNotice('')
+    try {
+      await updateDistributionSlotCapacity(session.accessToken, selectedId, slotId, capacity)
+      setCapacitySlot(null)
+      setScheduleNotice('Time-slot capacity updated. Existing appointments are unchanged.')
+      refreshQueueRecords()
+    } catch (error) {
+      if (isSessionExpiredError(error)) onSessionExpired()
+      throw error
+    } finally { setIsScheduleBusy(false) }
   }
 
   async function confirmScheduleAction() {
@@ -355,7 +415,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
       const slots = data.slots.filter((slot) => slot.slotId !== schedule.slotId && slot.slotStatus === 'AVAILABLE'
         && (!slot.serviceAreas.length || (area && slot.serviceAreas.some((name) => name.trim().toLocaleLowerCase('en-PH') === area))))
       if (slots.length === 0) {
-        setQueueError(isAdmin ? 'No other available time slot covers this beneficiary’s service area. Return to the event to review capacity.' : 'No other available time slot covers this beneficiary’s service area. Ask the administrator to review capacity.')
+        setQueueError(isAdmin ? 'No other available time slot covers this beneficiary’s service area. Return to the event to review capacity.' : 'No other available time slot covers this beneficiary’s service area. Review Service sessions and capacity above.')
         return
       }
       setReschedule({ schedule, slots })
@@ -510,7 +570,18 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
 
           {isDswd && view === 'qr' && selectedDistribution && <QrIssuancePanel key={selectedId} distribution={selectedDistribution} accessToken={session.accessToken} onSessionExpired={onSessionExpired} claimId={verificationResult?.claim?.claimId} onBusyChange={setIsQrIssuing} />}
 
+          {isFacilitator && view === 'queue' && selectedDistribution && <section className="ga-card mt-6 overflow-hidden" aria-labelledby="barangay-sessions-title" aria-busy={isLoadingSessionPlan || isScheduleBusy}>
+            <header className="border-b border-line p-5 sm:p-6"><h2 id="barangay-sessions-title" className="text-lg font-extrabold text-ink">Service sessions and capacity</h2><p className="mt-2 text-sm leading-6 text-muted-copy">{selectedDistribution.status === 'DRAFT' ? 'Generate time slots and manage the number of beneficiaries per slot for your assigned barangay.' : 'Sessions and capacity are locked because this event is open.'}</p></header>
+            <div className="p-5 sm:p-6">
+              {sessionPlanError ? <div role="alert"><p className="text-sm text-brand-red">{sessionPlanError}</p><button type="button" disabled={isLoadingSessionPlan} onClick={() => { setIsLoadingSessionPlan(true); setQueueReload(count => count + 1) }} className="ga-btn-secondary mt-3">Reload service sessions</button></div> : sessionPlan?.distributionId !== selectedId ? <p role="status" className="text-sm text-muted-copy"><LoadingLabel>Loading service sessions...</LoadingLabel></p> : <fieldset disabled={isScheduleBusy || isLoadingSessionPlan || Boolean(scheduleAction) || Boolean(reschedule)} className="min-w-0">
+                {sessionPlan.summary.matchingSlotCount > 0 ? <DistributionSessionSummary slots={sessionPlan.slots} summary={sessionPlan.summary} onEditCapacity={selectedDistribution.status === 'DRAFT' ? setCapacitySlot : undefined} /> : selectedDistribution.status === 'DRAFT' ? <DistributionSessionPlanner key={selectedId} busy={isScheduleBusy || isLoadingSessionPlan} distribution={selectedDistribution} onGenerate={createSlots} serviceAreaSummary={sessionPlan.eligible?.summary} /> : <p className="text-sm text-muted-copy">No service sessions are available for this event.</p>}
+              </fieldset>}
+            </div>
+          </section>}
+
           {view === 'queue' ? (
+            <>
+            {selectedDistribution?.status === 'DRAFT' && <div className="mt-6"><AiScheduleDraft key={selectedId} accessToken={session.accessToken} distributionId={selectedId} remainingCount={queue?.summary?.schedulableAllocationCount} disabled={isScheduleBusy || isLoadingQueue || Boolean(scheduleAction) || Boolean(reschedule)} onBusyChange={setIsScheduleBusy} onSessionExpired={onSessionExpired} onSaved={result => { if (result) setScheduleNotice(`${result.generatedScheduleCount} appointments saved from the reviewed AI draft. The event is still a draft.`); refreshQueueRecords() }} /></div>}
             <QueueView
               queue={queue?.distributionId === selectedId ? queue : null}
               role={session.user.role}
@@ -534,6 +605,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
               onRetry={() => { setQueueError(''); setIsLoadingQueue(true); setQueueReload((count) => count + 1) }}
               scheduleNotice={scheduleNotice}
             />
+            </>
           ) : (
             <QrVerificationView
               role={session.user.role}
@@ -562,6 +634,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
             onConfirm={confirmScheduleAction}
           />
           {reschedule && <RescheduleDialog schedule={reschedule.schedule} slots={reschedule.slots} onClose={() => setReschedule(null)} onSave={confirmReschedule} />}
+          {capacitySlot && selectedDistribution?.status === 'DRAFT' && <SlotCapacityDialog slot={capacitySlot} onSave={saveCapacity} onClose={() => setCapacitySlot(null)} />}
         </>
       )}
     </DashboardShell>
@@ -674,7 +747,7 @@ function QueueView({ distribution, queue, role, onNavigate, queueError, isLoadin
                 <table className="w-full border-collapse text-left text-sm">
                   <caption className="sr-only">Beneficiary distribution schedules</caption>
                   <thead><tr className="border-b border-line text-xs uppercase tracking-[0.08em] text-muted-copy"><th scope="col" className="px-3 py-3">Queue</th><th scope="col" className="px-3 py-3">Beneficiary</th><th scope="col" className="px-3 py-3">Time slot</th><th scope="col" className="px-3 py-3">Status</th><th scope="col" className="px-3 py-3 text-right">{isDraft ? 'Schedule action' : 'Next step'}</th></tr></thead>
-                  <tbody className="divide-y divide-line">{queue.schedules.map((schedule) => <tr key={schedule.scheduleId}><td className="px-3 py-4"><p className="text-lg font-black text-brand-navy">#{schedule.queueNumber}</p><p className="mt-1 text-xs text-muted-copy">{schedule.assignmentMethod === 'AUTOMATED_RULES' || schedule.assignedByAi ? 'Automated rules' : 'Staff assigned'}</p></td><td className="px-3 py-4"><p className="font-bold text-ink">{beneficiaryName(schedule.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p><ClaimProgress claim={schedule.claim} /></td><td className="px-3 py-4"><p className="font-semibold text-ink">{schedule.slot.sessionLabel}</p><p className="mt-1 text-xs text-muted-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p><p className="mt-1 text-xs text-muted-copy">{schedule.slot.location}</p></td><td className="px-3 py-4"><StatusBadge status={schedule.status} /></td><td className="px-3 py-4 text-right">{isDraft ? <ScheduleActions schedule={schedule} busy={isScheduleBusy} onReschedule={onReschedule} onScheduleAction={onScheduleAction} /> : <QueueClaimAction schedule={schedule} distribution={distribution} role={role} onNavigate={onNavigate} />}</td></tr>)}</tbody>
+                  <tbody className="divide-y divide-line">{queue.schedules.map((schedule) => <tr key={schedule.scheduleId}><td className="px-3 py-4"><p className="text-lg font-black text-brand-navy">#{schedule.queueNumber}</p><p className="mt-1 text-xs text-muted-copy">{schedule.assignmentMethod === 'AUTOMATED_RULES' || schedule.assignedByAi ? 'Automatically assigned' : 'Staff assigned'}</p></td><td className="px-3 py-4"><p className="font-bold text-ink">{beneficiaryName(schedule.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p><ClaimProgress claim={schedule.claim} /></td><td className="px-3 py-4"><p className="font-semibold text-ink">{schedule.slot.sessionLabel}</p><p className="mt-1 text-xs text-muted-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p><p className="mt-1 text-xs text-muted-copy">{schedule.slot.location}</p></td><td className="px-3 py-4"><StatusBadge status={schedule.status} /></td><td className="px-3 py-4 text-right">{isDraft ? <ScheduleActions schedule={schedule} busy={isScheduleBusy} onReschedule={onReschedule} onScheduleAction={onScheduleAction} /> : <QueueClaimAction schedule={schedule} distribution={distribution} role={role} onNavigate={onNavigate} />}</td></tr>)}</tbody>
                 </table>
               </div>
               <ul className="space-y-3 md:hidden">{queue.schedules.map((schedule) => <li key={schedule.scheduleId} className="rounded-lg border border-line p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-lg font-black text-brand-navy">Queue #{schedule.queueNumber}</p><p className="mt-1 font-bold text-ink">{beneficiaryName(schedule.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p><ClaimProgress claim={schedule.claim} /></div><StatusBadge status={schedule.status} /></div><div className="mt-3 rounded-lg bg-slate-50 p-3"><p className="text-sm font-bold text-ink">{schedule.slot.sessionLabel}</p><p className="mt-1 text-xs text-muted-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p><p className="mt-1 text-xs text-muted-copy">{schedule.slot.location}</p></div>{isDraft ? <ScheduleActions schedule={schedule} busy={isScheduleBusy} mobile onReschedule={onReschedule} onScheduleAction={onScheduleAction} /> : <div className="mt-3 border-t border-line pt-2"><QueueClaimAction schedule={schedule} distribution={distribution} role={role} onNavigate={onNavigate} /></div>}</li>)}</ul>

@@ -46,6 +46,7 @@ try {
       const items = !eventsPresent || url.searchParams.get('status') === 'DRAFT' ? [] : [event, faceEvent]
       data = { distributions: items, pagination: pagination(items.length) }
     } else if (path === '/distributions/event-1' || path === '/distributions/event-2') data = { distribution: path.endsWith('event-1') ? event : faceEvent }
+    else if (path.endsWith('/slots')) data = { slots: [], summary: { matchingSlotCount: 0, matchingCapacity: 0, sessionCount: 0 } }
     else if (path.endsWith('/schedules')) {
       if (queueFails) return fail('Queue records unavailable')
       const rows = path.includes('event-2') ? [{ ...schedule, claim: null, status: 'SCHEDULED' }] : [{ ...schedule, claim: { claimId: 'claim-1', claimStatus, releaseMethod: claimStatus === 'CLAIMED' ? 'PHYSICAL_GOODS' : null } }, { ...schedule, scheduleId: 'schedule-2', beneficiaryId: 'person-2', beneficiary: { ...beneficiary, beneficiaryId: 'person-2', firstName: 'Juan' }, queueNumber: 2, status: 'SCHEDULED' }]
