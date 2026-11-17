@@ -20,7 +20,7 @@ test('staff AI assistant has a shared role-aware page and collapsible history', 
   assert.match(source, /English[\s\S]*Filipino[\s\S]*Cebuano/)
 })
 
-test('staff guidance uses authenticated OpenRouter AI with bounded conversation context', () => {
+test('staff guidance uses authenticated NVIDIA AI with bounded conversation context', () => {
   assert.match(authSource, /\/chatbot\/staff-assistant\/messages/)
   assert.match(source, /requestStaffAssistantMessage\(accessToken, \{[\s\S]*messageText: content,[\s\S]*messages\.filter\(\(message\) => !message\.local\)\.slice\(-6\)/)
   assert.match(source, /Review AI guidance/)

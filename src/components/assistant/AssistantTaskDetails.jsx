@@ -2,29 +2,33 @@ import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../ui/icon.jsx'
 import { LoadingLabel } from '../ui/spinner.jsx'
 import { fieldsForTask, nextTaskField, reminderContextFields, taskTimingIssue, translated } from './task-details.js'
-import { formatReminderEvent } from './task-preview.js'
+import { formatReminderEvent, resolveServiceArea, UNRESOLVED_AREA } from './task-preview.js'
 
 const dateFormatter = new Intl.DateTimeFormat('en-PH', { dateStyle: 'full', timeZone: 'Asia/Manila' })
 
-function FieldEditor({ definition, value, onSave, error, language, chatOpen, onChatToggle, distributions, matchingEvents, eventId, eventLoading, eventLookupError, onRefreshEvents, onSelectEvent }) {
+function FieldEditor({ definition, value, onSave, error, language, chatOpen, onChatToggle, distributions, matchingEvents, eventId, eventLoading, eventLookupError, onRefreshEvents, onSelectEvent, serviceAreas, areaLoading, areaLookupError, onRefreshAreas }) {
   const isEvent = definition.key === 'distribution'
+  const isArea = definition.key === 'serviceArea'
   const [input, setInput] = useState(isEvent ? eventId || '' : value || '')
   const inputRef = useRef(null)
   const selectedEvent = distributions.find(row => row.distributionId === input)
   const matchingIds = new Set(matchingEvents.map(row => row.distributionId))
   const matches = distributions.filter(row => matchingIds.has(row.distributionId))
   const others = distributions.filter(row => !matchingIds.has(row.distributionId))
+  const areaValue = isArea && input ? resolveServiceArea(input, serviceAreas) : UNRESOLVED_AREA
+  const selectedArea = areaValue === UNRESOLVED_AREA ? '' : areaValue || 'All scheduled service areas'
+  const areaUnavailable = !eventId || areaLoading || Boolean(areaLookupError)
   useEffect(() => {
-    if (!eventLoading && document.activeElement?.id !== 'garantiyaid-ai-message') inputRef.current?.focus({ preventScroll: true })
-  }, [eventLoading])
+    if (!eventLoading && !areaLoading && document.activeElement?.id !== 'garantiyaid-ai-message') inputRef.current?.focus({ preventScroll: !isArea })
+  }, [eventLoading, areaLoading])
   const props = {
     id: 'ai-task-detail', ref: inputRef, value: input, required: true,
     onChange: (event) => setInput(event.target.value),
-    'aria-describedby': `ai-task-detail-help${error ? ' ai-task-detail-error' : ''}`, 'aria-invalid': Boolean(error),
+    'aria-describedby': `ai-task-detail-help${error ? ' ai-task-detail-error' : ''}${isArea && areaLookupError ? ' ai-task-area-error' : ''}`, 'aria-invalid': Boolean(error || isArea && areaLookupError),
     className: 'ga-input mt-2 min-h-11 w-full min-w-0',
   }
   const placeholder = { program: 'e.g. Community Cash Assistance', barangay: 'e.g. San Nicolas', serviceArea: 'e.g. Purok 2, or all scheduled service areas', location: 'e.g. Barangay Hall', title: 'Enter a short event title', messageTemplate: 'Write the reminder beneficiaries will receive' }[definition.key]
-  return <form onSubmit={(event) => { event.preventDefault(); if (isEvent) { if (selectedEvent && !eventLoading && !eventLookupError) onSelectEvent(selectedEvent) } else onSave(definition.key, input) }} className="border-t border-line p-5 sm:p-6">
+  return <form onSubmit={(event) => { event.preventDefault(); if (isEvent) { if (selectedEvent && !eventLoading && !eventLookupError) onSelectEvent(selectedEvent) } else if (!isArea || !areaUnavailable && selectedArea) onSave(definition.key, isArea ? selectedArea : input) }} className="border-t border-line p-5 sm:p-6">
     <label htmlFor="ai-task-detail" className="ga-label">{definition.label}</label>
     <p id="ai-task-detail-help" className="mt-1 text-sm leading-6 text-muted-copy">{translated(definition.question, language)}</p>
     {isEvent ? <>
@@ -51,15 +55,28 @@ function FieldEditor({ definition, value, onSave, error, language, chatOpen, onC
         </dl>
         <p className="mt-3 border-t border-line pt-3 text-xs leading-5 text-muted-copy">{selectedEvent.status === 'DRAFT' ? 'Draft event: only beneficiaries with assigned schedules can appear in the recipient preview.' : 'Only eligible scheduled beneficiaries can receive a reminder. You will review the recipients before confirming.'}</p>
       </section>}
+    </> : isArea ? <>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <p role="status" className="text-xs text-muted-copy">{areaLoading ? <LoadingLabel>Loading recipient areas...</LoadingLabel> : `${serviceAreas.length} named ${serviceAreas.length === 1 ? 'area' : 'areas'} in this event`}</p>
+        {onRefreshAreas && <button type="button" onClick={onRefreshAreas} disabled={!eventId || areaLoading} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue disabled:cursor-wait disabled:opacity-50"><Icon name="reset" className="size-4" />Refresh areas</button>}
+      </div>
+      <select {...props} value={selectedArea} disabled={areaUnavailable} aria-busy={areaLoading}>
+        <option value="">{areaLoading ? 'Loading areas...' : 'Choose the recipient area'}</option>
+        <option value="All scheduled service areas">All scheduled service areas</option>
+        {serviceAreas.map(area => <option key={area} value={area}>{area}</option>)}
+      </select>
+      {areaLookupError && <p id="ai-task-area-error" role="alert" className="mt-2 text-sm font-semibold text-brand-red">{areaLookupError} Use Refresh areas to try again.</p>}
+      {!areaLoading && !areaLookupError && serviceAreas.length === 0 && <p className="mt-2 text-sm leading-6 text-muted-copy">No named Sitio/Purok found for this event. Choose All scheduled service areas to review its scheduled beneficiaries.</p>}
+      {!areaUnavailable && input && !selectedArea && <p role="status" className="mt-2 text-sm leading-6 text-brand-amber">The previous area is unavailable for this event. Choose an area from the list.</p>}
     </> : definition.options ? <select {...props}><option value="">Choose an option</option>{definition.options.map((option) => <option key={option} value={option}>{option.replaceAll('_', ' ').toLowerCase().replace(/^qr/, 'QR')}</option>)}</select>
       : definition.type === 'textarea' ? <textarea {...props} placeholder={placeholder} rows={3} maxLength={320} />
         : <input {...props} placeholder={placeholder} type={definition.type} maxLength={200} min={definition.type === 'number' ? 5 : undefined} max={definition.type === 'number' ? 720 : undefined} step={definition.type === 'number' ? 1 : undefined} />}
     {error && <p id="ai-task-detail-error" role="alert" className="mt-2 text-sm font-semibold text-brand-red">{error}</p>}
-    <div className="mt-4 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">{onChatToggle ? <button type="button" onClick={onChatToggle} aria-expanded={chatOpen} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue"><Icon name={chatOpen ? 'enrollments' : 'helpCases'} className="size-4" />{chatOpen ? 'Use guided fields' : 'Use chat instead'}</button> : <p className="text-xs leading-5 text-muted-copy">You can also answer or ask for help in chat.</p>}<button type="submit" disabled={isEvent && (!selectedEvent || eventLoading || Boolean(eventLookupError))} className="ga-btn-primary shrink-0">{isEvent ? 'Use selected event' : 'Keep this detail'} <Icon name="arrowRight" className="size-4" /></button></div>
+    <div className="mt-4 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">{onChatToggle ? <button type="button" onClick={onChatToggle} aria-expanded={chatOpen} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-brand-blue hover:bg-info-soft focus-visible:outline-2 focus-visible:outline-brand-blue"><Icon name={chatOpen ? 'enrollments' : 'helpCases'} className="size-4" />{chatOpen ? 'Use guided fields' : 'Use chat instead'}</button> : <p className="text-xs leading-5 text-muted-copy">You can also answer or ask for help in chat.</p>}<button type="submit" disabled={isEvent && (!selectedEvent || eventLoading || Boolean(eventLookupError)) || isArea && (areaUnavailable || !selectedArea)} className="ga-btn-primary shrink-0">{isEvent ? 'Use selected event' : 'Keep this detail'} <Icon name="arrowRight" className="size-4" /></button></div>
   </form>
 }
 
-export default function AssistantTaskDetails({ task, editing, onEdit, onSave, onCancel, onPreview, language, error, busy, chatOpen, onChatToggle, distributions = [], matchingEvents = [], eventLoading = false, eventLookupError, onRefreshEvents, onSelectEvent }) {
+export default function AssistantTaskDetails({ task, editing, onEdit, onSave, onCancel, onPreview, language, error, busy, chatOpen, onChatToggle, distributions = [], matchingEvents = [], eventLoading = false, eventLookupError, onRefreshEvents, onSelectEvent, serviceAreas = [], areaLoading = false, areaLookupError, onRefreshAreas }) {
   const fields = fieldsForTask(task)
   const contextFields = task.kind === 'reminder' ? reminderContextFields.filter(item => task.values[item.key]) : []
   const active = [...fields, ...contextFields].find((item) => item.key === editing) || nextTaskField(task)
@@ -79,7 +96,7 @@ export default function AssistantTaskDetails({ task, editing, onEdit, onSave, on
       <div className="mt-4 flex items-center justify-between gap-3 text-xs text-muted-copy"><span>{active ? 'Collecting details' : 'Ready for review'}</span><span className="tabular-nums">{count} of {fields.length} details</span></div>
       <progress aria-label="Task details collected" max={fields.length} value={count} className="ga-assistant-task-progress mt-2 block h-1.5 w-full" />
     </div>
-    <fieldset disabled={busy && !eventLoading} className="min-w-0 border-0 p-0 disabled:opacity-60">
+    <fieldset disabled={busy && !eventLoading && !areaLoading} className="min-w-0 border-0 p-0 disabled:opacity-60">
       <legend className="sr-only">Collected task details</legend>
       {count > 0 && <dl className="divide-y divide-line border-t border-line bg-slate-50/60">
         {[...fields, ...contextFields].filter((item) => task.values[item.key]).map((item) => <div key={item.key} className="flex items-start gap-2 px-4 py-2">
@@ -88,7 +105,7 @@ export default function AssistantTaskDetails({ task, editing, onEdit, onSave, on
         </div>)}
       </dl>}
       {timingIssue && <p role="status" className="border-t border-line bg-warning-soft px-4 py-3 text-sm text-brand-amber">{timingIssue}</p>}
-      {active ? <FieldEditor key={`${active.key}:${task.values[active.key] || ''}:${task.values.distributionId || ''}`} definition={active} value={task.values[active.key]} onSave={onSave} error={error} language={language} chatOpen={chatOpen} onChatToggle={onChatToggle} distributions={distributions} matchingEvents={matchingEvents} eventId={task.values.distributionId} eventLoading={eventLoading} eventLookupError={eventLookupError} onRefreshEvents={onRefreshEvents} onSelectEvent={onSelectEvent} />
+      {active ? <FieldEditor key={`${active.key}:${task.values[active.key] || ''}:${task.values.distributionId || ''}`} definition={active} value={task.values[active.key]} onSave={onSave} error={error} language={language} chatOpen={chatOpen} onChatToggle={onChatToggle} distributions={distributions} matchingEvents={matchingEvents} eventId={task.values.distributionId} eventLoading={eventLoading} eventLookupError={eventLookupError} onRefreshEvents={onRefreshEvents} onSelectEvent={onSelectEvent} serviceAreas={serviceAreas} areaLoading={areaLoading} areaLookupError={areaLookupError} onRefreshAreas={onRefreshAreas} />
         : <div role="status" className="border-t border-line bg-info-soft p-4 text-sm leading-6 text-copy"><p className="font-bold text-ink">{timingIssue ? 'Check your time choices' : 'Details collected'}</p><p className="mt-1">These preferences still need an official preview. Nothing has been created or queued.</p>{error && <p className="mt-2 font-semibold text-brand-red">{error}</p>}</div>}
       <div className="border-t border-line px-5 py-4 sm:px-6">
         {onPreview && !active && !timingIssue && <button type="button" onClick={onPreview} disabled={busy} className="ga-btn-primary mb-3 w-full">Match records and preview</button>}

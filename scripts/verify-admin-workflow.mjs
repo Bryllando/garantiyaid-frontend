@@ -169,7 +169,7 @@ try {
   })
 
   await page.goto(`${origin}/dashboard`)
-  await expect(page.getByRole('heading', { name: 'Administration overview' })).toBeVisible({ timeout: 15000 })
+  await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible({ timeout: 15000 })
   await expect(page.getByText('Maria Santos', { exact: true })).toBeVisible()
   assert.equal(await page.getByText('Prepare the first distribution', { exact: true }).count(), 0)
   assert.equal(await page.locator('#staff-navigation a[href="/service-review"]').count(), 0)
@@ -576,7 +576,7 @@ try {
   beneficiary.documents = []
 
   const routes = [
-    ['/dashboard', 'Administration overview', 'overview'],
+    ['/dashboard', 'Overview', 'overview'],
     ['/beneficiaries', 'Beneficiary records', 'beneficiaries'],
     ['/enrollments', 'Enrollment review', 'enrollments'],
     ['/programs', 'Assistance programs', 'programs'],
@@ -623,7 +623,7 @@ try {
   for (const width of [320, 768]) {
     await page.setViewportSize({ width, height: 900 })
     await page.goto(`${origin}/dashboard`)
-    await expect(page.getByRole('heading', { name: 'Administration overview' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible()
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `overview overflow at ${width}px`)
     for (const route of ['/admin/schedules', '/admin/verify-claims', '/biometrics']) {
       await page.goto(`${origin}${route}`)

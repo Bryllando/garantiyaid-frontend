@@ -15,7 +15,7 @@ try {
   browser = await chromium.launch({ channel: 'chrome', headless: true })
   for (const role of ['SYSTEM_ADMIN', 'DSWD_STAFF', 'BARANGAY_FACILITATOR']) {
     const fixture = historyApiFixture()
-    let eventMode = 'normal', releaseEvents
+    let eventMode = 'normal', areaMode = 'normal', releaseEvents, releaseAreas
     const events = [
       { distributionId: 'demo-event', title: 'Demo Distribution', status: 'OPEN', distributionDate: '2099-12-10', startTime: '10:00', endTime: '12:00', location: 'Apas hall', program: { programName: 'Food assistance', programCode: 'FOOD' }, barangay: { barangayName: 'Apas', city: 'Cebu City' } },
       { distributionId: 'other-event', title: 'Demo Distribution', status: 'DRAFT', distributionDate: '2099-12-11', startTime: '08:00', endTime: '10:00', location: 'Lahug hall', program: { programName: 'School assistance', programCode: 'SCHOOL' }, barangay: { barangayName: 'Lahug', city: 'Cebu City' } },
@@ -37,6 +37,12 @@ try {
         if (eventMode === 'error') return route.fulfill({ status: 503, json: { error: { message: 'Synthetic event lookup unavailable. Refresh to retry.' } } })
         const rows = eventMode === 'empty' ? [] : role === 'BARANGAY_FACILITATOR' ? events.slice(0, 1) : events
         return route.fulfill({ json: { data: { distributions: rows, pagination: { page: 1, total: rows.length, totalPages: rows.length ? 1 : 0 } } } })
+      }
+      if (path.endsWith('/schedules')) {
+        if (areaMode === 'delayed') await new Promise(resolve => { releaseAreas = resolve })
+        if (areaMode === 'error') return route.fulfill({ status: 503, json: { error: { message: 'Synthetic area lookup unavailable.' } } })
+        const area = path.includes('/other-event/') ? 'Lahug Area' : 'Sitio Grotto'
+        return route.fulfill({ json: { data: { schedules: areaMode === 'empty' ? [] : [{ beneficiary: { sitioPurok: area } }], summary: {}, pagination: { totalPages: 1 } } } })
       }
       if (route.request().method() !== 'GET') operations.push(path)
       return route.fulfill({ json: { success: true, data: { timestamp: new Date().toISOString(), notifications: [], unreadCount: 0, distributions: [{ distributionId: 'demo-event', title: 'Demo Distribution', status: 'OPEN', distributionDate: '2099-12-10', startTime: '10:00', endTime: '12:00' }], programs: [], barangays: [], pagination: { page: 1, total: 0, totalPages: 1 } } } })
@@ -80,6 +86,18 @@ try {
         else await task.getByLabel(first, { exact: true }).fill(answer)
         await task.getByRole('button', { name: slug === 'reminder' ? 'Use selected event' : 'Keep this detail', exact: true }).click()
         await expect(task.getByLabel(next, { exact: true })).toBeFocused()
+        if (slug === 'reminder') {
+          const area = task.getByRole('combobox', { name: 'Recipient area', exact: true })
+          await expect(area.getByRole('option', { name: 'Sitio Grotto', exact: true })).toHaveCount(1)
+          await expect(task.getByRole('button', { name: 'Keep this detail', exact: true })).toBeDisabled()
+          await area.selectOption('Sitio Grotto')
+          await task.getByRole('button', { name: 'Keep this detail', exact: true }).click()
+          await task.getByRole('button', { name: 'Edit Recipient area', exact: true }).click()
+          await expect(task.getByLabel('Recipient area', { exact: true })).toHaveValue('Sitio Grotto')
+          const areaBounds = await area.boundingBox(), areaContentBounds = await panel.locator('[data-assistant-content]').boundingBox()
+          assert.ok(areaBounds.y >= areaContentBounds.y && areaBounds.y + areaBounds.height <= areaContentBounds.y + areaContentBounds.height, `Recipient area stays visible at ${width}px.`)
+          if (role === 'SYSTEM_ADMIN') await page.screenshot({ path: `${output}/reminder-area-${width}.png`, animations: 'disabled' })
+        }
         await task.getByRole('button', { name: `Edit ${first}`, exact: true }).click()
         await expect(task.getByLabel(first, { exact: true })).toHaveValue(slug === 'reminder' ? 'demo-event' : answer)
         await task.getByRole('button', { name: 'Cancel pending task', exact: true }).click()
@@ -128,6 +146,46 @@ try {
         assert.equal(await panel.evaluate(el => el.scrollWidth <= el.clientWidth + 1), true)
         await page.screenshot({ path: `${output}/reminder-selection-${width}.png` })
       }
+      await cancel()
+      areaMode = 'error'
+      await start()
+      await task.getByLabel('Distribution event', { exact: true }).selectOption('demo-event')
+      await task.getByRole('button', { name: 'Use selected event', exact: true }).click()
+      await expect(task.getByRole('alert').filter({ hasText: 'Synthetic area lookup unavailable' })).toBeVisible()
+      await expect(task.getByLabel('Recipient area', { exact: true })).toBeDisabled()
+      areaMode = 'normal'
+      await task.getByRole('button', { name: 'Refresh areas', exact: true }).click()
+      await task.getByLabel('Recipient area', { exact: true }).selectOption('Sitio Grotto')
+      await task.getByRole('button', { name: 'Keep this detail', exact: true }).click()
+      await task.getByRole('button', { name: 'Edit Distribution event', exact: true }).click()
+      await task.getByLabel('Distribution event', { exact: true }).selectOption('other-event')
+      await task.getByRole('button', { name: 'Use selected event', exact: true }).click()
+      await expect(task.getByLabel('Recipient area', { exact: true })).toHaveValue('')
+      await expect(task.getByLabel('Recipient area', { exact: true }).getByRole('option', { name: 'Sitio Grotto', exact: true })).toHaveCount(0)
+      await task.getByLabel('Recipient area', { exact: true }).selectOption('Lahug Area')
+      await cancel()
+      areaMode = 'empty'
+      await start()
+      await task.getByLabel('Distribution event', { exact: true }).selectOption('demo-event')
+      await task.getByRole('button', { name: 'Use selected event', exact: true }).click()
+      await expect(task).toContainText('No named Sitio/Purok found')
+      await task.getByLabel('Recipient area', { exact: true }).selectOption('All scheduled service areas')
+      await expect(task.getByRole('button', { name: 'Keep this detail', exact: true })).toBeEnabled()
+      await cancel()
+      areaMode = 'delayed'
+      await start()
+      await task.getByLabel('Distribution event', { exact: true }).selectOption('demo-event')
+      await task.getByRole('button', { name: 'Use selected event', exact: true }).click()
+      await expect(task.getByLabel('Recipient area', { exact: true })).toBeDisabled()
+      await expect.poll(() => typeof releaseAreas).toBe('function')
+      await cancel()
+      areaMode = 'normal'
+      await start()
+      await task.getByLabel('Distribution event', { exact: true }).selectOption('other-event')
+      await task.getByRole('button', { name: 'Use selected event', exact: true }).click()
+      releaseAreas()
+      await expect(task.getByLabel('Recipient area', { exact: true }).getByRole('option', { name: 'Lahug Area', exact: true })).toHaveCount(1)
+      await expect(task.getByLabel('Recipient area', { exact: true }).getByRole('option', { name: 'Sitio Grotto', exact: true })).toHaveCount(0)
       await cancel()
       eventMode = 'error'
       await start()

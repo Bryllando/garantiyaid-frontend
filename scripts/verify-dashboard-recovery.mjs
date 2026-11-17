@@ -79,7 +79,7 @@ try {
   const origin = `http://127.0.0.1:${vite.httpServer.address().port}`
   const stress = await contextFor()
   await stress.page.goto(`${origin}/dashboard`)
-  await expect(stress.page.getByRole('heading', { name: 'Administration overview', exact: true })).toBeVisible()
+  await expect(stress.page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible()
   assert.ok((await stress.page.evaluate(() => __dashboardSocketEvents())).some(events => events.includes('dashboard.metrics.updated')), 'Dashboard event subscription must exist before the burst')
   await stress.page.evaluate(() => __dashboardEmit('realtime.ready'))
   for (let index = 0; index < 85; index++) {
@@ -143,17 +143,17 @@ try {
     await test.page.clock.runFor(2000)
     assert.equal(reads, before, 'No HTTP retry during the server cooldown')
     await test.page.clock.runFor(30_000)
-    const heading = role === 'SYSTEM_ADMIN' ? 'Administration overview' : role === 'DSWD_STAFF' ? 'DSWD overview' : 'Barangay overview'
+    const heading = role === 'SYSTEM_ADMIN' ? 'Overview' : role === 'DSWD_STAFF' ? 'DSWD overview' : 'Barangay overview'
     await expect(test.page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
     await expect(test.page.getByRole('heading', { name: 'Dashboard updates paused' })).toHaveCount(0)
     await test.context.close()
   }
   const stale = await contextFor('SYSTEM_ADMIN', 'stale')
   await stale.page.goto(`${origin}/dashboard`)
-  await expect(stale.page.getByRole('heading', { name: 'Administration overview', exact: true })).toBeVisible()
-  await stale.page.getByRole('button', { name: 'Refresh records', exact: true }).click()
+  await expect(stale.page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible()
+  await stale.page.getByRole('button', { name: 'Refresh', exact: true }).click()
   await expect(stale.page.getByRole('heading', { name: 'Dashboard updates paused' })).toBeVisible()
-  await expect(stale.page.getByRole('heading', { name: 'Administration overview', exact: true })).toBeVisible()
+  await expect(stale.page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible()
   await expect(stale.page.getByText('Your last successful figures are still shown.', { exact: false })).toBeVisible()
   await stale.page.screenshot({ path: resolve(output, 'paused-with-saved-figures.png'), fullPage: true })
   await stale.context.close()
@@ -167,7 +167,7 @@ try {
   }
   offline.recover()
   await offline.page.getByRole('button', { name: 'Try again', exact: true }).click()
-  await expect(offline.page.getByRole('heading', { name: 'Administration overview', exact: true })).toBeVisible()
+  await expect(offline.page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible()
   assert.equal(writes, 0); assert.deepEqual(errors, [])
   console.log('PASS: live-event bursts and Retry-After recovery; unassigned/removed barangays show assignment recovery without stale metrics or automatic retries; offline recovery and 320/390/1366/1440 layouts; no writes or notifications.')
 } catch (error) {

@@ -46,7 +46,7 @@ try {
   for (const [label, value] of [['Distribution event', distribution.title], ['Recipient area', 'All scheduled service areas'], ['Reminder message', recipient.message], ['Queue timing', 'now']]) {
     const input = task.getByLabel(label, { exact: true })
     if (label === 'Distribution event') await input.selectOption(distribution.distributionId)
-    else if (label === 'Queue timing') await input.selectOption(value)
+    else if (label === 'Queue timing' || label === 'Recipient area') await input.selectOption(value)
     else await input.fill(value)
     await task.getByRole('button', { name: label === 'Distribution event' ? 'Use selected event' : 'Keep this detail', exact: true }).click()
   }

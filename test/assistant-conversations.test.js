@@ -92,6 +92,17 @@ test('dates, ambiguity, explicit changes, and unavailable channels cannot broade
   assert.deepEqual(reminderEventMatches(timed.values, events).map(row => row.distributionId), ['punta-am'])
 })
 
+test('changing the reminder event requires an explicit new recipient area', () => {
+  const task = selectReminderEvent({ kind: 'reminder', values: { serviceArea: 'All scheduled service areas' } }, events[0])
+  assert.equal(selectReminderEvent(task, events[0]).values.serviceArea, 'All scheduled service areas')
+  const changed = selectReminderEvent(task, events[1])
+  assert.equal(changed.values.serviceArea, undefined)
+  assert.equal(nextTaskField(changed).key, 'serviceArea')
+  for (const [key, value] of [['distribution', 'Another event'], ['barangay', 'Another barangay'], ['eventDate', '2099-12-11']]) {
+    assert.equal(setTaskValue(task, key, value, now).task.values.serviceArea, undefined)
+  }
+})
+
 test('guidance targets use verified role-specific screens, never generated URLs', () => {
   assert.equal(guidanceTarget('SCHEDULE', 'BARANGAY_FACILITATOR').path, '/facilitator/queue')
   assert.equal(guidanceTarget('SCHEDULE', 'DSWD_STAFF').path, '/dswd/live-dashboard')

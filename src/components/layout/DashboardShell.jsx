@@ -232,7 +232,7 @@ function DashboardShellFrame({ breadcrumbs, children, currentPath, onLogout, onN
   }
 
   return (
-    <div className="ga-staff-shell min-h-[100dvh] bg-page text-ink">
+    <div className={`ga-staff-shell min-h-[100dvh] bg-page text-ink ${user?.role === 'SYSTEM_ADMIN' && sectionPath === '/dashboard' ? 'ga-admin-overview-shell' : ''}`}>
       <a href={assistantPage ? '#garantiyaid-ai-panel' : '#dashboard-content'} className="sr-only fixed left-4 top-4 z-[70] rounded-lg bg-white px-4 py-3 font-bold text-brand-blue shadow-lg focus:not-sr-only">
         Skip to main content
       </a>
@@ -357,7 +357,7 @@ function DashboardShellFrame({ breadcrumbs, children, currentPath, onLogout, onN
               </p>
             </div>
 
-            <div className="order-last w-full min-w-0 xl:order-none xl:w-auto"><PhilippineClock onDayPeriodChange={setDayPeriod} /></div>
+            <div className="ga-header-clock order-last w-full min-w-0 xl:order-none xl:w-auto"><PhilippineClock onDayPeriodChange={setDayPeriod} /></div>
             <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
               {showAssistant && !assistantPage && !assistantOpen && <button ref={assistantLauncherRef} type="button" onClick={() => setAssistantOpen(true)} aria-label="Open assistant conversation" title="Ask GarantiyAid" aria-controls="garantiyaid-ai-panel" aria-expanded="false" className="ga-assistant-launcher"><img src="/GarantiyAid-AI-logo.svg" alt="" width="28" height="28" /><span className="ga-assistant-launcher-label">Ask GarantiyAid</span></button>}
               <StaffNotificationCenter accessToken={accessToken} onNavigate={onNavigate} />

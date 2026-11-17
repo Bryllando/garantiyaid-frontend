@@ -87,6 +87,7 @@ export function setTaskValue(task, key, input, now = new Date()) {
   if (error) return { task, error }
   const values = { ...task.values, [key]: value }
   if (['program', 'barangay', 'distribution'].includes(key)) delete values[`${key}Id`]
+  if (task.kind === 'reminder' && ['distribution', 'program', 'barangay', 'eventDate', 'eventTime'].includes(key) && task.values[key] !== value) delete values.serviceArea
   if (task.kind === 'reminder' && ['program', 'barangay', 'eventDate', 'eventTime'].includes(key) && task.values[key] !== value) { delete values.distribution; delete values.distributionId }
   if (task.kind === 'reminder' && key === 'deliveryMode' && value === 'now') { delete values.date; delete values.startTime }
   return { task: { ...task, values, ...(task.kind === 'reminder' && key === 'distribution' ? { eventQuery: '' } : {}) }, error: '' }

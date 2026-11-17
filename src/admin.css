@@ -60,6 +60,107 @@
 .ga-admin-guide > summary { min-height: 44px; padding: 12px 16px; font-size: .875rem; font-weight: 600; }
 .ga-admin-guide[open] > summary { border-bottom: 1px solid var(--color-line); }
 .ga-admin-guide > summary:focus-visible { outline: 2px solid var(--color-brand-blue); outline-offset: 2px; }
+
+/* Keep the overview refinements local to the administrator's working page. */
+.ga-admin-overview-shell {
+  --color-page: #f8f8f5;
+  --color-line: #dfe3e3;
+  --color-ink: #222d38;
+  --color-copy: #49535c;
+  --color-muted-copy: #626c73;
+}
+.ga-admin-overview-shell #dashboard-content { padding-top: 28px; }
+.ga-admin-overview-shell .ga-staff-header { background: white; box-shadow: none; }
+.ga-admin-overview-shell .ga-staff-greeting { font-size: .875rem; }
+.ga-admin-overview-shell .ga-staff-greeting strong { text-transform: none; }
+.ga-admin-overview-shell .ga-staff-greeting svg { width: 18px; height: 18px; }
+.ga-admin-overview-shell .ga-header-clock > div { min-height: 44px; padding-inline: 0; border: 0; background: transparent; box-shadow: none; }
+.ga-admin-overview-shell .ga-assistant-launcher { border-color: var(--color-line); border-radius: 7px; background: white; color: var(--color-brand-navy); }
+.ga-admin-overview-shell .ga-assistant-launcher:hover { background: var(--color-info-soft); }
+.ga-admin-overview { color: var(--color-ink); font-size: .9375rem; line-height: 1.6; }
+.ga-overview-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.ga-staff-shell .ga-admin-overview .ga-page-title { font-size: 1.75rem; font-weight: 650; line-height: 1.3; letter-spacing: -.025em; }
+.ga-staff-shell .ga-admin-overview .ga-page-copy { margin-top: 8px; color: var(--color-copy); font-size: .9375rem; }
+.ga-overview-update { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 24px; margin: 16px 0 24px; color: var(--color-muted-copy); font-size: .8125rem; }
+.ga-admin-overview :is(.ga-admin-summary, .ga-admin-register) { border-radius: 10px; box-shadow: 0 2px 8px -4px rgb(24 42 52 / .12); }
+.ga-admin-overview .ga-admin-summary > div { padding: 20px 24px; }
+.ga-admin-overview .ga-admin-summary dt { color: var(--color-copy); font-size: .875rem; }
+.ga-admin-overview .ga-admin-summary dd { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 12px; margin-top: 4px; }
+.ga-overview-total { color: var(--color-ink); font-size: 2rem; line-height: 1.4; font-weight: 600; letter-spacing: -.025em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ga-admin-overview .ga-admin-link { gap: 8px; border-radius: 5px; line-height: 1.4; }
+.ga-overview-work { display: grid; align-items: start; gap: 24px; margin-top: 24px; }
+.ga-admin-overview .ga-admin-register > header { gap: 4px 20px; min-height: 76px; padding: 16px 24px; background: white; }
+.ga-admin-overview .ga-admin-register h2 { font-size: 1.125rem; line-height: 1.4; font-weight: 600; letter-spacing: -.015em; }
+.ga-admin-overview .ga-admin-register-note { padding: 14px 20px; color: var(--color-copy); font-size: .875rem; }
+.ga-overview-review-counts { display: flex; flex-wrap: wrap; gap: 4px 24px; padding: 12px 24px; }
+.ga-overview-review-counts strong { margin-right: 4px; color: var(--color-ink); font-size: 1.125rem; font-variant-numeric: tabular-nums; }
+.ga-overview-enrollments { width: 100%; border-collapse: collapse; text-align: left; }
+.ga-overview-enrollments thead { background: #f7f8f8; color: var(--color-copy); }
+.ga-overview-enrollments th { padding: 10px 24px; font-size: .8125rem; }
+.ga-overview-enrollments td { padding: 20px 24px; vertical-align: top; border-top: 1px solid var(--color-line); }
+.ga-overview-enrollments tr:focus-within { background: #f8fafc; }
+.ga-overview-enrollments td:first-child { width: 44%; overflow-wrap: anywhere; }
+.ga-overview-enrollments td:nth-child(2) { min-width: 144px; color: var(--color-copy); }
+.ga-overview-enrollments td:last-child { text-align: right; }
+.ga-overview-record-name { color: var(--color-ink); font-size: 1rem; line-height: 1.5; font-weight: 600; overflow-wrap: anywhere; }
+.ga-overview-record-detail { margin-top: 4px; color: var(--color-copy); font-size: .875rem; overflow-wrap: anywhere; }
+.ga-overview-review-rule { margin-top: 8px; color: var(--color-brand-amber); font-size: .8125rem; }
+.ga-overview-status { display: inline-flex; width: fit-content; padding: 3px 8px; border-radius: 5px; background: var(--color-info-soft); color: var(--color-brand-navy); font-size: .8125rem; line-height: 1.5; font-weight: 600; }
+.ga-overview-status-pending { background: var(--color-warning-soft); color: var(--color-brand-amber); }
+.ga-overview-enrollments .ga-overview-status { display: flex; margin-top: 8px; }
+.ga-admin-overview .ga-overview-row-action { justify-content: center; min-height: 44px; padding: 8px 12px; border: 1px solid #d5e1eb; background: #f2f6fa; text-align: center; }
+.ga-admin-overview .ga-overview-row-action:hover { border-color: var(--color-brand-blue); background: #e6eff7; }
+.ga-overview-drafts > li { padding: 20px 24px; }
+.ga-overview-drafts > li + li { border-top: 1px solid var(--color-line); }
+.ga-overview-drafts dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.ga-overview-drafts dt { color: var(--color-muted-copy); font-size: .8125rem; }
+.ga-overview-drafts dd { margin-top: 2px; overflow-wrap: anywhere; }
+.ga-overview-draft-action { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
+.ga-overview-draft-action > .ga-overview-status { background: var(--color-page); color: var(--color-copy); }
+.ga-overview-empty { padding: 24px 20px; }
+.ga-overview-empty > p + p { margin-top: 4px; color: var(--color-copy); }
+.ga-overview-empty > a { margin-top: 12px; }
+.ga-overview-follow-up { margin-top: 24px; }
+.ga-overview-follow-up-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ga-overview-follow-up-grid > div { padding: 20px 24px; }
+.ga-overview-follow-up-grid > div + div { border-left: 1px solid var(--color-line); }
+.ga-overview-follow-up-grid dt { color: var(--color-copy); font-size: .875rem; }
+.ga-overview-follow-up-grid .ga-overview-total { margin: 8px 0; font-size: 1.5rem; }
+.ga-overview-follow-up-grid dd p { min-height: 3.2em; color: var(--color-muted-copy); font-size: .875rem; }
+.ga-overview-follow-up-grid .ga-admin-link { margin-top: 8px; }
+.ga-admin-overview .ga-admin-guide { margin-top: 20px; border: 0; background: transparent; }
+.ga-admin-overview .ga-admin-guide > summary { padding-inline: 0; color: var(--color-copy); }
+.ga-admin-overview .ga-admin-guide[open] { background: white; }
+@media (min-width: 1280px) {
+  .ga-overview-work { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+}
+@media (min-width: 768px) {
+  .ga-overview-enrollments :is(th, td):nth-child(2) { padding-inline: 12px; }
+  .ga-overview-enrollments td:last-child { padding-left: 8px; }
+  .ga-overview-enrollments .ga-overview-row-action { white-space: nowrap; }
+}
+@media (max-width: 767px) {
+  .ga-overview-enrollments, .ga-overview-enrollments tbody { display: block; }
+  .ga-overview-enrollments thead { display: none; }
+  .ga-overview-enrollments tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, auto); align-items: center; gap: 16px; padding: 20px; border-top: 1px solid var(--color-line); }
+  .ga-overview-enrollments td { display: block; padding: 0; border: 0; }
+  .ga-overview-enrollments td:first-child { grid-column: 1 / -1; width: auto; }
+  .ga-overview-enrollments td:nth-child(2) { min-width: 0; }
+  .ga-overview-follow-up-grid { grid-template-columns: 1fr; }
+  .ga-overview-follow-up-grid > div + div { border-left: 0; border-top: 1px solid var(--color-line); }
+  .ga-overview-follow-up-grid dd p { min-height: 0; }
+}
+@media (max-width: 479px) {
+  .ga-overview-heading { flex-wrap: wrap; }
+  .ga-overview-update { margin-top: 12px; }
+  .ga-admin-overview .ga-admin-summary > div { padding: 12px; }
+  .ga-admin-overview .ga-admin-summary dd { display: block; }
+  .ga-admin-overview .ga-admin-summary .ga-overview-total { display: block; }
+  .ga-admin-overview .ga-admin-summary .ga-admin-link { min-height: 44px; }
+  .ga-admin-overview .ga-admin-register > header,
+  .ga-overview-drafts > li,
+  .ga-overview-follow-up-grid > div { padding-inline: 20px; }
+}
 @media (min-width: 1024px) {
   .ga-staff-shell .ga-staff-sidebar:not([data-collapsed="true"]) { width: 16rem; }
   .ga-staff-shell .ga-staff-sidebar:not([data-collapsed="true"]) ~ .ga-shell-content { padding-left: 16rem; }

@@ -17,7 +17,7 @@ const distribution = { distributionId: 'event-1', title: 'October community assi
 const funds = { allocatedAmount: 15000, netCreditedAmount: 7500, remainingAmount: 7500, reversedAmount: 0, failedAmount: 0 }
 const pagination = { page: 1, totalPages: 1, total: 1, pageSize: 20 }
 const roles = [
-  ['SYSTEM_ADMIN', 'admin', 'Administration overview'],
+  ['SYSTEM_ADMIN', 'admin', 'Overview'],
   ['DSWD_STAFF', 'dswd', 'DSWD overview'],
   ['BARANGAY_FACILITATOR', 'barangay', 'Barangay overview'],
 ]
@@ -81,12 +81,13 @@ try {
     await expect(page.locator('.ga-admin-register').first()).toBeVisible()
     const styles = await page.evaluate(() => {
       const css = (selector) => getComputedStyle(document.querySelector(selector))
-      return { sidebar: css('#staff-navigation').width, titleSize: css('.ga-page-title').fontSize, titleWeight: css('.ga-page-title').fontWeight, background: css('.ga-staff-shell').backgroundColor, radius: css('.ga-admin-register').borderRadius, shadow: css('.ga-admin-register').boxShadow, buttonHeight: css('#dashboard-content .ga-btn-secondary').minHeight }
+      return { sidebar: css('#staff-navigation').width, titleSize: css('.ga-page-title').fontSize, titleWeight: css('.ga-page-title').fontWeight, buttonHeight: css('#dashboard-content .ga-btn-secondary').minHeight }
     })
-    if (name === 'admin') adminStyle = styles
-    else assert.deepEqual(styles, adminStyle, `${name} matches the Admin presentation`)
+    const { titleSize, ...sharedStyles } = styles
+    if (name === 'admin') adminStyle = sharedStyles
+    else assert.deepEqual(sharedStyles, adminStyle, `${name} matches the Admin presentation`)
     assert.equal(styles.sidebar, '256px')
-    assert.equal(styles.titleSize, '24px')
+    assert.equal(titleSize, name === 'admin' ? '28px' : '24px')
     assert.equal(styles.buttonHeight, '44px')
     await page.waitForTimeout(500)
     await page.screenshot({ path: `${output}/${name}-overview-1440.png`, fullPage: true })

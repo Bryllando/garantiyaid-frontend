@@ -133,7 +133,7 @@ export async function verifyAssistantUi({ baseUrl, env, admin, facilitator, prog
       ['Queue timing', 'scheduled'], ['Date (PHT)', queueTime.slice(0, 10)], ['Queue time (PHT)', queueTime.slice(11)],
     ]) {
       const input = panel().getByLabel(label, { exact: true })
-      if (label === 'Queue timing' || label === 'Distribution event') await input.selectOption(value)
+      if (label === 'Queue timing' || label === 'Distribution event' || label === 'Recipient area') await input.selectOption(value)
       else await input.fill(value)
       await panel().getByRole('button', { name: label === 'Distribution event' ? 'Use selected event' : 'Keep this detail', exact: true }).click()
     }

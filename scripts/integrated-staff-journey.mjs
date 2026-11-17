@@ -63,7 +63,10 @@ export async function runStaffJourney({ staff, program, prisma, baseUrl, output,
     await page.getByRole('combobox', { name: 'Document type', exact: true }).selectOption('VALID_ID')
     const file = name => ({ name, mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nSynthetic acceptance document\n%%EOF') })
     await page.getByLabel('Choose document', { exact: true }).setInputFiles(file('id.pdf'))
+    const initialUpload = page.waitForResponse(response => response.request().method() === 'POST' && /\/beneficiaries\/[^/]+\/documents$/.test(response.url()), { timeout: 30000 })
     await page.getByRole('button', { name: 'Upload for review', exact: true }).click()
+    const initialUploadResponse = await initialUpload
+    assert.equal(initialUploadResponse.status(), 201, await initialUploadResponse.text())
     await expect(page.getByText('id.pdf', { exact: true })).toBeVisible()
     const originalBeneficiaryPath = new URL(page.url()).pathname + new URL(page.url()).search
     const namedProgram = (await post('dswd', '/programs', { programName: 'TEST Named document requirements', programCode: 'TEST-NAMED-DOCS', programType: 'TEST', requiredDocumentTypes: ['OTHER'], otherRequiredDocumentNames: ['Request letter', 'Voter ID'] }, { status: 201 })).data.program
@@ -137,7 +140,10 @@ export async function runStaffJourney({ staff, program, prisma, baseUrl, output,
     await expect(page.getByRole('button', { name: 'Resubmit for review' })).toBeDisabled()
     await page.getByRole('button', { name: 'Correct beneficiary documents' }).click()
     await page.getByLabel('Upload corrected Valid Id', { exact: true }).setInputFiles(file('clear-id.pdf'))
+    const correctedUpload = page.waitForResponse(response => response.request().method() === 'POST' && /\/documents\/[^/]+\/replacement$/.test(response.url()), { timeout: 30000 })
     await page.getByRole('button', { name: 'Replace document', exact: true }).click()
+    const correctedUploadResponse = await correctedUpload
+    assert.equal(correctedUploadResponse.status(), 201, await correctedUploadResponse.text())
     await expect(page.getByText('clear-id.pdf', { exact: true })).toBeVisible()
     await page.getByRole('link', { name: 'Return to enrollment review' }).click()
     await page.getByRole('button', { name: 'Resubmit for review' }).click()
@@ -209,7 +215,7 @@ export async function runStaffJourney({ staff, program, prisma, baseUrl, output,
       await route.fulfill({ response })
     })
     try {
-      await page.getByRole('button', { name: /^(Refresh records|Refreshing\.\.\.)$/ }).evaluate(button => { if (!button.disabled) button.click() })
+      await page.getByRole('button', { name: /^(Refresh|Refresh records|Refreshing\.\.\.)$/ }).evaluate(button => { if (!button.disabled) button.click() })
       await expect(page.getByRole('button', { name: 'Refreshing...', exact: true })).toBeDisabled()
       await expect(page.getByRole('button', { name: 'Issue receipt', exact: true })).toBeEnabled()
       await page.getByRole('button', { name: 'Issue receipt' }).click()

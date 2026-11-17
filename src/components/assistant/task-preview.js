@@ -62,7 +62,9 @@ export function reminderEventMatches(values, distributions, query = '') {
 }
 
 export function selectReminderEvent(task, row) {
-  return { ...task, eventUnresolved: false, values: { ...task.values, distribution: row.title, distributionId: row.distributionId, program: row.program?.programCode || row.program?.programName || task.values.program, barangay: row.barangay?.barangayName || task.values.barangay, eventDate: row.distributionDate || task.values.eventDate, eventTime: row.startTime || task.values.eventTime } }
+  const values = { ...task.values, distribution: row.title, distributionId: row.distributionId, program: row.program?.programCode || row.program?.programName || task.values.program, barangay: row.barangay?.barangayName || task.values.barangay, eventDate: row.distributionDate || task.values.eventDate, eventTime: row.startTime || task.values.eventTime }
+  if (task.values.distributionId && task.values.distributionId !== row.distributionId) delete values.serviceArea
+  return { ...task, eventUnresolved: false, values }
 }
 export function resolveServiceArea(text, areas) {
   if (/^(all|all scheduled service areas|all service areas|lahat|tanan)$/i.test(text.trim())) return ''

@@ -1,10 +1,18 @@
 import { useEffect, useState } from 'react'
 import { getAuthErrorMessage, isSessionExpiredError, requestEnrollmentList } from '../../auth/staffAuth.js'
 import { Skeleton } from '../ui/skeleton.jsx'
+import { Icon } from '../ui/icon.jsx'
 
 const number = new Intl.NumberFormat('en-PH')
 const money = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' })
-const date = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeZone: 'Asia/Manila' })
+const date = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Manila' })
+const dateTime = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Manila' })
+
+function formatDate(value, formatter = date) {
+  if (!value) return null
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : formatter.format(parsed)
+}
 
 function Link({ href, children, onNavigate, className = 'ga-admin-link' }) {
   return <a href={href} className={className} onClick={(event) => {
@@ -37,69 +45,67 @@ export default function AdminOverview({ session, overview, draftEvents, draftErr
   const pendingCount = reviews?.pending.pagination.total
   const validatingCount = reviews?.validating.pagination.total
   const reviewRows = reviews ? [...reviews.pending.enrollments, ...reviews.validating.enrollments].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5) : []
+  const updatedAt = formatDate(overview.generatedAt, dateTime)
   const metrics = [
     ['Active programs', overview.programs.activeProgramCount, '/programs'],
     ['Approved beneficiaries', overview.beneficiaries.approvedBeneficiaryCount, '/enrollments?status=APPROVED'],
-    ['Draft distributions', overview.distributions.statusCounts?.DRAFT ?? 0, '/distributions/manage?status=DRAFT'],
+    ['Draft distributions', overview.distributions.statusCounts ? overview.distributions.statusCounts.DRAFT ?? 0 : null, '/distributions/manage?status=DRAFT'],
     ['Open distributions', overview.distributions.openDistributionCount, '/distributions/manage?status=OPEN'],
   ]
 
   return <div className="ga-admin-overview">
-    <header className="ga-page-header flex flex-wrap items-start justify-between gap-4 border-b border-line pb-4">
-      <div><h1 className="ga-page-title">Administration overview</h1><p className="ga-page-copy">Programs, beneficiary reviews, and distribution records across authorized barangays.</p></div>
-      <button type="button" className="ga-btn-secondary" onClick={onRefresh} disabled={refreshDisabled}>Refresh records</button>
+    <header className="ga-overview-heading">
+      <div><h1 className="ga-page-title">Overview</h1><p className="ga-page-copy">Review enrollments, prepare distributions, and monitor assistance releases.</p></div>
+      <button type="button" className="ga-btn-secondary" onClick={onRefresh} disabled={refreshDisabled}>Refresh</button>
     </header>
-    <div className="my-3 flex flex-wrap justify-between gap-2 text-xs text-muted-copy" role="status">
-      <span>Updated {overview.generatedAt}</span>
-      <span>{liveStatus === 'connected' ? 'Live updates connected' : liveStatus === 'connecting' ? 'Connecting to live updates' : 'Live updates unavailable. Use Refresh records.'}</span>
+    <div className="ga-overview-update" role="status">
+      {updatedAt ? <span>Last updated <time dateTime={overview.generatedAt}>{updatedAt} PHT</time></span> : <span>Last update time unavailable.</span>}
+      <span>{liveStatus === 'connected' ? 'Automatic updates connected.' : liveStatus === 'connecting' ? 'Connecting to automatic updates…' : 'Automatic updates are unavailable. Refresh to get the latest records.'}</span>
     </div>
 
-    <dl className="ga-admin-summary grid grid-cols-2 lg:grid-cols-4">
-      {metrics.map(([label, value, href]) => <div key={label}><dt>{label}</dt><dd><Link onNavigate={onNavigate} href={href} className="ga-admin-metric-link">{number.format(value ?? 0)}<span className="sr-only"> — View {label.toLowerCase()}</span></Link></dd></div>)}
+    <dl className="ga-admin-summary grid grid-cols-2 lg:grid-cols-4" aria-label="Operations summary">
+      {metrics.map(([label, value, href]) => <div key={label}><dt>{label}</dt><dd><span className="ga-overview-total">{value == null ? '—' : number.format(value)}</span><Link onNavigate={onNavigate} href={href}>View<span className="sr-only"> {label.toLowerCase()}</span><Icon name="arrowRight" className="size-4" /></Link></dd></div>)}
     </dl>
 
-    <nav aria-label="Daily administration work" className="mt-5 border-y border-line bg-white">
-      <ol className="grid divide-y divide-line sm:grid-cols-2 sm:divide-y-0 xl:grid-cols-4">
-        {[
-          ['01', 'Review enrollments', 'Check documents and eligibility.', '/enrollments?status=PENDING'],
-          ['02', 'Prepare distributions', 'Allocate beneficiaries and set visits.', '/distributions/manage?status=DRAFT'],
-          ['03', 'Verify QR claims', 'Review identity before confirming.', '/admin/verify-claims'],
-          ['04', 'Review releases', 'Check handover evidence and receipts.', '/claim-accountability'],
-        ].map(([step, label, description, href]) => <li key={step} className="px-4 py-4"><p className="text-xs font-semibold tabular-nums text-muted-copy">{step}</p><Link href={href} onNavigate={onNavigate}>{label}</Link><p className="text-sm leading-6 text-copy">{description}</p></li>)}
-      </ol>
-    </nav>
-
-    <div className="mt-5 grid items-start gap-5 xl:grid-cols-2">
+    <div className="ga-overview-work">
       <section className="ga-admin-register" aria-labelledby="admin-review-heading">
-        <header><h2 id="admin-review-heading">Enrollment reviews</h2><Link onNavigate={onNavigate} href="/enrollments">View all</Link></header>
+        <header><h2 id="admin-review-heading">Enrollment reviews</h2><Link onNavigate={onNavigate} href="/enrollments">View all enrollments</Link></header>
         {reviewError ? <div className="p-4" role="alert"><p>Enrollment reviews could not be loaded. {reviewError}</p><button type="button" onClick={onRefresh} className="ga-btn-secondary mt-3">Try again</button></div> : !reviews ? <div className="p-4" aria-label="Loading enrollment reviews"><Skeleton className="h-24" /></div> : <>
-          <div className="ga-admin-register-note flex flex-wrap gap-x-4"><Link onNavigate={onNavigate} href="/enrollments?status=PENDING">{pendingCount} awaiting review</Link><Link onNavigate={onNavigate} href="/enrollments?status=FOR_VALIDATION">{validatingCount} under validation</Link></div>
-          {reviewRows.length > 0 && <p className="px-4 pt-3 text-xs text-muted-copy">Recent submissions · newest first</p>}
-          {reviewRows.length ? <ul className="divide-y divide-line">{reviewRows.map((enrollment) => <li key={enrollment.enrollmentId} className="flex items-start justify-between gap-3 p-4">
-            <div className="min-w-0"><p className="font-semibold text-ink">{[enrollment.beneficiary.firstName, enrollment.beneficiary.lastName].filter(Boolean).join(' ')}</p><p className="mt-1 text-sm text-copy">{enrollment.program.programName}</p><p className="mt-1 text-xs text-muted-copy">{enrollment.createdAt && `${date.format(new Date(enrollment.createdAt))} · `}{enrollment.submittedBy?.fullName || 'Submitting staff not recorded'}</p><p className="mt-1 text-xs font-semibold text-copy">{enrollment.submittedById === session.user.userId ? 'Next: another Admin or DSWD reviewer must assess this submission' : enrollment.status === 'PENDING' ? 'Next: check documents and begin eligibility review' : 'Next: complete validation and record a decision'}</p></div>
-            <Link onNavigate={onNavigate} href={`/enrollments?status=${enrollment.status}&enrollment=${encodeURIComponent(enrollment.enrollmentId)}`}>Open<span className="sr-only"> enrollment for {enrollment.beneficiary.firstName}</span></Link>
-          </li>)}</ul> : <div className="p-5"><p className="font-semibold">No enrollments awaiting review</p><p className="mt-1 text-sm text-copy">Submitted applications will appear here.</p><Link onNavigate={onNavigate} href="/beneficiaries">Open beneficiary records</Link></div>}
+          <div className="ga-overview-review-counts"><Link onNavigate={onNavigate} href="/enrollments?status=PENDING"><strong>{number.format(pendingCount)}</strong> Awaiting review</Link><Link onNavigate={onNavigate} href="/enrollments?status=FOR_VALIDATION"><strong>{number.format(validatingCount)}</strong> Under validation</Link></div>
+          {reviewRows.length ? <table className="ga-overview-enrollments">
+            <caption className="sr-only">Recent enrollments awaiting review or validation, newest first</caption>
+            <thead><tr><th scope="col">Beneficiary / program</th><th scope="col">Submitted / status</th><th scope="col"><span className="sr-only">Action</span></th></tr></thead>
+            <tbody>{reviewRows.map((enrollment) => <tr key={enrollment.enrollmentId}>
+              <td><p className="ga-overview-record-name">{[enrollment.beneficiary.firstName, enrollment.beneficiary.lastName].filter(Boolean).join(' ')}</p><p className="ga-overview-record-detail">{enrollment.program.programName}</p>{enrollment.submittedById === session.user.userId && <p className="ga-overview-review-rule">Another Admin or DSWD reviewer must assess your submission.</p>}</td>
+              <td><time dateTime={enrollment.createdAt}>{formatDate(enrollment.createdAt) || 'Not recorded'}</time><span className={`ga-overview-status ${enrollment.status === 'PENDING' ? 'ga-overview-status-pending' : ''}`}>{enrollment.status === 'PENDING' ? 'Awaiting review' : 'Under validation'}</span></td>
+              <td><Link onNavigate={onNavigate} className="ga-admin-link ga-overview-row-action" href={`/enrollments?status=${enrollment.status}&enrollment=${encodeURIComponent(enrollment.enrollmentId)}`}>Review enrollment<span className="sr-only"> for {enrollment.beneficiary.firstName} {enrollment.beneficiary.lastName}</span></Link></td>
+            </tr>)}</tbody>
+          </table> : <div className="ga-overview-empty"><p className="font-semibold">No enrollments awaiting review</p><p>Submitted enrollments will appear here.</p><Link onNavigate={onNavigate} href="/beneficiaries">View beneficiary records</Link></div>}
         </>}
       </section>
 
       <section className="ga-admin-register" aria-labelledby="admin-drafts-heading">
-        <header><h2 id="admin-drafts-heading">Distribution preparation</h2><Link onNavigate={onNavigate} href="/distributions/manage?status=DRAFT">View drafts</Link></header>
-        <p className="ga-admin-register-note">Prepare sessions, beneficiary assignments, and queue schedules before opening an event.</p>
-        {draftError ? <div className="p-4" role="alert"><p>Draft events could not be loaded. {draftError}</p><button type="button" onClick={onRefresh} className="ga-btn-secondary mt-3">Try again</button></div> : draftLoading ? <div className="p-4" aria-label="Loading draft events"><Skeleton className="h-24" /></div> : draftEvents.length ? <ul className="divide-y divide-line">{draftEvents.map((event) => <li key={event.distributionId} className="flex items-start justify-between gap-3 p-4"><div className="min-w-0"><p className="font-semibold text-ink">{event.title}</p><p className="mt-1 text-sm text-copy">{event.barangay?.barangayName} · {event.distributionDate}</p><p className="mt-1 text-xs text-muted-copy">Draft — setup not yet opened to field staff</p></div><Link onNavigate={onNavigate} href={`/distributions/manage?event=${encodeURIComponent(event.distributionId)}`}>Continue<span className="sr-only"> {event.title}</span></Link></li>)}</ul> : <div className="p-5"><p className="font-semibold">No draft distributions</p><p className="mt-1 text-sm text-copy">Choose an active program and service barangay to create an event.</p><Link onNavigate={onNavigate} href="/distributions/manage?create=1">Create a distribution</Link></div>}
+        <header><h2 id="admin-drafts-heading">Distribution preparation</h2><Link onNavigate={onNavigate} href="/distributions/manage?status=DRAFT">View draft distributions</Link></header>
+        <p className="ga-admin-register-note">Prepare sessions, beneficiaries, and schedules before opening a distribution.</p>
+        {draftError ? <div className="p-4" role="alert"><p>Draft distributions could not be loaded. {draftError}</p><button type="button" onClick={onRefresh} className="ga-btn-secondary mt-3">Try again</button></div> : draftLoading ? <div className="p-4" aria-label="Loading draft distributions"><Skeleton className="h-24" /></div> : draftEvents.length ? <ul className="ga-overview-drafts">{draftEvents.map((event) => <li key={event.distributionId}>
+          <p className="ga-overview-record-name">{event.title}</p>
+          <dl><div><dt>Barangay</dt><dd>{event.barangay?.barangayName || 'Not recorded'}</dd></div><div><dt>Scheduled date</dt><dd><time dateTime={event.distributionDate}>{formatDate(event.distributionDate ? `${event.distributionDate}T00:00:00+08:00` : null) || 'Not recorded'}</time></dd></div></dl>
+          <div className="ga-overview-draft-action"><span className="ga-overview-status">Draft</span><Link onNavigate={onNavigate} className="ga-admin-link ga-overview-row-action" href={`/distributions/manage?event=${encodeURIComponent(event.distributionId)}`}>Resume setup<span className="sr-only"> for {event.title}</span><Icon name="arrowRight" className="size-4" /></Link></div>
+        </li>)}</ul> : <div className="ga-overview-empty"><p className="font-semibold">No draft distributions</p><p>Create a distribution for an active program and barangay.</p><Link onNavigate={onNavigate} href="/distributions/manage?create=1">Create a distribution</Link></div>}
       </section>
     </div>
 
-    <section className="ga-admin-register mt-5" aria-labelledby="admin-operations-heading">
-      <header><h2 id="admin-operations-heading">Distribution follow-up</h2><Link onNavigate={onNavigate} href="/dswd/live-dashboard">Live monitoring</Link></header>
-      <div className="grid divide-y divide-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-        <div className="p-4"><p className="text-sm text-copy">Unclaimed allocations</p><p className="mt-1 text-xl font-semibold tabular-nums">{number.format(overview.beneficiaries.unclaimedAllocationCount)}</p><Link onNavigate={onNavigate} href="/claim-accountability?status=VERIFIED">Review verified claims</Link><p className="mt-1 text-xs text-muted-copy">A verified claim still needs an authorized release or wallet credit.</p></div>
-        <div className="p-4"><p className="text-sm text-copy">Duplicate claim attempts</p><p className="mt-1 text-xl font-semibold tabular-nums">{number.format(overview.anomalies.duplicateAttemptCount)}</p><Link onNavigate={onNavigate} href="/reports">Review verification reports</Link></div>
-        <div className="p-4"><p className="text-sm text-copy">Remaining simulated allocation</p><p className="mt-1 text-xl font-semibold tabular-nums">{money.format(overview.fundUtilization?.remainingAmount ?? 0)}</p><Link onNavigate={onNavigate} href="/dswd/ledger">Review transactions</Link><p className="mt-1 text-xs text-muted-copy">Simulation only. No real funds are transferred.</p></div>
-      </div>
+    <section className="ga-admin-register ga-overview-follow-up" aria-labelledby="admin-operations-heading">
+      <header><h2 id="admin-operations-heading">Distribution follow-up</h2><Link onNavigate={onNavigate} href="/dswd/live-dashboard">View live monitoring</Link></header>
+      <dl className="ga-overview-follow-up-grid">
+        <div><dt>Unclaimed allocations</dt><dd className="ga-overview-total">{number.format(overview.beneficiaries.unclaimedAllocationCount)}</dd><dd><p>Pending or allocated assistance not yet recorded as received.</p><Link onNavigate={onNavigate} href="/distributions/manage">Review allocations</Link></dd></div>
+        <div><dt>Duplicate claim attempts</dt><dd className="ga-overview-total">{number.format(overview.anomalies.duplicateAttemptCount)}</dd><dd><p>Repeated QR or face verification attempts.</p><Link onNavigate={onNavigate} href="/reports?report=ANOMALIES">Review verification reports</Link></dd></div>
+        <div><dt>Remaining simulated allocation</dt><dd className="ga-overview-total">{overview.fundUtilization?.remainingAmount == null ? 'Unavailable' : money.format(overview.fundUtilization.remainingAmount)}</dd><dd><p>Simulation only. No real funds are transferred.</p><Link onNavigate={onNavigate} href="/dswd/ledger">Review transactions</Link></dd></div>
+      </dl>
     </section>
 
     <details className="ga-admin-guide mt-5">
-      <summary>Admin workflow and setup guide</summary>
+      <summary>Workflow and setup guide</summary>
       <ol className="divide-y divide-line">
         {[
           ['1. Set up access', 'Add the barangay, create staff accounts, and assign the facilitator.', '/admin/administration', 'Staff and barangays'],

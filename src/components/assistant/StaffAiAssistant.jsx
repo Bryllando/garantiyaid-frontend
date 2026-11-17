@@ -90,6 +90,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
   const [feedbackStatus, setFeedbackStatus] = useState('')
   const [distributions, setDistributions] = useState([])
   const [serviceAreas, setServiceAreas] = useState([])
+  const [areaLookupError, setAreaLookupError] = useState('')
   const [form, setForm] = useState({
     distributionId: '',
     serviceArea: '',
@@ -414,10 +415,9 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
 
   async function loadServiceAreas(distributionId, requestedArea) {
     const run = ++lookupRunRef.current
-    if (!distributionId) {
-      setServiceAreas([])
-      return
-    }
+    setServiceAreas([])
+    setAreaLookupError('')
+    if (!distributionId) return
     setBusy('areas')
     setError('')
     try {
@@ -431,6 +431,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
       if (run !== lookupRunRef.current) return
       if (requestError.status === 401) onSessionExpired?.()
       setError(requestError.message)
+      setAreaLookupError(requestError.message)
       setServiceAreas([])
     } finally {
       if (run === lookupRunRef.current) setBusy('')
@@ -554,6 +555,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
         setDetailError(update.error)
       }
     }
+    if (!update.error && update.task.kind === 'reminder' && update.task.values.distributionId && update.task.values.distributionId !== pendingTask?.values.distributionId) void loadServiceAreas(update.task.values.distributionId, update.task.values.serviceArea)
     taskMessage(update.error || taskReply(update.task, language))
   }
 
@@ -564,6 +566,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
     setEventChoices([])
     setDetailError('')
     taskMessage(`Event selected: ${formatEvent(row)}. ${taskReply(task, language)}`)
+    void loadServiceAreas(row.distributionId, task.values.serviceArea)
   }
 
   function beginTask(kind, content = '') {
@@ -583,6 +586,8 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
 
   function cancelTask() {
     lookupRunRef.current += 1
+    setServiceAreas([])
+    setAreaLookupError('')
     setPendingTask(null)
     setEventChoices([])
     setPreview(null)
@@ -808,7 +813,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
               {view === 'home' && chatNotice && <p role="status" className="mt-4 text-sm text-muted-copy">{chatNotice}</p>}
               {view === 'home' && error && <p role="alert" className="mt-4 border-l-2 border-brand-red bg-danger-soft p-3 text-sm text-brand-red">{error}</p>}
               {view === 'home' && pendingTask && <div className={visibleMessages.length ? 'mt-6' : ''}>
-                <AssistantTaskDetails task={pendingTask} editing={editingDetail} onEdit={(key) => { setEditingDetail(key); setDetailError('') }} onSave={(key, value) => keepTaskDetails(setTaskValue(pendingTask, key, value))} onCancel={cancelTask} onPreview={previewTask} chatOpen={taskChatOpen} onChatToggle={() => { setTaskChatOpen(!taskChatOpen); requestAnimationFrame(() => (taskChatOpen ? document.getElementById('ai-task-detail') : inputRef.current)?.focus()) }} language={language} error={detailError} busy={Boolean(busy)} distributions={visibleDistributions} matchingEvents={eventChoices} eventLoading={busy === 'distributions'} eventLookupError={error} onRefreshEvents={() => { setDetailError(''); setEventChoices([]); return loadDistributions() }} onSelectEvent={chooseReminderEvent} />
+                <AssistantTaskDetails task={pendingTask} editing={editingDetail} onEdit={(key) => { setEditingDetail(key); setDetailError('') }} onSave={(key, value) => keepTaskDetails(setTaskValue(pendingTask, key, value))} onCancel={cancelTask} onPreview={previewTask} chatOpen={taskChatOpen} onChatToggle={() => { setTaskChatOpen(!taskChatOpen); requestAnimationFrame(() => (taskChatOpen ? document.getElementById('ai-task-detail') : inputRef.current)?.focus()) }} language={language} error={detailError} busy={Boolean(busy)} distributions={visibleDistributions} matchingEvents={eventChoices} eventLoading={busy === 'distributions'} eventLookupError={error} onRefreshEvents={() => { setDetailError(''); setEventChoices([]); return loadDistributions() }} onSelectEvent={chooseReminderEvent} serviceAreas={serviceAreas} areaLoading={busy === 'areas'} areaLookupError={areaLookupError} onRefreshAreas={() => loadServiceAreas(pendingTask.values.distributionId, pendingTask.values.serviceArea)} />
               </div>}
               {view !== 'home' && <div data-assistant-task className="ga-assistant-task">
             {view === 'scheduler' && user?.role === 'SYSTEM_ADMIN' && (
