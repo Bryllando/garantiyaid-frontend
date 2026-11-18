@@ -647,6 +647,21 @@ export async function requestAuditLogs(token, filters = {}) {
   return data
 }
 
+export async function requestReportSnapshot(token, scope, { explain = false } = {}) {
+  const coverage = Object.fromEntries(Object.entries(scope).filter(([, value]) => value !== '' && value != null))
+  const data = await requestJson(explain ? '/reports/explain' : `/reports/snapshot${queryString(coverage)}`, {
+    token, method: explain ? 'POST' : 'GET', ...(explain ? { body: coverage } : {}),
+  })
+  if (!data?.report?.snapshotComplete || !data.report.data) throw new Error('The complete report was not returned. Generate it again.')
+  return data.report
+}
+
+export async function requestAuditExport(token, filters) {
+  const data = await requestJson(`/audit-logs/export${queryString(filters)}`, { token, method: 'GET' })
+  if (!Array.isArray(data?.auditLogs) || data.auditLogs.length !== data.total || !data.generatedAt) throw new Error('The complete audit export was not returned. Try again.')
+  return data
+}
+
 export async function requestBeneficiaryList(token, filters = {}) {
   const data = await requestJson(`/beneficiaries${queryString(filters)}`, { token, method: 'GET' })
   if (!Array.isArray(data?.beneficiaries) || !data?.pagination) {

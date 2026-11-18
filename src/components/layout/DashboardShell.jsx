@@ -232,7 +232,7 @@ function DashboardShellFrame({ breadcrumbs, children, currentPath, onLogout, onN
   }
 
   return (
-    <div className={`ga-staff-shell min-h-[100dvh] bg-page text-ink ${user?.role === 'SYSTEM_ADMIN' && sectionPath === '/dashboard' ? 'ga-admin-overview-shell' : ''}`}>
+    <div className="ga-staff-shell min-h-[100dvh] bg-page text-ink">
       <a href={assistantPage ? '#garantiyaid-ai-panel' : '#dashboard-content'} className="sr-only fixed left-4 top-4 z-[70] rounded-lg bg-white px-4 py-3 font-bold text-brand-blue shadow-lg focus:not-sr-only">
         Skip to main content
       </a>

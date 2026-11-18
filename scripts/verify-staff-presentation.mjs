@@ -11,8 +11,8 @@ const vite = await createServer({ cacheDir: resolve(output, '.vite'), logLevel: 
 await vite.listen()
 const origin = `http://127.0.0.1:${vite.httpServer.address().port}`
 const barangay = { barangayId: 'barangay-1', barangayName: 'Poblacion', city: 'Cebu City', province: 'Cebu', isActive: true }
-const program = { programId: 'program-1', programName: 'Community Assistance', programCode: 'AID-2026', status: 'ACTIVE' }
-const beneficiary = { beneficiaryId: 'beneficiary-1', firstName: 'Maria', lastName: 'Santos', barangay, status: 'ACTIVE' }
+const program = { programId: 'program-1', programName: 'Community Assistance', programCode: 'AID-2026', status: 'ACTIVE', programType: 'CASH_ASSISTANCE', grantAmount: '1500', budgetAmount: '150000', criteria: [], requiredDocumentTypes: [] }
+const beneficiary = { beneficiaryId: 'beneficiary-1', firstName: 'Maria', lastName: 'Santos', barangayId: barangay.barangayId, barangay, birthDate: '1990-01-01', sex: 'FEMALE', address: 'Barangay Hall Road', status: 'ACTIVE' }
 const distribution = { distributionId: 'event-1', title: 'October community assistance', program, barangay, distributionDate: '2026-10-21', startTime: '08:00', endTime: '12:00', location: 'Barangay Hall', deliveryMode: 'SIMULATED_WALLET', verificationRequirement: 'QR', status: 'OPEN' }
 const funds = { allocatedAmount: 15000, netCreditedAmount: 7500, remainingAmount: 7500, reversedAmount: 0, failedAmount: 0 }
 const pagination = { page: 1, totalPages: 1, total: 1, pageSize: 20 }
@@ -56,7 +56,7 @@ try {
       else if (path === '/dashboard/overview') {
         if (failOverview) return route.fulfill({ status: 503, json: { message: 'Overview temporarily unavailable.' } })
         data = { overview: {
-          generatedAt: '21 Oct 2026, 9:00 AM PHT', timeZone: 'Asia/Manila', scope: { global: name !== 'barangay' },
+          generatedAt: '2026-10-21T01:00:00Z', timeZone: 'Asia/Manila', scope: { global: name !== 'barangay', barangayId: name === 'barangay' ? barangay.barangayId : null },
           programs: { activeProgramCount: empty ? 0 : 2 },
           distributions: { totalMatchingDistributionCount: empty ? 0 : 2, openDistributionCount: empty ? 0 : 1, upcomingDistributionCount: empty ? 0 : 2, statusCounts: { OPEN: empty ? 0 : 1 } },
           beneficiaries: { approvedBeneficiaryCount: empty ? 0 : 20, claimedBeneficiaryCount: empty ? 0 : 10, unclaimedAllocationCount: empty ? 0 : 10, scheduledBeneficiaryCount: empty ? 0 : 16, verifiedBeneficiaryCount: empty ? 0 : 10, claimCompletionPercentage: empty ? 0 : claimed },
@@ -64,8 +64,16 @@ try {
           anomalies: { duplicateAttemptCount: 0, invalidQrAttemptCount: 0, livenessFailureCount: 0, biometricNoMatchCount: 0, duplicateClaimFlagCount: 0 },
           financialVisibility: name !== 'barangay', fundUtilization: name !== 'barangay' ? funds : null,
         } }
-      } else if (path === '/distributions') data = { distributions: empty || url.searchParams.get('status') === 'DRAFT' ? [] : [distribution], pagination }
-      else if (path === '/dashboard/distributions/event-1') data = { summary: { distribution, fundUtilization: funds } }
+      } else if (path === '/auth/account') data = { user, security: { recoveryCodesRemaining: 8, activeSessionCount: 1 } }
+      else if (path === '/barangays') data = { barangays: [barangay] }
+      else if (path === '/programs') data = { programs: [program], pagination }
+      else if (path === '/programs/program-1') data = { program }
+      else if (path === '/beneficiaries') data = { beneficiaries: [beneficiary], pagination }
+      else if (path === '/distributions') data = { distributions: empty || url.searchParams.get('status') === 'DRAFT' ? [] : [distribution], pagination }
+      else if (path === '/distributions/event-1') data = { distribution }
+      else if (path === '/dashboard/distributions/event-1') data = { summary: { distribution, fundUtilization: funds, beneficiaries: { claimedCount: 10, scheduleStatusCounts: { SCHEDULED: 16 }, claimStatusCounts: { VERIFIED: 10 } } } }
+      else if (path === '/distributions/event-1/claim-disputes') data = { disputes: [], summary: { countsByStatus: {} }, pagination: { ...pagination, total: 0 } }
+      else if (path === '/distributions/event-1/slots') data = { slots: [], summary: { matchingSlotCount: 0, matchingCapacity: 0, sessionCount: 0 }, pagination: { ...pagination, total: 0 } }
       else if (path === '/distributions/event-1/transactions') data = { transactions: [], summary: {}, pagination: { ...pagination, total: 0 } }
       else if (path === '/distributions/event-1/creditable-claims') data = { claims: [], summary: { creditableClaimCount: 0 }, pagination: { ...pagination, total: 0 } }
       else if (path === '/distributions/event-1/reconciliation') data = { reconciliation: { readyToClose: true, ledgerBalanced: true, deliveryMode: 'SIMULATED_WALLET', expectedWalletCreditedAmount: 7500, netCreditedAmount: 7500, completedBenefitCreditCount: 5, reversedBenefitCreditCount: 0, exceptions: [] }, simulation: {} }
@@ -87,7 +95,7 @@ try {
     if (name === 'admin') adminStyle = sharedStyles
     else assert.deepEqual(sharedStyles, adminStyle, `${name} matches the Admin presentation`)
     assert.equal(styles.sidebar, '256px')
-    assert.equal(titleSize, name === 'admin' ? '28px' : '24px')
+    assert.equal(titleSize, '24px')
     assert.equal(styles.buttonHeight, '44px')
     await page.waitForTimeout(500)
     await page.screenshot({ path: `${output}/${name}-overview-1440.png`, fullPage: true })
@@ -99,44 +107,66 @@ try {
     if (name !== 'admin') {
       assert.equal(await page.locator('#staff-navigation a[href^="/admin/"]').count(), 0)
       if (name === 'barangay') assert.equal(await page.locator('#staff-navigation a[href^="/dswd/"]').count(), 0)
-      const expectedLinks = name === 'dswd' ? ['/dswd/live-dashboard', '/enrollments', '/programs', '/dswd/ledger'] : ['/beneficiaries', '/biometrics', '/facilitator/queue', '/claim-accountability']
+    }
+    if (name === 'barangay') {
+      const expectedLinks = ['/beneficiaries', '/biometrics', '/facilitator/queue', '/claim-accountability']
       assert.deepEqual(await page.locator('section[aria-labelledby="tools-heading"] a').evaluateAll((links) => links.map((link) => link.getAttribute('href'))), expectedLinks)
       await expect(page.getByRole('progressbar', { name: 'Claim completion', exact: true })).toHaveAttribute('aria-valuenow', '50')
       claimed = 60
       await page.getByRole('button', { name: 'Refresh records', exact: true }).click()
       await expect(page.getByRole('progressbar', { name: 'Claim completion', exact: true })).toHaveAttribute('aria-valuenow', '60')
       await page.getByText('Account and data scope', { exact: true }).click()
-      await expect(page.getByText(name === 'barangay' ? 'Restricted by role' : 'Authorized', { exact: true })).toBeVisible()
+      await expect(page.getByText('Restricted by role', { exact: true })).toBeVisible()
       await page.getByText('Account and data scope', { exact: true }).click()
       failOverview = true
       await page.getByRole('button', { name: 'Refresh records', exact: true }).click()
-      await expect(page.getByRole('status').filter({ hasText: 'Showing the last available update' })).toBeVisible()
+      await expect(page.getByRole('alert').filter({ hasText: 'Showing the last available update' })).toBeVisible()
       await expect(page.getByRole('progressbar', { name: 'Claim completion', exact: true })).toHaveAttribute('aria-valuenow', '60')
       await page.reload()
-      await expect(page.getByRole('alert')).toContainText('We could not load operations data')
+      await expect(page.getByRole('heading', { name: 'Dashboard could not be loaded', exact: true })).toBeVisible()
       failOverview = false
       await page.getByRole('button', { name: 'Try again', exact: true }).click()
       await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
-      await page.getByRole('link', { name: name === 'dswd' ? 'Open live monitoring' : 'View beneficiary queue', exact: true }).click()
-      await expect(page.getByRole('heading', { name: name === 'dswd' ? 'Live operations dashboard' : 'Queue & schedules', exact: true })).toBeVisible()
-      if (name === 'barangay') await expect(page.getByRole('cell', { name: 'Maria Santos' })).toBeVisible()
+      await page.getByRole('link', { name: 'View beneficiary queue', exact: true }).click()
+      await expect(page.getByRole('heading', { name: 'Queue & schedules', exact: true })).toBeVisible()
+      await expect(page.getByRole('cell', { name: 'Maria Santos' })).toBeVisible()
     }
 
     const routes = name === 'dswd'
-      ? [['/dswd/live-dashboard', 'Live operations dashboard', 'monitoring'], ['/dswd/ledger', 'Simulated aid ledger', 'ledger']]
+      ? [['/dswd/live-dashboard', 'Live monitoring', 'monitoring'], ['/dswd/ledger', 'Simulated aid ledger', 'ledger']]
       : name === 'barangay' ? [['/facilitator/queue', 'Queue & schedules', 'queue'], ['/facilitator/qr-verification', 'QR claim verification', 'qr']] : []
-    for (const width of [1440, 390, 320]) {
+    const commonRoutes = [
+      ['/beneficiaries', name === 'admin' ? 'Beneficiary records' : 'Beneficiary management', 'beneficiaries'],
+      ['/programs', name === 'admin' ? 'Assistance programs' : name === 'dswd' ? 'Assistance program management' : 'Assistance program browser', 'programs'],
+      ['/account?section=profile', 'Account settings', 'account'],
+    ]
+    for (const width of [1440, 768, 390, 320]) {
       await page.setViewportSize({ width, height: 1000 })
-      for (const [path, title, screen] of [['/dashboard', heading, 'overview'], ...routes]) {
+      for (const [path, title, screen] of [['/dashboard', heading, 'overview'], ...commonRoutes, ...routes]) {
         await page.goto(`${origin}${path}`)
-        await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
+        await expect(page.getByRole('heading', { name: title, level: 1, exact: true })).toBeVisible()
         if (screen === 'ledger') await expect(page.getByRole('heading', { name: 'Distribution reconciliation', exact: true })).toBeVisible()
+        if (screen === 'beneficiaries') await expect(page.getByRole('form', { name: 'Beneficiary filters', exact: true })).toBeVisible()
         if (screen === 'queue') await expect(page.getByText('Maria Santos', { exact: true }).filter({ visible: true })).toBeVisible()
         if (screen === 'qr') {
+          await expect(page.getByRole('button', { name: 'Scan with this device’s camera', exact: true })).toBeFocused()
+          assert.equal(await page.evaluate(() => scrollY), 0, 'Initial focus keeps the event context visible')
+          await page.getByLabel('USB QR scanner input').click()
           await expect(page.getByLabel('USB QR scanner input')).toBeFocused()
-          assert.equal(await page.evaluate(() => scrollY), 0, 'Scanner focus keeps the event context visible')
+          await page.evaluate(() => scrollTo(0, 0))
         }
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${name} ${path} overflow at ${width}`)
+        const theme = await page.evaluate(() => {
+          const shell = getComputedStyle(document.querySelector('.ga-staff-shell'))
+          const panel = document.querySelector('#dashboard-content :is(.ga-card, .ga-admin-register)')
+          const input = document.querySelector('#dashboard-content .ga-input:not(textarea)')
+          return { page: shell.getPropertyValue('--color-page').trim(), border: shell.getPropertyValue('--color-line').trim(), title: getComputedStyle(document.querySelector('.ga-page-title')).fontSize, panelRadius: panel && getComputedStyle(panel).borderRadius, inputHeight: input && getComputedStyle(input).minHeight }
+        })
+        assert.equal(theme.page, '#f3f6fb')
+        assert.equal(theme.border, '#d8e2ee')
+        assert.equal(theme.title, width < 640 ? '22px' : '24px')
+        if (theme.panelRadius) assert.equal(theme.panelRadius, '9px', `${name} ${path} shares panel corners`)
+        if (theme.inputHeight) assert.equal(theme.inputHeight, '44px', `${name} ${path} shares control heights`)
         await page.waitForTimeout(500)
         if (width !== 320) await page.screenshot({ path: `${output}/${name}-${screen}-${width}.png`, fullPage: true })
       }
@@ -147,12 +177,24 @@ try {
         await expect(page.getByRole('button', { name: 'Open navigation', exact: true })).toBeFocused()
       }
     }
-    if (name !== 'admin') {
+    if (name === 'admin') {
+      await page.goto(`${origin}/beneficiaries`)
+      await page.getByRole('button', { name: 'Register beneficiary', exact: true }).click()
+      const dialog = page.getByRole('dialog', { name: 'Register a beneficiary', exact: true })
+      await expect(dialog).toBeVisible()
+      await expect(dialog).toHaveCSS('border-radius', '9px')
+      await dialog.getByLabel('First name', { exact: true }).fill('Ana')
+      await expect(dialog.getByLabel('First name', { exact: true })).toHaveCSS('min-height', '44px')
+      await page.screenshot({ path: `${output}/admin-beneficiary-form-320.png`, fullPage: true })
+      await dialog.getByRole('button', { name: 'Close beneficiary form', exact: true }).click()
+      await expect(dialog).toHaveCount(0)
+    }
+    if (name === 'barangay') {
       empty = true
       await page.goto(`${origin}/dashboard`)
       await expect(page.getByText('No operational records yet.', { exact: true })).toBeVisible()
       await expect(page.getByRole('progressbar', { name: 'Claim completion', exact: true })).toHaveAttribute('aria-valuenow', '0')
-      await expect(page.getByText(name === 'barangay' ? 'No beneficiaries currently scheduled' : 'No upcoming distributions', { exact: true })).toBeVisible()
+      await expect(page.getByText('No beneficiaries currently scheduled', { exact: true })).toBeVisible()
     }
     assert.deepEqual(errors, [], `${name} browser errors`)
     assert.deepEqual([...unhandled], [], `${name} unexpected API requests`)

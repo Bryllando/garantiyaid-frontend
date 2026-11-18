@@ -7,6 +7,7 @@ import { useApiCooldown } from '../hooks/useApiCooldown.js'
 import { createLiveRefresh } from '../utils/liveRefresh.js'
 import { Icon } from '../components/ui/icon.jsx'
 import { Skeleton } from '../components/ui/skeleton.jsx'
+import { OverviewEmptyState, OverviewUpdate } from '../components/ui/overview.jsx'
 import {
   getAuthErrorMessage,
   getApiRetryAfterSeconds,
@@ -54,6 +55,13 @@ const featuredModuleHrefs = {
   BARANGAY_FACILITATOR: ['/beneficiaries', '/biometrics', '/facilitator/queue', '/claim-accountability'],
 }
 
+const moduleIcons = {
+  '/beneficiaries': 'beneficiaries',
+  '/biometrics': 'biometrics',
+  '/facilitator/queue': 'queue',
+  '/claim-accountability': 'receipt',
+}
+
 const numberFormatter = new Intl.NumberFormat('en-PH')
 
 function formatCount(value) {
@@ -67,10 +75,10 @@ function clampPercentage(value) {
 function dashboardMetrics(overview, role) {
   if (role === 'BARANGAY_FACILITATOR') {
     return [
-      { label: 'Scheduled queue', value: formatCount(overview.queue.scheduledCount), detail: 'Assigned beneficiaries' },
-      { label: 'Verified, awaiting assistance', value: formatCount(overview.beneficiaries.verifiedBeneficiaryCount), detail: 'Release or credit not yet recorded' },
-      { label: 'Completed claims', value: formatCount(overview.beneficiaries.claimedBeneficiaryCount), detail: 'Recorded handover or wallet credit' },
-      { label: 'Unclaimed allocations', value: formatCount(overview.beneficiaries.unclaimedAllocationCount), detail: 'Assistance not yet recorded as received' },
+      { label: 'Scheduled queue', value: formatCount(overview.queue.scheduledCount), detail: 'Assigned beneficiaries', icon: 'queue' },
+      { label: 'Verified, awaiting assistance', value: formatCount(overview.beneficiaries.verifiedBeneficiaryCount), detail: 'Release or credit not yet recorded', icon: 'security' },
+      { label: 'Completed claims', value: formatCount(overview.beneficiaries.claimedBeneficiaryCount), detail: 'Recorded handover or wallet credit', icon: 'receipt' },
+      { label: 'Unclaimed allocations', value: formatCount(overview.beneficiaries.unclaimedAllocationCount), detail: 'Assistance not yet recorded as received', icon: 'clock' },
     ]
   }
 
@@ -231,59 +239,60 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
       ) : role === 'SYSTEM_ADMIN' ? <>
         <AdminOverview session={session} overview={overview} draftEvents={draftEvents} draftError={draftError} draftLoading={draftLoading} liveStatus={liveStatus} reloadCount={reloadCount} onRefresh={refreshDashboard} refreshDisabled={isLoading || retrySeconds > 0} onNavigate={onNavigate} onSessionExpired={onSessionExpired} />
       </> : role === 'DSWD_STAFF' ? <DswdWorkOverview session={session} overview={overview} liveStatus={liveStatus} reloadCount={reloadCount} onRefresh={refreshDashboard} refreshDisabled={isLoading || retrySeconds > 0} onNavigate={onNavigate} onSessionExpired={onSessionExpired} /> : (
-        <div className="ga-dashboard-ready">
-          <header className="ga-page-header flex flex-wrap items-start justify-between gap-4 border-b border-line pb-4">
+        <div className="ga-overview ga-barangay-overview ga-dashboard-ready">
+          <header className="ga-overview-heading">
             <div><h1 id="overview-title" className="ga-page-title">{content.heading}</h1><p className="ga-page-copy">{content.description}</p></div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={refreshDashboard} disabled={isLoading || retrySeconds > 0} className="ga-btn-secondary">Refresh records</button>
-              <a href={content.primary.href} onClick={(event) => navigateLink(event, content.primary.href, onNavigate)} className="ga-btn-primary">{content.primary.label}</a>
+              <button type="button" onClick={refreshDashboard} disabled={isLoading || retrySeconds > 0} className="ga-btn-secondary"><Icon name="reset" className="size-4" />Refresh records</button>
+              <a href={content.primary.href} onClick={(event) => navigateLink(event, content.primary.href, onNavigate)} className="ga-btn-primary">{content.primary.label}<Icon name="arrowRight" className="size-4" /></a>
             </div>
           </header>
-          <div className="my-3 flex flex-wrap justify-between gap-2 text-xs text-muted-copy" role="status">
-            <span>{scopeLabel} · Updated {overview.generatedAt}</span>
-            <span>{liveStatus === 'connected' ? 'Live updates connected' : liveStatus === 'connecting' ? 'Connecting to live updates' : 'Live updates unavailable. Use Refresh records.'}</span>
-          </div>
+          <OverviewUpdate generatedAt={overview.generatedAt} liveStatus={liveStatus}><span className="ga-overview-scope"><Icon name="location" className="size-3.5 shrink-0" />{scopeLabel}</span></OverviewUpdate>
           <dl className="ga-admin-summary grid grid-cols-2 lg:grid-cols-4" aria-label="Operations summary">
             {dashboardMetrics(overview, role).map((metric) => <div key={metric.label}>
-              <dt>{metric.label}</dt>
-              <dd><span className="block text-[1.75rem] font-semibold tabular-nums leading-relaxed text-ink">{metric.value}</span><span className="text-xs text-muted-copy">{metric.detail}</span></dd>
+              <dt><span className="ga-overview-icon"><Icon name={metric.icon} /></span><span>{metric.label}</span></dt>
+              <dd><span className="ga-overview-total">{metric.value}</span><span className="ga-overview-metric-detail">{metric.detail}</span></dd>
             </div>)}
           </dl>
 
-          <div className="mt-5 grid items-start gap-5 xl:grid-cols-2">
+          <div className="ga-overview-work ga-overview-work-equal xl:grid-cols-2">
             <section className="ga-admin-register" aria-labelledby="tools-heading">
-              <header><h2 id="tools-heading">{role === 'DSWD_STAFF' ? 'DSWD tasks' : 'Barangay tasks'}</h2></header>
-              <ul className="divide-y divide-line">
+              <header><h2 id="tools-heading"><Icon name="office" />{role === 'DSWD_STAFF' ? 'DSWD tasks' : 'Barangay tasks'}</h2></header>
+              <ul className="ga-overview-tasks">
                 {featuredModules.map((item) => <li key={item.href}>
                   <a href={item.href} onClick={(event) => navigateLink(event, item.href, onNavigate)} className="flex min-h-14 items-center justify-between gap-4 p-4 hover:bg-slate-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-blue">
+                    <span className="ga-overview-task-icon"><Icon name={moduleIcons[item.href]} /></span>
                     <span className="min-w-0"><span className="block text-sm font-semibold text-brand-blue">{item.label}</span><span className="mt-1 block text-sm leading-6 text-copy">{moduleDescriptions[item.label] ?? 'View records and available actions.'}</span></span>
                     <Icon name="chevronRight" className="size-4 shrink-0 text-muted-copy" />
                   </a>
                 </li>)}
               </ul>
-              {isEmpty && <p className="border-t border-line p-4 text-sm leading-6 text-copy"><strong className="font-semibold text-ink">No operational records yet.</strong> Figures will appear as programs and distributions are added.</p>}
+              {isEmpty && <OverviewEmptyState icon="beneficiaries" title="No operational records yet."><p>Figures will appear as programs and distributions are added.</p></OverviewEmptyState>}
             </section>
 
             <section className="ga-admin-register" aria-labelledby="progress-heading">
-              <header><h2 id="progress-heading">Distribution status</h2></header>
-              <div className="border-b border-line px-4 py-3">
-                <p className="text-sm font-semibold text-ink">{attention.title}</p>
-                <p className="mt-1 text-sm leading-6 text-copy">{attention.description}</p>
-                <a href={attention.action[1]} onClick={(event) => navigateLink(event, attention.action[1], onNavigate)} className="ga-admin-link">{attention.action[0]}</a>
+              <header><h2 id="progress-heading"><Icon name="monitoring" />Distribution status</h2></header>
+              <div className="ga-overview-attention">
+                <Icon name="queue" className="size-5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-ink">{attention.title}</p>
+                  <p className="mt-1 text-sm leading-6 text-copy">{attention.description}</p>
+                  <a href={attention.action[1]} onClick={(event) => navigateLink(event, attention.action[1], onNavigate)} className="ga-admin-link">{attention.action[0]}</a>
+                </div>
               </div>
-              <div className="space-y-5 p-4">
+              <div className="ga-overview-completion">
                 <ProgressRow label="Claim completion" value={overview.beneficiaries.claimCompletionPercentage} />
                 <p className="text-sm leading-6 text-copy">Completion counts recorded handovers and wallet credits. Check-in and identity verification alone do not mean assistance was received.</p>
               </div>
             </section>
           </div>
 
-          <section className="ga-admin-register mt-5" aria-labelledby="handoff-heading">
-            <header><h2 id="handoff-heading">Who handles the next step</h2></header>
+          <section className="ga-admin-register ga-overview-handoff" aria-labelledby="handoff-heading">
+            <header><h2 id="handoff-heading"><Icon name="people" />Who handles the next step</h2></header>
             <dl className="grid divide-y divide-line text-sm md:grid-cols-3 md:divide-x md:divide-y-0">
-              <div className="p-4"><dt className="font-semibold text-ink">Barangay staff</dt><dd className="mt-2 leading-6 text-copy">Register and update residents, submit enrollment documents, record face consent and enrollment, assist claim checks, and record physical release.</dd></div>
-              <div className="p-4"><dt className="font-semibold text-ink">DSWD</dt><dd className="mt-2 leading-6 text-copy">Review eligibility and enrollment, verify claims, and record simulated wallet credits. Refer review concerns to DSWD.</dd></div>
-              <div className="p-4"><dt className="font-semibold text-ink">Admin</dt><dd className="mt-2 leading-6 text-copy">Set up events, allocations and sessions, issue QR credentials, and close events. Barangay staff can adjust assigned schedules while an event is still a draft.</dd></div>
+              <div className="p-4"><dt className="font-semibold text-ink"><Icon name="office" />Barangay staff</dt><dd className="mt-2 leading-6 text-copy">Register and update residents, submit enrollment documents, record face consent and enrollment, assist claim checks, and record physical release.</dd></div>
+              <div className="p-4"><dt className="font-semibold text-ink"><Icon name="enrollments" />DSWD</dt><dd className="mt-2 leading-6 text-copy">Review eligibility and enrollment, verify claims, and record simulated wallet credits. Refer review concerns to DSWD.</dd></div>
+              <div className="p-4"><dt className="font-semibold text-ink"><Icon name="distributions" />Admin</dt><dd className="mt-2 leading-6 text-copy">Set up events, allocations and sessions, issue QR credentials, and close events. Barangay staff can adjust assigned schedules while an event is still a draft.</dd></div>
             </dl>
           </section>
 

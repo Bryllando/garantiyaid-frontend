@@ -90,6 +90,7 @@ try {
     const title = await main.getByRole('heading', { name: 'Overview', exact: true }).boundingBox()
     const header = await page.locator('.ga-staff-header').boundingBox()
     assert.ok(title.y >= header.y + header.height + 16, `Heading overlaps header at ${width}px`)
+    await expect(main.getByRole('columnheader', { name: 'Beneficiary / program', exact: true })).toHaveCount(1)
     await page.screenshot({ path: resolve(output, `overview-${width}.png`), fullPage: true })
   }
   const longName = main.locator('.ga-overview-enrollments .ga-overview-record-name').last()
