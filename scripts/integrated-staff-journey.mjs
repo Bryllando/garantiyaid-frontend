@@ -320,6 +320,7 @@ export async function runStaffJourney({ staff, program, prisma, baseUrl, output,
       await as('admin', `/reports?distribution=${voidedEvent.distributionId}`)
       await page.getByRole('button', { name: 'Generate report' }).click()
       const report = page.locator('[aria-labelledby="report-result-heading"]')
+      await report.getByText('How to read this report', { exact: true }).click()
       await expect(report.locator('dl > div').filter({ has: page.getByText('Recorded handovers', { exact: true }) }).locator('dd')).toHaveText('1')
       await expect(report.locator('dl > div').filter({ has: page.getByText('Units on voided claims', { exact: true }) }).locator('dd')).toHaveText('2')
       await report.scrollIntoViewIfNeeded()

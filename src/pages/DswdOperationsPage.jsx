@@ -6,7 +6,7 @@ import DashboardShell from '../components/layout/DashboardShell.jsx'
 import IndividualWalletWorkspace from '../components/wallets/IndividualWalletWorkspace.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Icon } from '../components/ui/icon.jsx'
-import { Skeleton } from '../components/ui/skeleton.jsx'
+import { Skeleton, SkeletonRows } from '../components/ui/skeleton.jsx'
 import { LoadingLabel, Spinner } from '../components/ui/spinner.jsx'
 import {
   creditVerifiedClaim,
@@ -89,8 +89,7 @@ function AccessDenied({ session, onLogout, onNavigate }) {
 
 function Filters({ draft, setDraft, error, onApply, onClear, hasFilters, compact = false }) {
   return (
-    <form onSubmit={onApply} className="ga-card mt-6 p-4 sm:p-5" aria-label="Dashboard filters">
-      {compact && <div className="mb-4"><h2 className="flex items-center gap-2 font-bold text-ink"><Icon name="search" className="size-5 text-brand-blue" />Filter distribution events</h2><p className="mt-1 text-sm text-muted-copy">Choose a status or date range, then apply your filters.</p></div>}
+    <form onSubmit={onApply} className={compact ? 'border-t border-line p-4 sm:p-5' : 'ga-card mt-6 p-4 sm:p-5'} aria-label="Dashboard filters">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
         <div><label htmlFor="dswd-status" className="ga-label">Distribution status</label><select id="dswd-status" value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value }))} className="ga-input mt-2 cursor-pointer font-semibold">{distributionStatuses.map((status) => <option key={status || 'ALL'} value={status}>{status ? humanize(status) : 'All statuses'}</option>)}</select></div>
         <div><label htmlFor="dswd-date-from" className="ga-label">Date from</label><input id="dswd-date-from" type="date" value={draft.dateFrom} onChange={(event) => setDraft((current) => ({ ...current, dateFrom: event.target.value }))} className="ga-input mt-2" /></div>
@@ -117,8 +116,7 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
   const [connection, setConnection] = useState('connecting')
   const [liveMessage, setLiveMessage] = useState('Connecting to secure live updates')
 
-  const [distributionSummary, setDistributionSummary] = useState(null)
-  const [transactions, setTransactions] = useState(null)
+  const [ledgerSnapshot, setLedgerSnapshot] = useState(null)
   const [creditableClaims, setCreditableClaims] = useState(null)
   const [creditQuery, setCreditQuery] = useState(() => readCreditQueueLocation(window.location.search))
   const [creditQueueError, setCreditQueueError] = useState('')
@@ -126,16 +124,11 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
   const [ledgerActionError, setLedgerActionError] = useState('')
   const [creditResult, setCreditResult] = useState(null)
   const creditResultRef = useRef(null)
-  const [reconciliation, setReconciliation] = useState(null)
   const [receipt, setReceipt] = useState(null)
   const [ledgerAction, setLedgerAction] = useState(null)
   const [isMutating, setIsMutating] = useState(false)
   const [loadingReceiptId, setLoadingReceiptId] = useState('')
-  const [ledgerError, setLedgerError] = useState('')
-  const [isLoadingLedger, setIsLoadingLedger] = useState(view === 'ledger')
-  const [transactionType, setTransactionType] = useState('')
-  const [transactionStatus, setTransactionStatus] = useState('')
-  const [transactionPage, setTransactionPage] = useState(1)
+  const [ledgerError, setLedgerError] = useState(null)
   const [ledgerMode, setLedgerMode] = useState(() => new URLSearchParams(window.location.search).get('workspace') === 'wallets' ? 'wallets' : 'events')
   const isDswd = session.user.role === 'DSWD_STAFF'
   const isAdmin = session.user.role === 'SYSTEM_ADMIN'
@@ -143,6 +136,7 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
   const currentPath = view === 'live' ? '/dswd/live-dashboard' : '/dswd/ledger'
   const pageTitle = view === 'live' ? 'Live operations dashboard' : isAdmin ? 'Transactions & wallets' : 'Simulated aid ledger'
   const selectedDistribution = distributions.find((item) => item.distributionId === selectedId)
+  const currentLedger = ledgerSnapshot?.distributionId === selectedId ? ledgerSnapshot : null
 
   useEffect(() => {
     if (view !== 'ledger') return
@@ -223,7 +217,6 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
         if (distributionData) {
           setDistributions(available)
           setSelectedId((current) => available.some((item) => item.distributionId === current) ? current : available[0]?.distributionId ?? '')
-          if (available.length === 0) setIsLoadingLedger(false)
         }
       })
       .catch((error) => {
@@ -240,28 +233,24 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
   }, [canAccess, filters, onSessionExpired, refreshKey, session.accessToken, view])
 
   useEffect(() => {
-    if (!canAccess || view !== 'ledger' || !selectedId) return undefined
+    if (!canAccess || view !== 'ledger' || ledgerMode !== 'events' || !selectedDistribution?.status) return undefined
     let active = true
     Promise.all([
       requestDistributionDashboard(session.accessToken, selectedId),
-      requestDistributionTransactions(session.accessToken, selectedId, { page: transactionPage, pageSize: 20, type: transactionType, status: transactionStatus }),
       requestDistributionReconciliation(session.accessToken, selectedId),
     ])
-      .then(([summary, transactionData, reconciliationData]) => {
+      .then(([summary, reconciliationData]) => {
         if (!active) return
-        setLedgerError('')
-        setDistributionSummary(summary)
-        setTransactions(transactionData)
-        setReconciliation(reconciliationData.reconciliation)
+        setLedgerError(null)
+        setLedgerSnapshot({ distributionId: selectedId, summary, reconciliation: reconciliationData.reconciliation, syncedAt: new Date() })
       })
       .catch((error) => {
         if (!active) return
         if (isSessionExpiredError(error)) return onSessionExpired()
-        setLedgerError(getAuthErrorMessage(error))
+        setLedgerError({ distributionId: selectedId, message: getAuthErrorMessage(error) })
       })
-      .finally(() => { if (active) setIsLoadingLedger(false) })
     return () => { active = false }
-  }, [canAccess, onSessionExpired, refreshKey, selectedDistribution?.deliveryMode, selectedDistribution?.status, selectedId, session.accessToken, transactionPage, transactionStatus, transactionType, view])
+  }, [canAccess, ledgerMode, onSessionExpired, refreshKey, selectedDistribution?.deliveryMode, selectedDistribution?.status, selectedId, session.accessToken, view])
 
   useEffect(() => {
     if (!canAccess || view !== 'ledger' || ledgerMode !== 'events' || !selectedId || !selectedDistribution?.status) return undefined
@@ -273,7 +262,7 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
       if (!active) return
       const lastPage = Math.max(1, data.pagination.totalPages)
       if (creditQuery.page > lastPage) { setCreditQueueLoading(true); setCreditQuery((current) => ({ ...current, page: lastPage })); return }
-      setCreditableClaims(data)
+      setCreditableClaims({ ...data, distributionId: selectedId, search: creditQuery.search })
       setCreditQueueError('')
       setCreditQueueLoading(false)
     }).catch((error) => {
@@ -300,11 +289,9 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
     setCreditQueueLoading(true)
     setCreditResult(null)
     setMainError('')
-    setLedgerError('')
+    setLedgerError(null)
     setIsRefreshing(Boolean(overview))
     setIsLoading(!overview)
-    setIsLoadingLedger(view === 'ledger')
-    setTransactionPage(1)
     setFilters({ ...nextFilters })
     setRefreshKey((value) => value + 1)
   }
@@ -313,16 +300,18 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
     const empty = { status: '', dateFrom: '', dateTo: '' }
     setDraftFilters(empty)
     applyFilters(null, empty)
-    document.getElementById('dswd-status')?.focus()
+    const status = document.getElementById('dswd-status')
+    const disclosure = status?.closest('details')
+    if (disclosure) disclosure.open = true
+    status?.focus()
   }
 
   function refresh() {
     setCreditQueueLoading(true)
     setMainError('')
-    setLedgerError('')
+    setLedgerError(null)
     setIsRefreshing(Boolean(overview))
     setIsLoading(!overview)
-    setIsLoadingLedger(view === 'ledger')
     setRefreshKey((value) => value + 1)
   }
 
@@ -333,13 +322,9 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
     setCreditResult(null)
     setLedgerAction(null)
     setSelectedId(distributionId)
-    setDistributionSummary(null)
-    setTransactions(null)
+    setLedgerSnapshot(null)
     setCreditableClaims(null)
-    setReconciliation(null)
-    setLedgerError('')
-    setTransactionPage(1)
-    setIsLoadingLedger(true)
+    setLedgerError(null)
   }
 
   async function loadCreditReview(action) {
@@ -369,14 +354,13 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
       if (action.type === 'credit') {
         const result = await creditVerifiedClaim(session.accessToken, action.distribution.distributionId, action.claim.claimId, '', action.idempotencyKey)
         setCreditResult({ ...result, claim: action.claim, distribution: action.distribution })
-        toast.success('Verified claim credited to the simulated ledger.', { description: `${result.transaction.referenceNo} · ${formatMoney(result.transaction.amount)}` })
+        toast.success('Simulated credit recorded', { description: `${result.transaction.referenceNo} · ${formatMoney(result.transaction.amount)}` })
       } else {
         const result = await reverseBenefitCredit(session.accessToken, action.transaction.walletId, action.transaction.transactionId, reason)
         toast.success('Simulated benefit credit reversed.', { description: `${result.reversalTransaction.referenceNo} · Claim status: Voided` })
       }
       setLedgerAction(null)
       setCreditQueueLoading(true)
-      setIsLoadingLedger(true)
       setRefreshKey((value) => value + 1)
     } catch (error) {
       if (isSessionExpiredError(error)) return onSessionExpired()
@@ -414,6 +398,11 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
         <p className="mt-1 break-words text-sm text-copy">Reference: {creditResult.transaction.referenceNo}</p>
         <div className="mt-3 flex flex-wrap gap-3"><button type="button" onClick={() => openReceipt({ ...creditResult.transaction, walletId: creditResult.transaction.walletId || creditResult.wallet.walletId })} disabled={Boolean(loadingReceiptId)} className="ga-btn-secondary">View transaction receipt</button><a href={`/claim-accountability?distribution=${encodeURIComponent(selectedId)}&claim=${encodeURIComponent(creditResult.claim.claimId)}`} onClick={(event) => { event.preventDefault(); onNavigate(event.currentTarget.getAttribute('href')) }} className="ga-btn-secondary">Open claim record</a><button type="button" onClick={() => { setCreditResult(null); document.getElementById('credit-queue-heading')?.focus() }} className="ga-btn-secondary">Continue with next beneficiary</button></div>
       </section>)
+  const currentCreditQueue = creditableClaims?.distributionId === selectedId && creditableClaims.search === creditQuery.search ? creditableClaims : null
+  const eventFilters = <details className="ga-admin-guide mt-4">
+    <summary className="cursor-pointer text-brand-blue">Filter events{Object.values(filters).some(Boolean) ? ' · Active' : ''}</summary>
+    <Filters compact draft={draftFilters} setDraft={setDraftFilters} error={filterError} onApply={applyFilters} onClear={clearFilters} hasFilters={Object.values(filters).some(Boolean) || Object.values(draftFilters).some(Boolean)} />
+  </details>
 
   return (
     <DashboardShell breadcrumbs={['Operations', isAdmin ? 'Oversight' : 'DSWD Staff', pageTitle]} currentPath={currentPath} onLogout={onLogout} onNavigate={onNavigate} pageTitle={pageTitle} showAssistant={view !== 'ledger'} user={session.user}>
@@ -438,7 +427,6 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
       {view === 'ledger' && <><div role="group" aria-label="Simulated ledger workspace" className="mt-6 inline-flex w-full rounded-xl border border-line bg-white p-1 shadow-sm sm:w-auto"><button type="button" aria-pressed={ledgerMode === 'events'} onClick={() => setLedgerMode('events')} className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-3 text-sm font-bold sm:flex-none sm:px-5 ${ledgerMode === 'events' ? 'bg-brand-navy text-white' : 'text-copy hover:bg-slate-50'}`}><Icon name="ledger" className="hidden size-4 shrink-0 sm:block" />{isAdmin ? 'Distribution ledger' : 'Distribution settlement'}</button><button type="button" aria-pressed={ledgerMode === 'wallets'} onClick={() => setLedgerMode('wallets')} className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg px-3 text-sm font-bold sm:flex-none sm:px-5 ${ledgerMode === 'wallets' ? 'bg-brand-navy text-white' : 'text-copy hover:bg-slate-50'}`}><Icon name="profile" className="hidden size-4 shrink-0 sm:block" />Individual wallets</button></div><div className="mt-4 flex items-start gap-3 rounded-xl border border-blue-200 bg-info-soft px-4 py-3 text-sm leading-6 text-copy"><Icon name="info" className="mt-0.5 size-5 shrink-0 text-brand-blue" /><p><strong className="text-ink">Simulation only.</strong> These balances and transactions demonstrate system controls; no real funds are stored or moved.</p></div></>}
 
       {view === 'live' && <Filters draft={draftFilters} setDraft={setDraftFilters} error={filterError} onApply={applyFilters} />}
-      {view === 'ledger' && ledgerMode === 'events' && <Filters compact draft={draftFilters} setDraft={setDraftFilters} error={filterError} onApply={applyFilters} onClear={clearFilters} hasFilters={Object.values(filters).some(Boolean) || Object.values(draftFilters).some(Boolean)} />}
 
       {view === 'ledger' && ledgerMode === 'wallets' ? (
         <IndividualWalletWorkspace session={session} loadingReceiptId={loadingReceiptId} onNavigate={onNavigate} onReceipt={openReceipt} onSessionExpired={onSessionExpired} />
@@ -450,7 +438,6 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
         <LedgerDashboard
           token={session.accessToken}
           onSessionExpired={onSessionExpired}
-          overview={overview}
           distributions={distributions}
           selectedId={selectedId}
           selectedDistribution={selectedDistribution}
@@ -459,24 +446,17 @@ function DswdOperationsPage({ view, session, onLogout, onNavigate, onSessionExpi
           filtered={Object.values(filters).some(Boolean)}
           onClearFilters={clearFilters}
           onNavigate={onNavigate}
-          summary={distributionSummary}
-          transactions={transactions}
+          snapshot={currentLedger}
+          eventFilters={eventFilters}
+          readyCount={!creditQueueError ? currentCreditQueue?.summary.creditableClaimCount : undefined}
+          creditSearch={creditQuery.search}
           result={creditResultPanel}
-          creditQueue={<CreditQueue data={creditableClaims} query={creditQuery} onQuery={(query) => { setCreditQueueLoading(true); setCreditQuery(query) }} loading={creditQueueLoading} error={creditQueueError} retry={() => { setCreditQueueLoading(true); setRefreshKey((value) => value + 1) }} deliveryMode={selectedDistribution?.deliveryMode} distributionStatus={selectedDistribution?.status} disabled={isMutating} onCredit={isDswd ? reviewCredit : undefined} onNavigate={onNavigate} distributionId={selectedId} />}
-          reconciliation={reconciliation}
-          error={ledgerError}
-          isLoading={isLoadingLedger}
+          creditQueue={<CreditQueue data={currentCreditQueue} query={creditQuery} onQuery={(query) => { setCreditQueueLoading(true); setCreditQuery(query) }} loading={creditQueueLoading || (!currentCreditQueue && !creditQueueError)} error={creditQueueError} retry={() => { setCreditQueueLoading(true); setRefreshKey((value) => value + 1) }} deliveryMode={selectedDistribution?.deliveryMode} distributionStatus={selectedDistribution?.status} disabled={isMutating} onCredit={isDswd ? reviewCredit : undefined} onNavigate={onNavigate} distributionId={selectedId} />}
+          error={ledgerError?.distributionId === selectedId ? ledgerError.message : ''}
+          isRefreshing={isRefreshing}
           isMutating={isMutating}
           retry={refresh}
-          onReceipt={openReceipt}
-          onReverse={isDswd ? (transaction) => { setLedgerActionError(''); setLedgerAction({ type: 'reverse', transaction }) } : undefined}
-          loadingReceiptId={loadingReceiptId}
-          transactionType={transactionType}
-          setTransactionType={(value) => { setTransactionType(value); setTransactionPage(1); setIsLoadingLedger(true) }}
-          transactionStatus={transactionStatus}
-          setTransactionStatus={(value) => { setTransactionStatus(value); setTransactionPage(1); setIsLoadingLedger(true) }}
-          transactionPage={transactionPage}
-          setTransactionPage={(value) => { setTransactionPage(value); setIsLoadingLedger(true) }}
+          transactions={<TransactionsPanel key={selectedId} token={session.accessToken} distributionId={selectedId} refreshKey={refreshKey} onSessionExpired={onSessionExpired} disabled={isMutating} onReceipt={openReceipt} onReverse={isDswd ? (transaction) => { setLedgerActionError(''); setLedgerAction({ type: 'reverse', transaction }) } : undefined} loadingReceiptId={loadingReceiptId} />}
         />
       )}
 
@@ -537,33 +517,58 @@ function DataRow({ label, value, tone }) {
   return <div className="flex items-center justify-between gap-4 border-b border-line pb-3 last:border-0 last:pb-0"><dt className="text-muted-copy">{label}</dt><dd className={`font-extrabold ${color}`}>{value}</dd></div>
 }
 
-function LedgerDashboard({ token, onSessionExpired, distributions, selectedId, selectedDistribution, selectDistribution, isAdmin, filtered, onClearFilters, onNavigate, summary, transactions, creditQueue, result, reconciliation, error, isLoading, isMutating, retry, onReceipt, onReverse, loadingReceiptId, transactionType, setTransactionType, transactionStatus, setTransactionStatus, transactionPage, setTransactionPage }) {
-  if (distributions.length === 0) return <section className="ga-card mt-6 flex items-start gap-4 p-5 sm:p-6" aria-labelledby="empty-ledger-heading"><span className="grid size-11 shrink-0 place-items-center rounded-lg bg-info-soft text-brand-blue"><Icon name={filtered ? 'search' : 'ledger'} /></span><div className="min-w-0"><h2 id="empty-ledger-heading" className="text-xl font-extrabold text-ink">{filtered ? 'No distributions match your filters' : 'No distributions in this scope'}</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-copy">{filtered ? 'Try a different status or date range, or clear the filters to see all available events.' : isAdmin ? 'Distribution events appear here once they are created. Open distribution events to review the setup or create an event.' : 'No distribution events are available in your authorized area. Ask your system administrator to confirm the event and your assigned scope.'}</p>{filtered ? <button type="button" onClick={onClearFilters} className="ga-btn-secondary mt-4"><Icon name="close" className="size-4" />Show all distributions</button> : isAdmin ? <a href="/distributions/manage" onClick={(event) => { event.preventDefault(); onNavigate('/distributions/manage') }} className="ga-btn-primary mt-4"><Icon name="calendar" className="size-4" />View distribution events</a> : <button type="button" onClick={retry} className="ga-btn-secondary mt-4"><Icon name="reset" className="size-4" />Refresh ledger</button>}</div></section>
+function LedgerDashboard({ token, onSessionExpired, distributions, selectedId, selectedDistribution, selectDistribution, isAdmin, filtered, onClearFilters, onNavigate, snapshot, transactions, eventFilters, readyCount, creditSearch, creditQueue, result, error, isRefreshing, isMutating, retry }) {
+  const hasDistributions = distributions.length > 0
+  const funds = snapshot?.summary.fundUtilization
+  const creditOpen = selectedDistribution?.deliveryMode === 'SIMULATED_WALLET' && selectedDistribution.status === 'OPEN'
   return (
-    <div className="mt-7">
-      <section className="ga-card p-5 sm:p-6" aria-label="Selected distribution context">
-        <div className="flex flex-wrap items-end gap-3"><div className="min-w-0 flex-1 basis-full sm:basis-0"><label htmlFor="ledger-distribution" className="ga-label">Distribution event</label><div className="relative mt-2"><Icon name="calendar" className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-copy" /><select id="ledger-distribution" value={selectedId} disabled={isMutating} onChange={(event) => selectDistribution(event.target.value)} className="ga-input cursor-pointer pl-11 font-semibold">{distributions.map((distribution) => <option key={distribution.distributionId} value={distribution.distributionId}>{distribution.title} - {distribution.distributionDate}</option>)}</select></div></div><button type="button" onClick={retry} disabled={isLoading || isMutating} className="ga-btn-secondary"><Icon name="reset" className="size-4" />Refresh ledger</button></div>
-        <h2 className="mt-3 break-words text-sm font-bold leading-6 text-ink sm:hidden">{selectedDistribution?.title}</h2>
-        <dl className="mt-4 grid grid-cols-2 gap-4 border-t border-line pt-4 text-sm lg:grid-cols-4"><ReceiptField label="Program" value={selectedDistribution?.program?.programName || selectedDistribution?.program?.programCode} /><ReceiptField label="Barangay" value={selectedDistribution?.barangay?.barangayName} /><ReceiptField label="Event status" value={selectedDistribution?.status ? humanize(selectedDistribution.status) : 'Not confirmed'} /><ReceiptField label="Delivery" value={selectedDistribution?.deliveryMode ? humanize(selectedDistribution.deliveryMode) : 'Not confirmed'} /></dl>
-        <nav aria-label="Event ledger sections" className="mt-3 flex flex-wrap gap-x-5 gap-y-1 border-t border-line pt-2 text-sm font-semibold text-brand-blue">{[['credit-queue-heading', 'Awaiting credit'], ['transactions-heading', 'Transactions'], ['event-reconciliation', 'Reconciliation']].map(([id, label]) => <a key={id} href={`#${id}`} className="inline-flex min-h-11 items-center underline underline-offset-4">{label}</a>)}{isAdmin && <><a href={`/distributions/manage?event=${encodeURIComponent(selectedId)}`} onClick={(event) => { event.preventDefault(); onNavigate(event.currentTarget.getAttribute('href')) }} className="inline-flex min-h-11 items-center underline underline-offset-4">View event setup</a><a href={`/reports?distribution=${encodeURIComponent(selectedId)}`} onClick={(event) => { event.preventDefault(); onNavigate(event.currentTarget.getAttribute('href')) }} className="inline-flex min-h-11 items-center underline underline-offset-4">Event report</a></>}</nav>
-      </section>
-      {result}
-
-      {isLoading ? <LoadingDashboard ledger /> : error ? <section className="mt-6 rounded-xl border border-amber-200 bg-white p-6" role="alert"><h2 className="font-extrabold text-ink">Unable to load the selected ledger</h2><p className="mt-2 text-sm text-muted-copy">{error}</p><button type="button" onClick={retry} className="ga-btn-primary mt-4">Try again</button></section> : (
-        <>
-          <details open={isAdmin} className="group ga-card mt-5 px-5 py-2"><summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 text-sm font-bold text-ink"><h2 id="ledger-summary-heading">Event fund utilization</h2><Icon name="chevronDown" className="size-4 transition-transform group-open:rotate-180 motion-reduce:transition-none" /></summary><dl className="mt-3 grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-3 xl:grid-cols-5">{[['Allocated', summary.fundUtilization.allocatedAmount], ['Net credited', summary.fundUtilization.netCreditedAmount], ['Remaining', summary.fundUtilization.remainingAmount], ['Reversed', summary.fundUtilization.reversedAmount], ['Failed', summary.fundUtilization.failedAmount]].map(([label, amount]) => <div key={label}><dt className="text-xs text-muted-copy">{label}</dt><dd className="mt-1 font-bold tabular-nums text-ink">{formatMoney(amount)}</dd></div>)}</dl></details>
-
-          <div className="mt-6 grid items-start gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(22rem,0.75fr)]">
-            {creditQueue}
-            <ReconciliationPanel key={selectedId} reconciliation={reconciliation} distributionId={selectedId} token={token} onSessionExpired={onSessionExpired} onNavigate={onNavigate} />
+    <div className="mt-4">
+      {hasDistributions && <section className="ga-card border-t-4 border-t-brand-navy p-4 sm:p-6" aria-label="Selected distribution context">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <h2 className="min-w-0 break-words text-xl font-bold text-ink">{selectedDistribution?.title}</h2>
+          {selectedDistribution?.status && <span className="rounded-md border border-line bg-slate-50 px-2.5 py-1 text-sm font-semibold">{humanize(selectedDistribution.status)}</span>}
+        </div>
+        <p className="mt-1 text-sm leading-6 text-copy">
+          {[selectedDistribution?.barangay?.barangayName, selectedDistribution?.program?.programName || selectedDistribution?.program?.programCode, selectedDistribution?.deliveryMode && humanize(selectedDistribution.deliveryMode)].filter(Boolean).join(' · ')}
+        </p>
+        {creditOpen && <a href="#credit-queue-heading" className="ga-admin-link underline underline-offset-4">{readyCount === undefined ? 'View credit queue' : `${readyCount} ${creditSearch ? 'matching credit-ready claims' : 'ready for simulated credit'}`}</a>}
+        {funds && <>
+          <dl aria-label="Simulated event funds" className="mt-3 grid grid-cols-3 gap-2 border-t border-line pt-3 sm:gap-5">
+            {[['Allocated', funds.allocatedAmount], ['Net credited', funds.netCreditedAmount], ['Remaining', funds.remainingAmount]].map(([label, amount]) =>
+              <div key={label} className="min-w-0"><dt className="text-sm text-copy">{label}</dt><dd className="mt-1 break-words font-bold tabular-nums text-ink sm:text-xl">{formatMoney(amount)}</dd></div>
+            )}
+          </dl>
+          <p className="mt-3 text-sm text-copy">Event totals last synced <time dateTime={snapshot.syncedAt.toISOString()}>{dateFormatter.format(snapshot.syncedAt)} PHT</time></p>
+          <details className="mt-1">
+            <summary className="inline-block min-h-11 cursor-pointer py-3 text-sm font-semibold text-brand-blue underline underline-offset-4">More fund details</summary>
+            <dl className="grid grid-cols-2 gap-3 pb-3 text-sm"><ReceiptField label="Reversed" value={formatMoney(funds.reversedAmount)} /><ReceiptField label="Failed" value={formatMoney(funds.failedAmount)} /></dl>
+          </details>
+        </>}
+        <div className="mt-2 flex flex-wrap items-end gap-3 border-t border-line pt-3">
+          <div className="min-w-0 flex-1 basis-full sm:basis-0">
+            <label htmlFor="ledger-distribution" className="ga-label">Distribution event</label>
+            <div className="relative mt-2">
+              <Icon name="calendar" className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-copy" />
+              <select id="ledger-distribution" value={selectedId} disabled={isMutating} onChange={event => selectDistribution(event.target.value)} className="ga-input cursor-pointer pl-11 font-semibold">
+                {distributions.map(distribution => <option key={distribution.distributionId} value={distribution.distributionId}>{distribution.title} · {distribution.distributionDate}</option>)}
+              </select>
+            </div>
           </div>
-
-          <section className="ga-card mt-6 overflow-hidden" aria-labelledby="transactions-heading"><div className="border-b border-line p-5 sm:p-6"><div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><p className="ga-eyebrow">Traceable records</p><h2 id="transactions-heading" tabIndex={-1} className="scroll-mt-40 mt-1 text-xl font-extrabold text-ink">Transactions</h2><p className="mt-1 text-sm text-muted-copy">{transactions.pagination.total} matching {transactions.pagination.total === 1 ? 'entry' : 'entries'} for this event</p></div><div className="grid gap-3 sm:grid-cols-2"><div><label htmlFor="transaction-type" className="ga-label">Type</label><select id="transaction-type" value={transactionType} onChange={(event) => setTransactionType(event.target.value)} className="ga-input mt-2 cursor-pointer font-semibold">{transactionTypes.map((value) => <option key={value || 'ALL'} value={value}>{value ? humanize(value) : 'All transaction types'}</option>)}</select></div><div><label htmlFor="transaction-status" className="ga-label">Status</label><select id="transaction-status" value={transactionStatus} onChange={(event) => setTransactionStatus(event.target.value)} className="ga-input mt-2 cursor-pointer font-semibold">{transactionStatuses.map((value) => <option key={value || 'ALL'} value={value}>{value ? humanize(value) : 'All statuses'}</option>)}</select></div></div></div></div>
-            {transactions.transactions.length === 0 ? <div className="p-8 text-center"><p className="font-extrabold text-ink">No transactions found</p><p className="mt-2 text-sm text-muted-copy">No simulated ledger entries match the selected event and filters.</p></div> : <TransactionTable transactions={transactions.transactions} disabled={isMutating} loadingReceiptId={loadingReceiptId} onReceipt={onReceipt} onReverse={onReverse} />}
-            {transactions.transactions.length > 0 && <div className="flex items-center justify-between border-t border-line px-5 py-4"><p className="text-xs font-semibold text-muted-copy">Page {transactions.pagination.page} of {Math.max(transactions.pagination.totalPages, 1)}</p><div className="flex gap-2"><button type="button" disabled={transactionPage <= 1} onClick={() => setTransactionPage(transactionPage - 1)} className="min-h-11 cursor-pointer rounded-lg border border-line px-4 text-sm font-bold text-copy disabled:cursor-not-allowed disabled:opacity-50">Previous</button><button type="button" disabled={transactionPage >= transactions.pagination.totalPages} onClick={() => setTransactionPage(transactionPage + 1)} className="min-h-11 cursor-pointer rounded-lg border border-line px-4 text-sm font-bold text-copy disabled:cursor-not-allowed disabled:opacity-50">Next</button></div></div>}
-          </section>
-        </>
-      )}
+          <button type="button" onClick={() => { if (!isRefreshing && !isMutating) retry() }} aria-disabled={isRefreshing || isMutating} className="ga-btn-secondary aria-disabled:opacity-60"><Icon name="reset" className="size-4" />Refresh ledger</button>
+        </div>
+        <nav aria-label="Event ledger sections" className="mt-3 flex flex-wrap gap-x-5 gap-y-1 border-t border-line pt-2 text-sm font-semibold text-brand-blue">{[['credit-queue-heading', 'Awaiting credit'], ['transactions-heading', 'Transactions'], ['event-reconciliation', 'Reconciliation']].map(([id, label]) => <a key={id} href={`#${id}`} className="inline-flex min-h-11 items-center underline underline-offset-4">{label}</a>)}{isAdmin && <><a href={`/distributions/manage?event=${encodeURIComponent(selectedId)}`} onClick={(event) => { event.preventDefault(); onNavigate(event.currentTarget.getAttribute('href')) }} className="inline-flex min-h-11 items-center underline underline-offset-4">View event setup</a><a href={`/reports?distribution=${encodeURIComponent(selectedId)}`} onClick={(event) => { event.preventDefault(); onNavigate(event.currentTarget.getAttribute('href')) }} className="inline-flex min-h-11 items-center underline underline-offset-4">Event report</a></>}</nav>
+      </section>}
+      {eventFilters}
+      {!hasDistributions ? <section className="ga-card mt-6 flex items-start gap-4 p-5 sm:p-6" aria-labelledby="empty-ledger-heading"><span className="grid size-11 shrink-0 place-items-center rounded-lg bg-info-soft text-brand-blue"><Icon name={filtered ? 'search' : 'ledger'} /></span><div className="min-w-0"><h2 id="empty-ledger-heading" className="text-xl font-extrabold text-ink">{filtered ? 'No distributions match your filters' : 'No distributions in this scope'}</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-copy">{filtered ? 'Try a different status or date range, or clear the filters to see all available events.' : isAdmin ? 'Distribution events appear here once they are created. Open distribution events to review the setup or create an event.' : 'No distribution events are available in your authorized area. Ask your system administrator to confirm the event and your assigned scope.'}</p>{filtered ? <button type="button" onClick={onClearFilters} className="ga-btn-secondary mt-4"><Icon name="close" className="size-4" />Show all distributions</button> : isAdmin ? <a href="/distributions/manage" onClick={(event) => { event.preventDefault(); onNavigate('/distributions/manage') }} className="ga-btn-primary mt-4"><Icon name="calendar" className="size-4" />View distribution events</a> : <button type="button" onClick={retry} className="ga-btn-secondary mt-4"><Icon name="reset" className="size-4" />Refresh ledger</button>}</div></section> : <>
+      {result}
+      {error && <section className="mt-5 rounded-xl border border-amber-200 bg-warning-soft p-4" role="alert"><h2 className="font-bold text-ink">Unable to refresh event totals</h2><p className="mt-2 text-sm text-copy">{snapshot ? 'Showing the last synced totals. ' : ''}{error}</p><button type="button" onClick={retry} className="ga-btn-secondary mt-3">Try again</button></section>}
+      <div className="mt-5 grid items-start gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(22rem,0.75fr)]">
+        {creditQueue}
+        {snapshot && <ReconciliationPanel key={selectedId} reconciliation={snapshot.reconciliation} distributionId={selectedId} token={token} onSessionExpired={onSessionExpired} onNavigate={onNavigate} />}
+        {!snapshot && !error && <SkeletonRows label="Loading event totals" className="ga-card" rows={2} />}
+      </div>
+      {transactions}
+      </>}
     </div>
   )
 }
@@ -577,13 +582,84 @@ function CreditQueue({ data, query, onQuery, loading, error, retry, deliveryMode
     <header className="border-b border-line p-5"><h2 id="credit-queue-heading" tabIndex={-1} className="scroll-mt-40 text-xl font-bold text-ink">Ready for simulated credit</h2><p className="mt-2 text-sm leading-6 text-muted-copy">Review a beneficiary's verified claim before recording the credit.</p></header>
     {!available ? <div className="p-5 text-sm leading-6 text-copy"><h3 className="font-bold text-ink">{deliveryMode === 'PHYSICAL_GOODS' ? 'Physical release workflow' : 'Crediting unavailable'}</h3><p className="mt-2">{deliveryMode === 'PHYSICAL_GOODS' ? 'Barangay staff record the physical handover. These claims do not enter the simulated wallet queue.' : 'Verified claims can only be credited while the distribution event is open.'}</p></div> : <>
       <form aria-label="Search credit queue" onSubmit={(event) => { event.preventDefault(); onQuery({ search: new FormData(event.currentTarget).get('search').trim(), page: 1 }) }} className="border-b border-line p-5"><label htmlFor="credit-search" className="ga-label">Find beneficiary</label><div className="mt-2 flex flex-wrap gap-2"><div className="relative min-w-0 flex-1 basis-48"><Icon name="search" className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-copy" /><input key={query.search} id="credit-search" name="search" type="search" autoComplete="off" maxLength={100} defaultValue={query.search} placeholder="Name or claim ID" className="ga-input pl-11" /></div><button type="submit" disabled={loading || disabled} className="ga-btn-primary"><Icon name="search" className="size-4" />Search</button>{query.search && <button type="button" onClick={() => { onQuery({ search: '', page: 1 }); requestAnimationFrame(() => document.getElementById('credit-search')?.focus()) }} disabled={loading || disabled} className="ga-btn-secondary"><Icon name="close" className="size-4" />Clear search</button>}</div><p className="mt-2 text-xs leading-5 text-muted-copy">Search all matching claims in this event.</p></form>
-      {loading ? <p role="status" className="p-5 text-sm"><LoadingLabel>Loading claims...</LoadingLabel></p> : error ? <div role="alert" className="p-5 text-sm leading-6"><p className="font-bold">Credit queue could not be loaded</p><p className="mt-1 text-copy">{error}</p><button type="button" onClick={retry} className="ga-btn-secondary mt-3">Retry credit queue</button></div> : <>
+      {loading ? <SkeletonRows label="Loading credit queue" /> : error ? <div role="alert" className="p-5 text-sm leading-6"><p className="font-bold">Credit queue could not be loaded</p><p className="mt-1 text-copy">{error}</p><button type="button" onClick={retry} className="ga-btn-secondary mt-3">Retry credit queue</button></div> : <>
         <p className="border-b border-line px-5 py-3 text-sm text-muted-copy" role="status">{total} {query.search ? 'matching' : 'awaiting credit'} / {total ? `${(query.page - 1) * 10 + 1}-${(query.page - 1) * 10 + claims.length} shown` : '0 shown'}</p>
         {claims.length === 0 ? <div className="p-5"><h3 className="font-bold text-ink">{query.search ? 'No matching beneficiaries' : 'No claims awaiting credit'}</h3><p className="mt-2 text-sm leading-6 text-muted-copy">{query.search ? 'Try another name or clear the search.' : 'Only verified claims without an existing credit or active dispute appear here.'}</p><a href={`/claim-accountability?distribution=${encodeURIComponent(distributionId)}`} onClick={(event) => { event.preventDefault(); onNavigate(event.currentTarget.getAttribute('href')) }} className="ga-admin-link mt-2">Review claims and receipts</a></div> : <ul className="divide-y divide-line">{claims.map((claim) => <li key={claim.claimId} className="px-5 py-4"><div className="flex flex-wrap items-center justify-between gap-3"><div className="min-w-0 flex-1 basis-40"><p className="break-words font-bold text-ink">{beneficiaryName(claim.beneficiary)}</p><p className="mt-1 text-xs leading-5 text-muted-copy">Queue {claim.schedule?.queueNumber ?? 'Not recorded'} / {claim.verificationMethod ? humanize(claim.verificationMethod) : 'Review verification'}</p><p className="mt-1 font-bold tabular-nums text-ink">{formatMoney(claim.allocation?.amount)}</p></div>{onCredit ? <button type="button" onClick={() => onCredit(claim)} disabled={disabled} className="ga-btn-secondary min-h-11">Review and credit</button> : <p className="text-xs text-muted-copy">Awaiting DSWD settlement</p>}</div></li>)}</ul>}
         <nav aria-label="Credit queue pages" className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-4"><p className="text-xs font-semibold text-muted-copy">Page {query.page} of {pages}</p><div className="flex gap-2"><button type="button" aria-label="Previous claims" disabled={disabled || query.page <= 1} onClick={() => { onQuery({ ...query, page: query.page - 1 }); document.getElementById('credit-queue-heading')?.focus() }} className="ga-btn-secondary min-h-11 px-3 text-sm">Previous</button><button type="button" aria-label="Next claims" disabled={disabled || query.page >= pages} onClick={() => { onQuery({ ...query, page: query.page + 1 }); document.getElementById('credit-queue-heading')?.focus() }} className="ga-btn-secondary min-h-11 px-3 text-sm">Next</button></div></nav>
       </>}
     </>}
   </section>
+}
+
+function TransactionsPanel({ token, distributionId, refreshKey, onSessionExpired, disabled, loadingReceiptId, onReceipt, onReverse }) {
+  const [query, setQuery] = useState({ type: '', status: '', page: 1 })
+  const [response, setResponse] = useState(null)
+  const scope = `${query.type}/${query.status}`
+  const matchingResponse = response?.scope === scope ? response : null
+  const loading = response?.query !== query || response?.refreshKey !== refreshKey
+  const error = loading ? '' : response?.error
+  const transactions = matchingResponse?.data?.pagination.page === query.page ? matchingResponse.data : null
+  const pagination = matchingResponse?.data?.pagination
+
+  useEffect(() => {
+    let active = true
+    requestDistributionTransactions(token, distributionId, { ...query, pageSize: 20 })
+      .then(data => {
+        if (!active) return
+        const lastPage = Math.max(1, data.pagination.totalPages)
+        if (query.page > lastPage) { setQuery({ ...query, page: lastPage }); return }
+        setResponse({ query, refreshKey, scope, data })
+      })
+      .catch(issue => {
+        if (!active) return
+        if (isSessionExpiredError(issue)) return onSessionExpired()
+        setResponse(previous => ({ query, refreshKey, scope, data: previous?.scope === scope ? previous.data : null, error: getAuthErrorMessage(issue) }))
+      })
+    return () => { active = false }
+  }, [query, token, distributionId, refreshKey, scope, onSessionExpired])
+
+  const pending = loading || Boolean(error)
+  return <section className="ga-card mt-5 overflow-hidden" aria-labelledby="transactions-heading">
+    <header className="flex flex-col gap-4 border-b border-line p-4 sm:p-6 lg:flex-row lg:items-end lg:justify-between">
+      <div>
+        <h2 id="transactions-heading" tabIndex={-1} className="scroll-mt-40 text-xl font-bold text-ink">Transactions</h2>
+        {loading && !transactions ? <Skeleton className="mt-1 h-5 w-40 max-w-full" /> : <p role="status" className="mt-1 text-sm text-copy">{loading ? 'Updating transactions…' : error ? 'Transactions could not be refreshed.' : `${transactions.pagination.total} matching ${transactions.pagination.total === 1 ? 'entry' : 'entries'} for this event`}</p>}
+      </div>
+      <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+        <div><label htmlFor="transaction-type" className="ga-label">Transaction type</label><select id="transaction-type" value={query.type} onChange={event => setQuery({ ...query, type: event.target.value, page: 1 })} className="ga-input mt-2">{transactionTypes.map(type => <option key={type} value={type}>{type ? humanize(type) : 'All transaction types'}</option>)}</select></div>
+        <div><label htmlFor="transaction-status" className="ga-label">Transaction status</label><select id="transaction-status" value={query.status} onChange={event => setQuery({ ...query, status: event.target.value, page: 1 })} className="ga-input mt-2">{transactionStatuses.map(status => <option key={status} value={status}>{status ? humanize(status) : 'All statuses'}</option>)}</select></div>
+      </div>
+    </header>
+    {error && <div role="alert" className="border-b border-line bg-warning-soft p-4 text-sm"><p>{transactions ? 'Showing previous results. ' : ''}{error}</p><button type="button" onClick={() => setQuery({ ...query })} className="ga-btn-secondary mt-3">Retry transactions</button></div>}
+    {loading && !transactions ? <SkeletonRows label="Loading transactions" /> : transactions?.transactions.length > 0 ? (
+      <TransactionTable transactions={transactions.transactions} disabled={disabled || pending} loadingReceiptId={loadingReceiptId} onReceipt={onReceipt} onReverse={onReverse} />
+    ) : !error && <div className="p-6 text-center"><p className="font-bold text-ink">No transactions found</p><p className="mt-1 text-sm text-copy">No simulated ledger entries match the selected event and filters.</p></div>}
+    {pagination?.total > 0 && <>
+      <nav aria-label="Transaction pages" className="flex flex-wrap items-center justify-between gap-3 border-t border-line p-4 text-sm">
+        <span>Page {query.page} of {Math.max(pagination.totalPages, 1)}</span>
+        <div className="flex gap-2">
+          <button type="button" aria-disabled={pending || query.page <= 1} onClick={() => { if (!pending && query.page > 1) setQuery({ ...query, page: query.page - 1 }) }} className="ga-btn-secondary px-3 aria-disabled:opacity-50">Previous</button>
+          <button type="button" aria-disabled={pending || query.page >= pagination.totalPages} onClick={() => { if (!pending && query.page < pagination.totalPages) setQuery({ ...query, page: query.page + 1 }) }} className="ga-btn-secondary px-3 aria-disabled:opacity-50">Next</button>
+        </div>
+      </nav>
+    </>}
+  </section>
+}
+
+function TransactionReference({ reference }) {
+  async function copyReference() {
+    try {
+      await navigator.clipboard.writeText(reference)
+      toast.success('Transaction reference copied')
+    } catch {
+      toast.error('Could not copy the reference', { description: 'Select and copy the reference text.' })
+    }
+  }
+
+  return <div className="min-w-0">
+    <span className="block select-text break-all font-mono text-sm font-semibold text-ink">{reference}</span>
+    <button type="button" onClick={copyReference} aria-label={`Copy reference ${reference}`} className="ga-admin-link"><Icon name="copy" className="size-4" />Copy reference</button>
+  </div>
 }
 
 function TransactionTable({ transactions, disabled, loadingReceiptId, onReceipt, onReverse }) {
@@ -594,7 +670,7 @@ function TransactionTable({ transactions, disabled, loadingReceiptId, onReceipt,
 
   return (
     <>
-      <ul className="divide-y divide-line md:hidden">
+      <ul className="divide-y divide-line xl:hidden">
         {transactions.map((transaction) => (
           <li key={transaction.transactionId} className="p-5">
             <div className="flex items-start justify-between gap-3">
@@ -603,18 +679,29 @@ function TransactionTable({ transactions, disabled, loadingReceiptId, onReceipt,
             </div>
             <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-4 text-sm">
               <div><dt className="text-muted-copy">Amount</dt><dd className="mt-1">{amount(transaction)}</dd></div>
-              <div><dt className="text-muted-copy">Recorded</dt><dd className="mt-1 font-semibold text-ink">{dateFormatter.format(new Date(transaction.createdAt))}</dd></div>
-              <div className="col-span-2"><dt className="text-muted-copy">Reference</dt><dd className="mt-1 truncate font-mono text-xs font-bold text-ink">{transaction.referenceNo}</dd></div>
+              <div><dt className="text-muted-copy">Recorded</dt><dd className="mt-1 font-semibold text-ink"><time dateTime={transaction.createdAt}>{dateFormatter.format(new Date(transaction.createdAt))} PHT</time></dd></div>
+              <div className="col-span-2 min-w-0"><dt className="text-muted-copy">Reference</dt><dd className="mt-1"><TransactionReference reference={transaction.referenceNo} /></dd></div>
             </dl>
             <div className="mt-4 flex flex-col gap-2 sm:flex-row"><button type="button" onClick={() => onReceipt(transaction)} disabled={disabled || loadingReceiptId === transaction.transactionId} className="ga-btn-secondary min-h-11 flex-1 px-4 text-sm">{loadingReceiptId === transaction.transactionId ? <LoadingLabel>Loading receipt...</LoadingLabel> : 'View receipt'}</button>{onReverse && transaction.transactionType === 'BENEFIT_CREDIT' && transaction.status === 'COMPLETED' && !transaction.reversal && <button type="button" onClick={() => onReverse(transaction)} disabled={disabled} className="ga-btn-secondary min-h-11 flex-1 border-red-200 px-4 text-sm text-brand-red hover:bg-danger-soft">Reverse credit</button>}</div>
           </li>
         ))}
       </ul>
-      <div className="hidden overflow-x-auto md:block">
+      <div className="hidden overflow-x-auto xl:block">
         <table className="w-full min-w-[900px] border-collapse text-left text-sm">
           <caption className="sr-only">Simulated aid ledger transactions</caption>
           <thead><tr className="border-b border-line bg-slate-50 text-xs uppercase tracking-[0.08em] text-muted-copy"><th scope="col" className="px-5 py-3">Recorded</th><th scope="col" className="px-5 py-3">Reference</th><th scope="col" className="px-5 py-3">Beneficiary</th><th scope="col" className="px-5 py-3">Type</th><th scope="col" className="px-5 py-3 text-right">Amount</th><th scope="col" className="px-5 py-3">Status</th><th scope="col" className="px-5 py-3 text-right">Actions</th></tr></thead>
-          <tbody className="divide-y divide-line">{transactions.map((transaction) => <tr key={transaction.transactionId} className="hover:bg-slate-50"><td className="whitespace-nowrap px-5 py-4 text-xs text-muted-copy">{dateFormatter.format(new Date(transaction.createdAt))}</td><td className="max-w-48 truncate px-5 py-4 font-mono text-xs font-bold text-ink" title={transaction.referenceNo}>{transaction.referenceNo}</td><td className="px-5 py-4"><p className="font-bold text-ink">{beneficiaryName(transaction.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{transaction.beneficiary?.barangay?.barangayName}</p></td><td className="px-5 py-4 text-xs font-semibold text-copy">{humanize(transaction.transactionType)}</td><td className="whitespace-nowrap px-5 py-4 text-right">{amount(transaction)}</td><td className="px-5 py-4"><TransactionStatus status={transaction.status} /></td><td className="px-5 py-4"><div className="flex justify-end gap-2"><button type="button" onClick={() => onReceipt(transaction)} disabled={disabled || loadingReceiptId === transaction.transactionId} className="min-h-10 cursor-pointer rounded-lg border border-line bg-white px-3 text-xs font-bold text-brand-blue hover:border-brand-blue hover:bg-info-soft disabled:cursor-not-allowed disabled:opacity-50">{loadingReceiptId === transaction.transactionId ? <LoadingLabel>Loading...</LoadingLabel> : 'Receipt'}</button>{onReverse && transaction.transactionType === 'BENEFIT_CREDIT' && transaction.status === 'COMPLETED' && !transaction.reversal && <button type="button" onClick={() => onReverse(transaction)} disabled={disabled} className="min-h-10 cursor-pointer rounded-lg border border-red-200 bg-white px-3 text-xs font-bold text-brand-red hover:bg-danger-soft disabled:cursor-not-allowed disabled:opacity-50">Reverse</button>}</div></td></tr>)}</tbody>
+          <tbody className="divide-y divide-line">{transactions.map(transaction => <tr key={transaction.transactionId} className="hover:bg-slate-50">
+            <td className="px-4 py-3 text-sm text-copy"><time dateTime={transaction.createdAt}>{dateFormatter.format(new Date(transaction.createdAt))} PHT</time></td>
+            <td className="max-w-48 px-4 py-3"><TransactionReference reference={transaction.referenceNo} /></td>
+            <td className="px-4 py-3"><p className="font-bold text-ink">{beneficiaryName(transaction.beneficiary)}</p><p className="mt-1 text-sm text-copy">{transaction.beneficiary?.barangay?.barangayName}</p></td>
+            <td className="px-4 py-3 font-semibold text-copy">{humanize(transaction.transactionType)}</td>
+            <td className="whitespace-nowrap px-4 py-3 text-right">{amount(transaction)}</td>
+            <td className="px-4 py-3"><TransactionStatus status={transaction.status} /></td>
+            <td className="px-4 py-3"><div className="flex flex-wrap justify-end gap-2">
+              <button type="button" onClick={() => onReceipt(transaction)} disabled={disabled || loadingReceiptId === transaction.transactionId} className="ga-btn-secondary min-h-11 px-3 text-sm">{loadingReceiptId === transaction.transactionId ? <LoadingLabel>Loading receipt...</LoadingLabel> : 'View receipt'}</button>
+              {onReverse && transaction.transactionType === 'BENEFIT_CREDIT' && transaction.status === 'COMPLETED' && !transaction.reversal && <button type="button" onClick={() => onReverse(transaction)} disabled={disabled} className="ga-btn-secondary min-h-11 border-red-200 px-3 text-sm text-brand-red hover:bg-danger-soft">Reverse</button>}
+            </div></td>
+          </tr>)}</tbody>
         </table>
       </div>
     </>

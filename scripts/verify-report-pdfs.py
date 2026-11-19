@@ -19,7 +19,7 @@ def tool(name):
     return shutil.which(name) or str(bundled / f"{name}.exe")
 
 
-names = ["combined-summary", "claims", "audit-logs", "schedules", "anomalies", "funds", "physical-summary", "empty-claims"]
+names = ["combined-summary", "claims", "audit-logs", "schedules", "anomalies", "funds", "physical-summary", "empty-claims", "missed-schedules"]
 checks = []
 for name in names:
     path = output / f"{name}.pdf"
@@ -41,6 +41,10 @@ for name in names:
         assert "UNAPPLIED_DRAFT" not in text, "Audit export used unapplied filters"
     if name == "physical-summary":
         assert "packs" in text and "RELEASE-LOG-38" in text, "Physical quantities or release evidence missing"
+    if name == "missed-schedules":
+        for expected in ["3 schedules were marked missed.", "2026-11-01", "2026-11-17", "QA Peña 48", "QA Peña 49", "QA Peña 50"]:
+            assert expected in text, (name, expected)
+        assert "QA Peña 47" not in text, "PDF includes a schedule outside the selected status"
     if name == "empty-claims":
         assert "No records matched this coverage." in text, "Empty report lacks a meaningful state"
     if name in ["claims", "empty-claims"]:

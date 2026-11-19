@@ -1,18 +1,25 @@
 import assert from 'node:assert/strict'
 import { mkdir } from 'node:fs/promises'
+import { createServer as createHttpServer } from 'node:http'
+import { Server } from '../../garantiyaid-backend/node_modules/socket.io/dist/index.js'
 import { chromium, expect } from '@playwright/test'
 import { createServer } from 'vite'
 
 // Local fixtures only: exercise the real screens without changing staff or beneficiary records.
 const output = '../output/barangay-review'
 await mkdir(output, { recursive: true })
-const vite = await createServer({ cacheDir: '../tmp/barangay-review-vite', server: { host: '127.0.0.1', port: 0 } })
+const live = createHttpServer()
+const io = new Server(live)
+io.on('connection', socket => socket.emit('realtime.ready', {}))
+await new Promise(resolve => live.listen(0, '127.0.0.1', resolve))
+const vite = await createServer({ cacheDir: '../tmp/barangay-review-vite', server: { host: '127.0.0.1', port: 0, proxy: { '/socket.io': { target: `http://127.0.0.1:${live.address().port}`, ws: true } } } })
 await vite.listen()
 const origin = `http://127.0.0.1:${vite.httpServer.address().port}`
 let browser
 try {
   browser = await chromium.launch({ headless: true, channel: 'chrome' })
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+  const page = await context.newPage()
   page.setDefaultTimeout(15000)
   page.setDefaultNavigationTimeout(60000)
   await page.emulateMedia({ reducedMotion: 'reduce' })
@@ -26,14 +33,12 @@ try {
   const slot = { sessionLabel: 'Morning', slotStart: '2026-11-03T00:00:00Z', slotEnd: '2026-11-03T02:00:00Z', location: event.location }
   const schedule = { scheduleId: 'schedule-1', beneficiaryId: 'person-1', beneficiary, queueNumber: 1, status: 'CHECKED_IN', slot }
   const claim = () => ({ claimId: 'claim-1', beneficiaryId: 'person-1', beneficiary, distributionId: event.distributionId, distribution: event, claimStatus, isDuplicateFlag: duplicateFlag, qrVerified: true, verificationMethod: 'QR', schedule, allocation: { amount: '500' }, disputes: [], ...(claimStatus === 'CLAIMED' ? { releasedAt: '2026-11-03T01:00:00Z', releaseMethod: 'PHYSICAL_GOODS', releaseEvidenceReference: 'LOG-001' } : {}) })
-  await page.addInitScript((barangay) => {
+  await page.context().addInitScript((barangay) => {
     sessionStorage.setItem('garantiyaid.accessToken', 'local-barangay-review')
     sessionStorage.setItem('garantiyaid.user', JSON.stringify({ userId: 'barangay-staff', role: 'BARANGAY_FACILITATOR', fullName: 'Barangay Staff', employeeId: 'BRGY-001', barangayId: barangay.barangayId, barangay, totpEnabled: true }))
   }, barangay)
   page.on('pageerror', (error) => errors.push(error.message))
-  await page.route('**/socket.io/**', (route) => route.abort())
-  await page.routeWebSocket(/socket\.io/, () => {})
-  await page.route('**/api/v1/**', async (route) => {
+  await page.context().route('**/api/v1/**', async (route) => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname.replace('/api/v1', '')
     const fail = (message) => route.fulfill({ status: 503, json: { error: { message } } })
     let data
@@ -56,7 +61,10 @@ try {
     else if (path === '/distributions/event-1/claims/claim-1/release') {
       releases.push({ key: request.headers()['idempotency-key'], payload: request.postDataJSON() })
       claimStatus = 'CLAIMED'
-      if (releases.length === 1) return fail('Response interrupted after saving the release')
+      if (releases.length === 1) {
+        io.emit('dashboard.metrics.updated', { distributionId: event.distributionId, eventId: 'fixture-release', occurredAt: new Date().toISOString(), data: { reason: 'PHYSICAL_ASSISTANCE_RELEASED' } })
+        return fail('Response interrupted after saving the release')
+      }
       assert.deepEqual(releases[1], releases[0], 'The retry must preserve the evidence and idempotency key')
       data = { claim: claim(), release: { evidence: { reference: 'LOG-001' } }, lifecycle: { claimStatus: 'CLAIMED' } }
     } else { unhandled.push(`${request.method()} ${path}`); return route.fulfill({ status: 404, json: { error: { message: `Missing fixture: ${path}` } } }) }
@@ -83,6 +91,8 @@ try {
 
   await page.goto(`${origin}/facilitator/queue`)
   await expect(page.getByRole('heading', { name: 'No distribution work assigned' })).toBeVisible()
+  const queueShortcut = page.getByRole('link', { name: 'View beneficiary queue', exact: true })
+  await expect(queueShortcut).toHaveCount(0)
   eventsPresent = true
   await page.getByRole('button', { name: 'Refresh queue', exact: true }).click()
   await expect(page.getByRole('cell', { name: 'Maria Santos', exact: false })).toBeVisible()
@@ -94,6 +104,21 @@ try {
   await expect(page).toHaveURL(/search=Maria/)
   await page.getByLabel('Filter by queue status', { exact: true }).selectOption('SCHEDULED')
   await expect(page).toHaveURL(/status=SCHEDULED/)
+  await page.setViewportSize({ width: 390, height: 900 })
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await expect(queueShortcut).toBeInViewport({ ratio: 1 })
+  await page.screenshot({ path: `${output}/queue-shortcut-390.png` })
+  const filteredUrl = page.url()
+  await queueShortcut.press('Enter')
+  const queueHeading = page.getByRole('heading', { name: 'Beneficiary queue', exact: true })
+  await expect(queueHeading).toBeFocused()
+  await expect(queueHeading).toBeInViewport({ ratio: 1 })
+  const stickyHeader = await page.locator('.ga-staff-header').boundingBox()
+  assert.ok((await queueHeading.boundingBox()).y >= stickyHeader.y + stickyHeader.height, 'Queue heading is visible below the sticky staff header')
+  assert.equal(page.url(), filteredUrl)
+  await expect(queueSearch).toHaveValue('Maria')
+  await expect(page.getByLabel('Filter by queue status', { exact: true })).toHaveValue('SCHEDULED')
+  await page.setViewportSize({ width: 1440, height: 1000 })
   await page.getByRole('button', { name: 'Clear filters', exact: true }).click()
   await expect(queueSearch).toHaveValue('')
   await expect(queueSearch).toBeFocused()
@@ -101,6 +126,12 @@ try {
   await expect.poll(() => new URL(page.url()).searchParams.has('search') || new URL(page.url()).searchParams.has('status')).toBe(false)
   await expect(page.getByRole('cell', { name: 'Maria Santos', exact: false })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Review claim', exact: true }).first()).toHaveAttribute('href', '/claim-accountability?distribution=event-1&claim=claim-1')
+  await page.setViewportSize({ width: 390, height: 900 })
+  const mobileRow = page.getByRole('list', { name: 'Beneficiary distribution schedules' }).getByRole('listitem').filter({ hasText: 'Maria Santos' })
+  await expect(mobileRow).toContainText('Appointment')
+  await expect(mobileRow).toContainText('Checked In')
+  await expect(mobileRow).toContainText('Claim verified')
+  await expect(mobileRow.getByRole('link', { name: 'Review claim' })).toHaveAttribute('href', '/claim-accountability?distribution=event-1&claim=claim-1')
   await screenshot('queue')
   queueFails = true
   await page.getByRole('button', { name: 'Refresh queue', exact: true }).click()
@@ -122,7 +153,17 @@ try {
   assert.equal(releases.length, 0, 'Missing evidence and acknowledgment must not submit')
   await dialog.getByLabel('Evidence reference', { exact: true }).fill('LOG-001')
   await dialog.getByRole('checkbox').check()
+  const observer = await page.context().newPage()
+  await observer.setViewportSize({ width: 390, height: 900 })
+  await observer.goto(`${origin}/facilitator/queue?distribution=event-1&search=Maria`)
+  await expect(observer.getByText('Live', { exact: true })).toBeVisible()
+  await expect(observer.getByRole('link', { name: 'Review claim', exact: true }).first()).toBeVisible()
   await dialog.getByRole('button', { name: 'Mark assistance released', exact: true }).click()
+  await expect(observer.locator('[data-sonner-toast]')).toContainText('Physical assistance released')
+  await expect(observer.getByRole('link', { name: 'View release / receipt', exact: true }).first()).toBeVisible()
+  await expect(observer.getByLabel('Search beneficiary or queue number')).toHaveValue('Maria')
+  await observer.screenshot({ path: `${output}/live-release-390.png`, animations: 'disabled' })
+  await observer.close()
   await expect(dialog.getByRole('button', { name: 'Retry release record', exact: true })).toBeVisible()
   await expect(dialog.getByLabel('Evidence reference', { exact: true })).toBeDisabled()
   await expect(dialog.getByLabel('Evidence type', { exact: true })).toBeDisabled()
@@ -157,4 +198,5 @@ try {
 } finally {
   await browser?.close()
   await vite.close()
+  await new Promise(resolve => io.close(resolve))
 }

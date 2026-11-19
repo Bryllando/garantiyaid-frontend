@@ -3,7 +3,7 @@ import { closeDistribution, getAuthErrorMessage, isSessionExpiredError, requestC
 import { ConfirmationDialog } from '../ui/confirmation-dialog.jsx'
 import { eventWorkRows } from '../../utils/eventOperations.js'
 import { connectStaffRealtime } from '../../realtime/staffRealtime.js'
-import { LoadingLabel } from '../ui/spinner.jsx'
+import { SkeletonRows } from '../ui/skeleton.jsx'
 import { Icon } from '../ui/icon.jsx'
 import ReconciliationPanel from './ReconciliationPanel.jsx'
 import { createLiveRefresh } from '../../utils/liveRefresh.js'
@@ -63,7 +63,7 @@ export default function EventOperationsReview({ distribution, token, onNavigate,
   return <div className="space-y-5" role="region" aria-label="Event operational review">
     <section className="overflow-hidden rounded-lg border border-line" aria-labelledby="event-work-heading">
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line bg-slate-50 p-4"><div><h3 id="event-work-heading" className="font-semibold text-ink">Work remaining</h3><p role="status" aria-atomic="true" className="mt-1 text-xs leading-5 text-muted-copy">{connected ? 'Live updates connected' : 'Automatic refresh every minute'}{data && ` · Checked ${time.format(data.checkedAt)} PHT`}</p></div><button type="button" disabled={loading} onClick={() => { setLoading(true); setReload((value) => value + 1) }} className="ga-btn-secondary min-h-11 text-sm">Refresh event review</button></header>
-      {loading ? <p role="status" className="p-5 text-sm text-copy"><LoadingLabel>Checking queue, claims, and concerns...</LoadingLabel></p> : error ? <div role="alert" className="p-5"><p className="font-semibold text-ink">Event review unavailable</p><p className="mt-2 text-sm leading-6 text-copy">{error}</p><p className="mt-2 text-sm text-copy">Refresh the review to load current counts.</p></div> : <>
+      {loading ? <SkeletonRows label="Loading distribution work remaining" /> : error ? <div role="alert" className="p-5"><p className="font-semibold text-ink">Event review unavailable</p><p className="mt-2 text-sm leading-6 text-copy">{error}</p><p className="mt-2 text-sm text-copy">Refresh the review to load current counts.</p></div> : <>
         <ul className="divide-y divide-line">{rows.map((row) => <li key={row.key}><a href={row.href} onClick={(event) => { event.preventDefault(); onNavigate(row.href) }} className="group grid min-h-20 grid-cols-[minmax(2.5rem,max-content)_minmax(0,1fr)_1rem] items-center gap-3 px-4 py-3 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand-blue"><span className="text-right text-xl font-semibold tabular-nums text-ink">{row.count.toLocaleString('en-PH')}</span><div className="min-w-0"><p className="text-sm font-semibold text-ink group-hover:text-brand-blue">{row.label}</p><p className="mt-1 text-xs leading-5 text-muted-copy">{row.owner} · {row.detail}</p></div><Icon name="arrowRight" className="size-4 text-muted-copy" /></a></li>)}</ul>
         <div className="border-t border-line px-4 py-3"><a href={`/admin/schedules?${scope}`} onClick={(event) => { event.preventDefault(); onNavigate(`/admin/schedules?${scope}`) }} className="ga-admin-link">View all schedules ({Object.values(data.schedules).reduce((sum, count) => sum + count, 0)})</a><p className="text-xs leading-5 text-muted-copy">Includes checked-in and cancelled visits. Claim counts and attendance are separate records.</p></div>
       </>}

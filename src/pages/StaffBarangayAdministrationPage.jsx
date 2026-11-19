@@ -576,14 +576,14 @@ function StaffBarangayAdministrationPage({ session, onLogout, onNavigate, onSess
   if (!authorized) return <DashboardShell breadcrumbs={['Operations', 'Administration']} currentPath="/admin/administration" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Staff & barangays" user={session.user}><section className="ga-card mx-auto max-w-md p-8 text-center" role="alert"><h1 className="text-2xl font-extrabold">Administrator access required</h1><p className="mt-3 text-muted-copy">Only System Administrators can manage staff accounts and barangay service areas.</p><button type="button" onClick={() => onNavigate('/dashboard')} className="ga-btn-primary mt-6">Return to dashboard</button></section></DashboardShell>
 
   return <DashboardShell breadcrumbs={['Operations', 'Administration', view === 'staff' ? 'Staff accounts' : 'Barangays']} currentPath="/admin/administration" onLogout={onLogout} onNavigate={onNavigate} pageTitle="Staff & barangays" user={session.user}>
-    <header className="ga-page-header flex flex-col gap-5 border-b border-line pb-6 sm:flex-row sm:items-end sm:justify-between">
-      <div><p className="ga-eyebrow">Administration</p><h1 className="ga-page-title">Staff and barangays</h1><p className="ga-page-copy">Manage staff access, account status, and barangay assignments.</p></div>
-      <div className="flex flex-wrap gap-2">
-        {view === 'staff' && <button type="button" onClick={() => changeStaffArchiveView(!showingArchived)} className="ga-btn-secondary shrink-0"><Icon name={showingArchived ? 'arrowLeft' : 'archive'} />{showingArchived ? 'Back to current accounts' : 'Archived accounts'}</button>}
-        {view === 'barangays' && <button type="button" onClick={changeBarangayArchiveView} className="ga-btn-secondary shrink-0"><Icon name={showArchivedBarangays ? 'arrowLeft' : 'archive'} />{showArchivedBarangays ? 'Back to current barangays' : 'Archived barangays'}</button>}
-        {view === 'staff' && !showingArchived && <button type="button" onClick={() => setStaffImportOpen(true)} className="ga-btn-secondary shrink-0">Import staff</button>}
-        {view === 'barangays' && !showArchivedBarangays && <button type="button" onClick={() => setBarangayImportOpen(true)} className="ga-btn-secondary shrink-0">Import barangays</button>}
-        {(view === 'staff' || !showArchivedBarangays) && <button type="button" onClick={() => view === 'staff' ? setStaffRolePickerOpen(true) : setBarangayForm({ barangay: null })} className="ga-btn-primary shrink-0">{view === 'staff' ? 'Create staff account' : 'Add barangay'}</button>}
+    <header className="ga-page-header ga-page-header-with-actions border-b border-line pb-6">
+      <div className="ga-page-heading"><p className="ga-eyebrow">Administration</p><h1 className="ga-page-title">Staff and barangays</h1><p className="ga-page-copy">Manage staff access, account status, and barangay assignments.</p></div>
+      <div className="ga-page-actions">
+        {view === 'staff' && <button type="button" onClick={() => changeStaffArchiveView(!showingArchived)} className="ga-btn-secondary"><Icon name={showingArchived ? 'arrowLeft' : 'archive'} />{showingArchived ? 'Back to current accounts' : 'Archived accounts'}</button>}
+        {view === 'barangays' && <button type="button" onClick={changeBarangayArchiveView} className="ga-btn-secondary"><Icon name={showArchivedBarangays ? 'arrowLeft' : 'archive'} />{showArchivedBarangays ? 'Back to current barangays' : 'Archived barangays'}</button>}
+        {view === 'staff' && !showingArchived && <button type="button" onClick={() => setStaffImportOpen(true)} className="ga-btn-secondary">Import staff</button>}
+        {view === 'barangays' && !showArchivedBarangays && <button type="button" onClick={() => setBarangayImportOpen(true)} className="ga-btn-secondary">Import barangays</button>}
+        {(view === 'staff' || !showArchivedBarangays) && <button type="button" onClick={() => view === 'staff' ? setStaffRolePickerOpen(true) : setBarangayForm({ barangay: null })} className="ga-btn-primary">{view === 'staff' ? 'Create staff account' : 'Add barangay'}</button>}
       </div>
     </header>
     <details className="ga-admin-guide mt-4">

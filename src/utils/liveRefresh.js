@@ -3,10 +3,10 @@ import { getApiRetryAfterSeconds } from '../auth/staffAuth.js'
 export const LIVE_REFRESH_INTERVAL_MS = 20_000
 
 // Coalesce sustained event streams, not just events arriving in the same short burst.
-export function createLiveRefresh(accessToken, refresh) {
+export function createLiveRefresh(accessToken, refresh, { leading = false } = {}) {
   let timer
   let stopped = false
-  let lastRefresh = Date.now()
+  let lastRefresh = leading ? -Infinity : Date.now()
   function run() {
     timer = undefined
     if (stopped) return

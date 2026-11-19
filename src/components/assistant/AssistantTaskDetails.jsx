@@ -20,7 +20,7 @@ function FieldEditor({ definition, value, onSave, error, language, chatOpen, onC
   const areaUnavailable = !eventId || areaLoading || Boolean(areaLookupError)
   useEffect(() => {
     if (!eventLoading && !areaLoading && document.activeElement?.id !== 'garantiyaid-ai-message') inputRef.current?.focus({ preventScroll: !isArea })
-  }, [eventLoading, areaLoading])
+  }, [eventLoading, areaLoading, isArea])
   const props = {
     id: 'ai-task-detail', ref: inputRef, value: input, required: true,
     onChange: (event) => setInput(event.target.value),

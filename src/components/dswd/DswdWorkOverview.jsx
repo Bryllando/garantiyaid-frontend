@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getAuthErrorMessage, isSessionExpiredError, requestDistributionList, requestEnrollmentList } from '../../auth/staffAuth.js'
-import { LoadingLabel } from '../ui/spinner.jsx'
+import { SkeletonRows } from '../ui/skeleton.jsx'
 import { Icon } from '../ui/icon.jsx'
 import { OverviewEmptyState, OverviewUpdate } from '../ui/overview.jsx'
 
@@ -55,7 +55,7 @@ export default function DswdWorkOverview({ session, overview, liveStatus, reload
         <header><h2 id="dswd-reviews-heading"><Icon name="enrollments" />Enrollment reviews</h2></header>
         <p className="ga-admin-register-note">Continue validations, then review new submissions.</p>
         {reviewError && <div role="alert" className="border-b border-line bg-warning-soft p-4 text-sm leading-6"><p>Enrollment reviews could not be refreshed. {reviews ? 'The list below is from the previous update.' : ''} {reviewError}</p><button onClick={onRefresh} className="ga-admin-link">Retry enrollment reviews</button></div>}
-        {!reviews && !reviewError ? <p role="status" className="p-5 text-sm"><LoadingLabel>Loading enrollment reviews...</LoadingLabel></p> : reviews && <>
+        {!reviews && !reviewError ? <SkeletonRows label="Loading enrollment reviews" rows={2} /> : reviews && <>
           <div className="ga-overview-review-counts"><Link href="/enrollments?status=FOR_VALIDATION" onNavigate={onNavigate}><strong>{reviews.validating.pagination.total.toLocaleString('en-PH')}</strong> Under validation</Link><Link href="/enrollments?status=PENDING" onNavigate={onNavigate}><strong>{reviews.pending.pagination.total.toLocaleString('en-PH')}</strong> Pending review</Link></div>
           {rows.length ? <><p className="ga-overview-list-caption">Recent submissions in each review stage. Showing {rows.length} of {reviewCount} records.</p><ul className="ga-overview-records">{rows.map((row) => <li key={row.enrollmentId}>
             <div className="min-w-0 sm:flex-1"><h3 className="break-words text-sm font-semibold text-ink">{name(row.beneficiary)}</h3><p className="mt-1 text-sm text-copy">{row.program?.programName || row.program?.programCode || 'Program not recorded'}</p><p className="mt-1 text-xs leading-5 text-muted-copy">{row.status === 'FOR_VALIDATION' ? 'Under validation' : 'Pending review'}{row.createdAt ? ` · Submitted ${date.format(new Date(row.createdAt))}` : ''}</p></div>
@@ -67,7 +67,7 @@ export default function DswdWorkOverview({ session, overview, liveStatus, reload
         <header><h2 id="dswd-events-heading"><Icon name="distributions" />Open distribution events</h2></header>
         <p className="ga-admin-register-note">Select an event to see pending work and the responsible staff.</p>
         {eventError && <div role="alert" className="border-b border-line bg-warning-soft p-4 text-sm leading-6"><p>Open events could not be refreshed. {events ? 'Showing the previous list.' : ''} {eventError}</p><button onClick={onRefresh} className="ga-admin-link">Retry open events</button></div>}
-        {!events && !eventError ? <p role="status" className="p-5 text-sm"><LoadingLabel>Loading open events...</LoadingLabel></p> : events && <>
+        {!events && !eventError ? <SkeletonRows label="Loading open events" /> : events && <>
           {events.distributions.length ? <ul className="ga-overview-records ga-overview-events">{events.distributions.map((event) => <li key={event.distributionId}>
             <div className="min-w-0 flex-1"><h3 className="ga-overview-record-name">{event.title}</h3><p className="ga-overview-event-meta"><Icon name="location" className="size-4 shrink-0" />{event.barangay?.barangayName || 'Barangay not recorded'}<span aria-hidden="true">·</span><time dateTime={event.distributionDate}>{date.format(new Date(`${event.distributionDate}T00:00:00+08:00`))}</time></p><p className="ga-overview-event-meta"><Icon name={event.deliveryMode === 'PHYSICAL_GOODS' ? 'distributions' : 'ledger'} className="size-4 shrink-0" />{event.deliveryMode === 'PHYSICAL_GOODS' ? 'Barangay physical release' : 'DSWD simulated credit'}</p></div>
             <Link href={`/dswd/live-dashboard?status=OPEN&distribution=${encodeURIComponent(event.distributionId)}`} onNavigate={onNavigate} className="ga-admin-link ga-overview-row-action">View work remaining<span className="sr-only"> for {event.title}</span><Icon name="arrowRight" className="size-4" /></Link>

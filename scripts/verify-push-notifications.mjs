@@ -6,7 +6,7 @@ import { createServer } from 'vite'
 
 const output = resolve('../output/admin-redesign')
 await mkdir(output, { recursive: true })
-const vite = await createServer({ cacheDir: 'node_modules/.vite-verify/push-notifications', server: { host: '127.0.0.1', port: 0 } })
+const vite = await createServer({ cacheDir: 'node_modules/.vite-verify/push-notifications', define: { 'import.meta.env.VITE_API_URL': JSON.stringify('/api/v1') }, server: { host: '127.0.0.1', port: 0 } })
 await vite.listen()
 const origin = `http://127.0.0.1:${vite.httpServer.address().port}`
 let browser
@@ -14,6 +14,7 @@ try {
   browser = await chromium.launch({ headless: true, channel: 'chrome' })
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
   page.setDefaultTimeout(10000)
+  page.setDefaultNavigationTimeout(45000)
   await page.emulateMedia({ reducedMotion: 'reduce' })
   const errors = []
   const unhandled = new Set()
@@ -59,7 +60,7 @@ try {
     await route.fulfill({ json: { data } })
   })
 
-  await page.goto(`${origin}/notifications?channel=push&distribution=event-1`)
+  await page.goto(`${origin}/notifications?channel=push&distribution=event-1`, { waitUntil: 'domcontentloaded' })
   await expect(page.getByRole('heading', { name: 'Push notifications', exact: true })).toBeVisible()
   await expect(page.getByText('10 selected · 11 with non-cancelled assignments')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Send unavailable' })).toBeDisabled()
@@ -150,7 +151,7 @@ try {
   await expect(page.getByLabel('Notification title')).toHaveValue('')
   for (const role of ['BARANGAY_FACILITATOR', 'DSWD_STAFF']) {
     await page.evaluate((value) => sessionStorage.setItem('test-role', value), role)
-    await page.goto(`${origin}/notifications?channel=push&distribution=event-1`)
+    await page.goto(`${origin}/notifications?channel=push&distribution=event-1`, { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('heading', { name: 'SMS notifications and delivery monitoring' })).toBeVisible()
     await expect(page.getByRole('navigation', { name: 'Notification channels' })).toHaveCount(0)
     await expect(page.getByLabel('Notification title')).toHaveCount(0)

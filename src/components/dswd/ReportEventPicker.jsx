@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getAuthErrorMessage, isSessionExpiredError, requestDistributionList } from '../../auth/staffAuth.js'
-import { LoadingLabel } from '../ui/spinner.jsx'
+import { SkeletonRows } from '../ui/skeleton.jsx'
 
 export default function ReportEventPicker({ token, value, selected, allowAll, disabled, onSelect, onSessionExpired }) {
   const [draft, setDraft] = useState('')
@@ -38,7 +38,7 @@ export default function ReportEventPicker({ token, value, selected, allowAll, di
       <div className="border-l-2 border-line pl-3">
         <label htmlFor="report-event-search" className="ga-label">Find event by title or location</label>
         <div className="mt-2 flex flex-wrap gap-2"><input id="report-event-search" type="search" maxLength={100} value={draft} disabled={disabled} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); search() } }} className="ga-input min-w-0 flex-1 basis-40" /><button type="button" onClick={search} disabled={disabled} className="ga-btn-secondary">Search events</button></div>
-        {!current && <p role="status" className="mt-3 text-sm"><LoadingLabel>Loading event choices...</LoadingLabel></p>}
+        {!current && <SkeletonRows label="Loading event choices" className="mt-3" rows={2} />}
         {current?.error && <div role="alert" className="mt-3 text-sm leading-6"><p>{current.error}</p><button type="button" disabled={disabled} onClick={() => setRetry((value) => value + 1)} className="ga-admin-link min-h-11">Retry event list</button></div>}
         {current?.data && <>
           <p className="mt-3 text-sm leading-6 text-copy">{rows.length ? 'Choose a matching event from the Distribution event field above.' : 'No matching events. Try another title or location.'}</p>

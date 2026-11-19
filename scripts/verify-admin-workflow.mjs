@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { chromium, expect } from '@playwright/test'
 import { createServer } from 'vite'
+import { reportFixture } from './fixtures/report-snapshots.js'
 
 // Local fixtures exercise navigation and presentation without touching staff records.
 const output = resolve('../output/admin-redesign')
@@ -53,7 +54,7 @@ try {
     { slotId: 'slot-2', sessionId: 'session-1', sessionLabel: 'Morning session', slotStart: '2026-10-20T08:30:00+08:00', slotEnd: '2026-10-20T09:00:00+08:00', capacity: 10, slotStatus: 'AVAILABLE', serviceAreas: [], location: 'Barangay Hall' },
     { slotId: 'slot-3', sessionId: 'session-2', sessionLabel: 'Other service area', slotStart: '2026-10-20T09:00:00+08:00', slotEnd: '2026-10-20T09:30:00+08:00', capacity: 10, slotStatus: 'AVAILABLE', serviceAreas: ['Purok 9'], location: 'Barangay Hall' },
   ]
-  const schedule = { scheduleId: 'schedule-1', slotId: 'slot-1', beneficiary, slot: slots[0], queueNumber: 1, status: 'SCHEDULED' }
+  const schedule = { scheduleId: 'schedule-1', distributionId: distribution.distributionId, slotId: 'slot-1', beneficiary, slot: slots[0], queueNumber: 1, status: 'SCHEDULED' }
   const claim = () => ({ claimId: 'claim-1', distributionId: distribution.distributionId, distribution, beneficiaryId: beneficiary.beneficiaryId, beneficiary, schedule, allocation: { amount: '1500', allocationStatus: 'ALLOCATED' }, claimStatus: progressClaimStatus || (distribution.verificationRequirement === 'QR' ? 'VERIFIED' : 'PENDING'), qrVerified: true, biometricVerified: false, verificationMethod: distribution.verificationRequirement, disputes: reviewDispute ? [{ disputeId: 'dispute-1', status: 'OPEN', referenceNo: 'GYA-CASE-1' }] : [], ...releaseRecord })
   const enrollment = () => ({ enrollmentId: 'enrollment-1', beneficiaryId: beneficiary.beneficiaryId, beneficiary, program, programId: program.programId, status: enrollmentStatus, submittedById: ownSubmission ? user.userId : 'facilitator-1', submittedBy: { fullName: 'Assigned Facilitator' }, createdAt: '2026-10-13T02:00:00Z', eligibilityEvaluation: { overallStatus: journey ? 'ELIGIBLE' : 'REVIEW_REQUIRED', summary: { met: 0, notMet: 0, reviewRequired: 0, total: 0 }, results: [] } })
   const overview = () => ({ generatedAt: '15 Oct 2026, 9:00 AM PHT', timeZone: 'Asia/Manila', scope: { global: true }, programs: { activeProgramCount: empty ? 0 : 1 }, distributions: { totalMatchingDistributionCount: empty ? 0 : 1, openDistributionCount: 0, upcomingDistributionCount: 0, statusCounts: { DRAFT: empty ? 0 : 1 } }, beneficiaries: { approvedBeneficiaryCount: empty ? 0 : 4, claimedBeneficiaryCount: 0, unclaimedAllocationCount: 0, scheduledBeneficiaryCount: 0, verifiedBeneficiaryCount: 0, claimCompletionPercentage: 0 }, queue: { slotCount: 0, totalCapacity: 0, scheduledCount: 0, checkedInCount: 0, missedCount: 0, capacityUtilizationPercentage: 0, checkInPercentage: 0 }, anomalies: { duplicateAttemptCount: 0, invalidQrAttemptCount: 0, livenessFailureCount: 0, biometricNoMatchCount: 0, duplicateClaimFlagCount: 0 }, financialVisibility: true, fundUtilization: { allocatedAmount: 0, netCreditedAmount: 0, remainingAmount: 0 } })
@@ -106,7 +107,7 @@ try {
       slots[0].capacity = route.request().postDataJSON().capacity
       data = { slot: slots[0] }
     }
-    else if (path === '/distributions/event-1/allocations') data = { allocations: operations && (!journey || journey.allocated) ? [{ allocationId: 'allocation-1', beneficiaryId: beneficiary.beneficiaryId, allocationStatus: 'ALLOCATED' }] : [], summary: { countsByStatus: operations && (!journey || journey.allocated) ? { [progressClaimStatus === 'CLAIMED' ? 'CLAIMED' : 'ALLOCATED']: 1 } : {}, totalAmount: '0' }, pagination: pagination(operations && (!journey || journey.allocated) ? 1 : 0) }
+    else if (path === '/distributions/event-1/allocations') data = { allocations: operations && (!journey || journey.allocated) ? [{ allocationId: 'allocation-1', distributionId: distribution.distributionId, beneficiaryId: beneficiary.beneficiaryId, allocationStatus: 'ALLOCATED' }] : [], summary: { countsByStatus: operations && (!journey || journey.allocated) ? { [progressClaimStatus === 'CLAIMED' ? 'CLAIMED' : 'ALLOCATED']: 1 } : {}, totalAmount: '0' }, pagination: pagination(operations && (!journey || journey.allocated) ? 1 : 0) }
     else if (path === '/distributions/event-1/schedules') data = { schedules: operations && (!journey || journey.scheduled) ? [schedule] : [], pagination: pagination(operations && (!journey || journey.scheduled) ? 1 : 0), summary: { countsByStatus: operations && (!journey || journey.scheduled) ? { SCHEDULED: 1 } : {}, matchingScheduleCount: operations && (!journey || journey.scheduled) ? 1 : 0 } }
     else if (path === '/distributions/event-1/schedules/schedule-1/reschedule') {
       if (rejectMove) return route.fulfill({ status: 409, json: { error: { message: 'This time slot has just filled. Choose another slot.' } } })
@@ -161,7 +162,12 @@ try {
     else if (path === '/notifications/queue/health') data = { status: 'available', counts: {} }
     else if (path === '/chatbot/escalations') data = { escalations: [], pagination: pagination() }
     else if (path === '/audit-logs') data = { auditLogs: [], pagination: pagination() }
-    else if (path === '/reports/distributions/event-1/summary') data = { report: { generatedAt: '2026-10-20T08:00:00Z', timeZone: 'Asia/Manila', data: { distribution, beneficiaries: { allocatedCount: 1, claimCompletionPercentage: progressClaimStatus === 'CLAIMED' ? 100 : 0 }, slots: { capacityUtilizationPercentage: 10 }, qrScans: { duplicateCount: 0, invalidCount: 0 }, biometrics: { noMatchCount: 0 } } } }
+    else if (path === '/reports/snapshot') {
+      const scope = Object.fromEntries(url.searchParams)
+      assert.equal(scope.distributionId, distribution.distributionId)
+      const report = reportFixture(scope)
+      data = { report: { ...report, event: distribution, data: { ...report.data, distribution } } }
+    }
     else if (path === '/auth/account') data = { user, security: { recoveryCodesRemaining: 8, activeSessionCount: 1 } }
     else if (path === '/auth/account/sessions') data = { sessions: [] }
     else { unhandled.add(path); return route.fulfill({ status: 404, json: { message: `Missing local fixture: ${path}` } }) }
@@ -244,7 +250,7 @@ try {
   failNotices = false
   await page.getByRole('button', { name: 'Refresh notices' }).click()
   await expect(page.getByText('1 sent · 2 queued · 1 failed', { exact: true })).toBeVisible()
-  await expect(page.getByText(/Counts are message records, not confirmed recipients/)).toBeVisible()
+  await expect(page.getByText(/Counts are (?:message|processing) records, not confirmed recipients/)).toBeVisible()
   const eventReview = page.getByLabel('Event operational review', { exact: true })
   const reconciliation = page.getByRole('region', { name: 'Distribution reconciliation', exact: true })
   await expect(eventReview.getByRole('link', { name: /1 Awaiting physical release/ })).toBeVisible()

@@ -37,7 +37,7 @@ try {
   const event = { distributionId: 'event-1', title: 'October assistance', status: 'DRAFT', distributionDate: '2026-10-29', startTime: '08:00', endTime: '17:00', location: 'Community hall', program, barangay, deliveryMode: 'SIMULATED_WALLET', verificationRequirement: 'QR_AND_BIOMETRIC' }
   const slot = { slotId: 'slot-1', sessionId: 'session-1', sessionLabel: 'Morning', slotStart: '2026-10-29T00:00:00Z', slotEnd: '2026-10-29T01:00:00Z', location: 'Community hall', serviceAreas: [], capacity: 200, slotStatus: 'AVAILABLE' }
   const pagination = (total = 1, number = 1, size = 20) => ({ page: number, pageSize: size, total, totalPages: Math.ceil(total / size) })
-  const schedule = () => ({ scheduleId: 'schedule-1', beneficiaryId: 'person-1', beneficiary, queueNumber: 101, status: qrVerified || biometricVerified ? 'CHECKED_IN' : 'SCHEDULED', slot: { sessionLabel: 'Morning', slotStart: '2026-10-29T00:00:00Z', slotEnd: '2026-10-29T01:00:00Z', location: event.location }, claim: claimStatus ? { claimId: 'claim-1', claimStatus } : null })
+  const schedule = () => ({ scheduleId: 'schedule-1', distributionId: event.distributionId, beneficiaryId: 'person-1', beneficiary, queueNumber: 101, status: qrVerified || biometricVerified ? 'CHECKED_IN' : 'SCHEDULED', slot: { sessionLabel: 'Morning', slotStart: '2026-10-29T00:00:00Z', slotEnd: '2026-10-29T01:00:00Z', location: event.location }, claim: claimStatus ? { claimId: 'claim-1', claimStatus } : null })
   const claim = () => ({ claimId: 'claim-1', distributionId: event.distributionId, beneficiaryId: beneficiary.beneficiaryId, beneficiary, distribution: { ...event }, claimStatus, qrVerified, biometricVerified, signatureVerified, verificationMethod: event.verificationRequirement, schedule: schedule(), allocation: { amount: '1500', allocationStatus: 'ALLOCATED' }, disputes: [], receipt: hasReceipt ? { receiptNo: 'RECEIPT-001' } : null, ...(claimStatus === 'CLAIMED' ? { releasedAt: '2026-10-29T01:00:00Z', releasedBy: { fullName: 'Release officer' }, releaseMethod: event.deliveryMode, releaseEvidenceReference: 'LOG-001' } : {}) })
   const enrollment = () => ({ enrollmentId: 'enrollment-1', beneficiaryId: 'person-1', beneficiary: { ...beneficiary, documents }, programId: program.programId, program, status: enrollmentStatus, reviewNotes, submittedById: submittedBy, submittedBy: { fullName: 'Barangay Submitter' }, createdAt: '2026-10-29T00:00:00Z', eligibilityEvaluation: { overallStatus: 'ELIGIBLE', results: [], referenceDate: '2026-10-29' } })
   const funds = () => ({ allocatedAmount: '1500', netCreditedAmount: claimStatus === 'CLAIMED' ? '1500' : '0', remainingAmount: claimStatus === 'CLAIMED' ? '0' : '1500', reversedAmount: '0', failedAmount: '0' })
@@ -95,7 +95,7 @@ try {
     }
     else if (path === '/distributions/event-1') data = { distribution: event }
     else if (path === '/distributions/event-1/allocations' && method === 'POST') { assert.equal(role, 'SYSTEM_ADMIN'); assert.equal(enrollmentStatus, 'APPROVED'); allocated = true; data = { allocations: [{ allocationId: 'allocation-1' }], summary: {} } }
-    else if (path === '/distributions/event-1/allocations') data = { allocations: allocated ? [{ allocationId: 'allocation-1', beneficiaryId: 'person-1', amount: '1500', allocationStatus: 'ALLOCATED', enrollmentId: 'enrollment-1' }] : [], pagination: pagination(allocated ? 1 : 0), summary: { countsByStatus: allocated ? { ALLOCATED: 1 } : {}, totalAmount: allocated ? '1500' : '0' } }
+    else if (path === '/distributions/event-1/allocations') data = { allocations: allocated ? [{ allocationId: 'allocation-1', distributionId: event.distributionId, beneficiaryId: 'person-1', amount: '1500', allocationStatus: 'ALLOCATED', enrollmentId: 'enrollment-1' }] : [], pagination: pagination(allocated ? 1 : 0), summary: { countsByStatus: allocated ? { ALLOCATED: 1 } : {}, totalAmount: allocated ? '1500' : '0' } }
     else if (path === '/distributions/event-1/slots') data = { slots: [slot], summary: { matchingSlotCount: 1, matchingCapacity: 200, sessionCount: 1 } }
     else if (path === '/distributions/event-1/eligible-enrollments') data = { enrollments: allocated ? [] : [enrollment()], pagination: pagination(allocated ? 0 : 1), allocationAmount: '1500', summary: { serviceAreas: [] } }
     else if (path === '/distributions/event-1/schedules/generate') { assert.ok(allocated); assert.equal(role, 'SYSTEM_ADMIN'); scheduled = true; data = { schedules: [schedule()], summary: {} } }
@@ -141,7 +141,7 @@ try {
     else if (path === '/distributions/event-1/claims') data = { claims: claimStatus ? [claim()] : [], summary: { countsByStatus: { [claimStatus]: 1 } }, pagination: pagination(claimStatus ? 1 : 0) }
     else if (path === '/distributions/event-1/claims/claim-1') data = { claim: claim() }
     else if (path === '/distributions/event-1/claim-disputes') data = { disputes: [], summary: { countsByStatus: {} }, pagination: pagination(0) }
-    else if (path === '/dashboard/overview') data = { overview: { fundUtilization: funds() } }
+    else if (path === '/dashboard/overview') data = { overview: { generatedAt: new Date().toISOString(), distributions: { totalMatchingDistributionCount: 1, statusCounts: { [event.status]: 1 } }, fundUtilization: funds() } }
     else if (path === '/dashboard/distributions/event-1') data = { summary: { distribution: event, fundUtilization: funds() } }
     else if (path === '/distributions/event-1/creditable-claims') data = { claims: claimStatus === 'VERIFIED' ? [claim()] : [], summary: { creditableClaimCount: claimStatus === 'VERIFIED' ? 1 : 0 }, pagination: pagination(claimStatus === 'VERIFIED' ? 1 : 0) }
     else if (path === '/distributions/event-1/transactions') data = { transactions: claimStatus === 'CLAIMED' ? [transaction()] : [], summary: {}, pagination: pagination(claimStatus === 'CLAIMED' ? 1 : 0) }
@@ -149,7 +149,13 @@ try {
     else if (path === '/distributions/event-1/claims/claim-1/credit') { assert.equal(role, 'DSWD_STAFF'); assert.equal(claimStatus, 'VERIFIED'); assert.ok(qrVerified && biometricVerified); claimStatus = 'CLAIMED'; data = { transaction: transaction(), wallet: { walletId: 'wallet-1' }, lifecycle: {} } }
     else if (path === '/distributions/event-1/claims/claim-1/release') { assert.equal(role, 'BARANGAY_FACILITATOR'); assert.equal(event.deliveryMode, 'PHYSICAL_GOODS'); assert.equal(claimStatus, 'VERIFIED'); claimStatus = 'CLAIMED'; data = { claim: claim(), release: { evidence: { reference: 'LOG-001' } }, lifecycle: {} } }
     else if (path === '/distributions/event-1/claims/claim-1/receipt') { assert.equal(claimStatus, 'CLAIMED'); hasReceipt = true; data = { receipt: receipt(), created: true } }
-    else if (path === '/reports/distributions/event-1/summary') data = { report: { generatedAt: '2026-10-29T02:00:00Z', timeZone: 'Asia/Manila', distributionId: 'event-1', data: { distribution: event, beneficiaries: { allocatedCount: 1, claimCompletionPercentage: 100 }, slots: { capacityUtilizationPercentage: 100 }, qrScans: { duplicateCount: 0, invalidCount: 0 }, biometrics: { noMatchCount: 0 }, fundUtilization: funds() } } }
+    else if (path === '/reports/snapshot') {
+      assert.equal(url.searchParams.get('distributionId'), event.distributionId)
+      assert.equal(url.searchParams.get('type'), 'SUMMARY')
+      const claimedCount = Number(claimStatus === 'CLAIMED')
+      data = { report: { snapshotComplete: true, event, generatedAt: '2026-10-29T02:00:00Z', timeZone: 'Asia/Manila', distributionId: event.distributionId,
+        data: { distribution: event, beneficiaries: { allocatedCount: 1, claimedCount, claimCompletionPercentage: claimedCount * 100 }, slots: { capacityUtilizationPercentage: 100 }, fundUtilization: funds() } } }
+    }
     else { unhandled.push(`${method} ${path}`); return route.fulfill({ status: 404, json: { error: { message: `Missing fixture: ${path}` } } }) }
     await route.fulfill({ json: { data } })
   })
@@ -261,7 +267,7 @@ try {
   await page.getByRole('button', { name: 'Verify beneficiary identity' }).click()
   await expect(page.getByRole('alert')).toContainText('Consent and an enrolled face profile are required')
   await expect(page.getByRole('button', { name: 'Verify beneficiary identity' })).toBeDisabled()
-  await expect(page.getByRole('button', { name: /Start live camera|Retake live photo/ })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Use camera instead', exact: true })).toBeDisabled()
   assert.equal(claimStatus, 'PENDING', 'A missing reference profile cannot verify or release a claim')
   await screenshot('missing-face-profile')
   const beforeRecovery = mutations.length
@@ -287,9 +293,10 @@ try {
   await page.getByRole('radio', { name: /Consent granted/ }).check()
   await page.getByRole('button', { name: 'Record consent decision' }).click()
   await expect(page.getByRole('radio', { name: /Consent granted/ })).toBeHidden()
-  await expect(page.getByRole('button', { name: 'Save face profile' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Save face profile' })).toBeDisabled()
   await page.locator('#enrollment-face-capture').setInputFiles(faceImage)
-  await expect(page.getByText('Photo captured. Use Save face profile below to enroll it.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save face profile' })).toBeEnabled()
+  await expect(page.getByText('Photo uploaded. Review it, then save the face profile below. Enrollment is not complete yet.', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Save face profile' }).click()
   await expect(page.getByRole('alert')).toBeFocused()
   await expect(page.getByRole('alert')).toContainText('Your captured photo is still on this screen')
@@ -300,7 +307,7 @@ try {
   failEnrollment = false; holdEnrollment = true
   await page.getByRole('button', { name: 'Retry saving face profile' }).evaluate(button => { button.click(); button.click() })
   await expect(page.getByRole('button', { name: /Saving face profile/ })).toBeDisabled()
-  await expect(page.getByRole('button', { name: /Retake live photo/ })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Use camera instead', exact: true })).toBeDisabled()
   assert.equal(mutations.filter(entry => entry.path.endsWith('/biometrics/enroll')).length, 2, 'Double clicks cannot submit a second enrollment while the first is processing')
   finishEnrollment(); holdEnrollment = false
   await expect(page.getByRole('heading', { name: 'Face profile ready for the claim check' })).toBeVisible()
@@ -424,7 +431,7 @@ try {
     for (const method of ['QR', 'BIOMETRIC']) {
       claimStatus = ''; qrVerified = false; biometricVerified = false; signatureVerified = false; hasReceipt = false
       await as(nextRole, `${qrPath}?distribution=event-1`)
-      await expect(page.getByText('QR code OR live face match', { exact: true })).toBeVisible()
+      await expect(page.getByRole('region', { name: 'Selected distribution event' }).getByText('QR code OR live face match', { exact: true })).toBeVisible()
       await page.getByRole('button', { name: 'Use face match instead', exact: true }).click()
       await expect(page.getByLabel('Open distribution')).toHaveValue('event-1')
       await page.getByLabel('Scheduled beneficiary').selectOption('person-1')

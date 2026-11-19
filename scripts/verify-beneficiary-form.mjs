@@ -55,6 +55,24 @@ await page.routeWebSocket(/socket\.io/, () => {})
 
 try {
   await page.goto(`${origin}/beneficiaries`)
+  const heading = page.getByRole('heading', { name: 'Beneficiary records', exact: true })
+  const header = page.locator('header').filter({ has: heading })
+  await expect(header.getByRole('button')).toHaveCount(3)
+  for (const width of [1440, 1366, 1280, 1024, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 })
+    await expect.poll(() => header.evaluate((element, viewportWidth) => {
+      const copy = element.querySelector('.ga-page-copy').getBoundingClientRect()
+      const actions = [...element.querySelectorAll('button')].map(button => button.getBoundingClientRect())
+      const bounds = element.getBoundingClientRect()
+      const buttonsFit = actions.every(button => button.height >= 44 && button.left >= bounds.left - 1 && button.right <= bounds.right + 1)
+      if (!buttonsFit) return false
+      if (viewportWidth >= 1280) return actions.every(button => button.top === actions[0].top && button.left >= copy.right)
+      if (viewportWidth === 1024) return actions.every(button => button.top === actions[0].top && button.top >= copy.bottom)
+      return actions.every(button => button.top >= copy.bottom)
+    }, width), { message: `Beneficiary header actions fit at ${width}px` }).toBe(true)
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  console.log('PASS: Beneficiary header actions align on desktop and fit at narrower widths.')
   await page.getByRole('button', { name: 'Register beneficiary', exact: true }).click()
   const form = page.getByRole('dialog')
   await expect(form.getByLabel('First name', { exact: true })).toBeFocused()
@@ -83,8 +101,10 @@ try {
 
   for (const [width, height] of [[1440, 900], [768, 900], [640, 900], [390, 844], [320, 700], [844, 390]]) {
     await page.setViewportSize({ width, height })
-    const header = await form.locator('header').boundingBox(), footer = await form.locator('footer').boundingBox()
-    assert.ok(header.y >= 0 && footer.y + footer.height <= height, `Header and buttons fit ${width}x${height}.`)
+    const headerLocator = form.locator('header'), footerLocator = form.locator('footer')
+    await expect(headerLocator).toBeInViewport({ ratio: 1 })
+    await expect(footerLocator).toBeInViewport({ ratio: 1 })
+    const header = await headerLocator.boundingBox(), footer = await footerLocator.boundingBox()
     assert.equal(await form.evaluate(element => element.scrollWidth <= element.clientWidth + 1), true)
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
     for (const selector of ['#beneficiary-first-name', '#beneficiary-birth-date', '#beneficiary-barangay', '#beneficiary-address', '#beneficiary-contact', '#beneficiary-email']) {

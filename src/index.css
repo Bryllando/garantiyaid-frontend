@@ -86,6 +86,27 @@ p {
 }
 
 @layer components {
+  .ga-skeleton {
+    position: relative;
+    overflow: hidden;
+    background-color: var(--color-line);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .ga-liquid-wave {
+      animation: ga-liquid-wave 4.6s linear infinite;
+    }
+
+    .ga-skeleton::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(105deg, transparent 14%, rgb(255 255 255 / .68) 50%, transparent 86%);
+      animation: ga-skeleton-sweep 1.55s ease-in-out infinite;
+    }
+  }
+
   .ga-public-shell {
     min-width: 0;
     width: 100%;
@@ -111,8 +132,10 @@ p {
       transform var(--sidebar-duration) var(--sidebar-ease);
   }
 
-  .ga-shell-content {
-    transition: padding-left var(--sidebar-duration) var(--sidebar-ease);
+  @media (min-width: 1024px) {
+    .ga-shell-content {
+      transition: padding-left var(--sidebar-duration) var(--sidebar-ease);
+    }
   }
 
   .ga-sidebar-backdrop {
@@ -392,6 +415,48 @@ p {
     @apply mt-3 max-w-3xl text-base leading-7 text-muted-copy;
   }
 
+  .ga-page-header-with-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .ga-page-heading {
+    flex: 1 1 21rem;
+    min-width: 0;
+  }
+
+  .ga-page-actions {
+    display: flex;
+    flex: 0 0 max-content;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    max-width: 100%;
+  }
+
+  .ga-page-actions:empty {
+    display: none;
+  }
+
+  .ga-page-actions > :is(button, a) {
+    min-width: 0;
+    max-width: 100%;
+    text-align: center;
+    overflow-wrap: anywhere;
+  }
+
+  @media (width < 40rem) {
+    .ga-page-actions {
+      flex-basis: 100%;
+    }
+
+    .ga-page-actions > :is(button, a) {
+      flex: 1 1 auto;
+    }
+  }
+
   .ga-btn-primary {
     @apply inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-lg bg-brand-blue px-5 text-base font-bold text-white shadow-sm transition-[background-color,box-shadow] duration-200 ease-out hover:bg-brand-blue-hover hover:shadow-md active:bg-brand-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:shadow-sm;
   }
@@ -445,6 +510,15 @@ p {
     content: " *";
     color: var(--color-brand-red);
   }
+}
+
+@keyframes ga-skeleton-sweep {
+  from { transform: translateX(-100%); }
+  80%, to { transform: translateX(100%); }
+}
+
+@keyframes ga-liquid-wave {
+  to { transform: translateX(-600px); }
 }
 
 .ga-dashboard-ready {

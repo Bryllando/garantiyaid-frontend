@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { generateDistributionQrTokens, getAuthErrorMessage, isSessionExpiredError, requestDistributionQrTokens, requestQrEligibleSchedules } from '../../auth/staffAuth.js'
 import { Icon } from '../ui/icon.jsx'
-import { LoadingLabel } from '../ui/spinner.jsx'
+import { SkeletonRows } from '../ui/skeleton.jsx'
 import QrCredentialIssuance from './QrCredentialIssuance.jsx'
 import QrCredentialsDialog from './QrCredentialsDialog.jsx'
 
@@ -39,7 +39,7 @@ export default function QrIssuancePanel({ distribution, accessToken, onSessionEx
       <summary><span className="flex items-center gap-3"><Icon name="qr" className="size-5 shrink-0 text-brand-blue" />Issue beneficiary QR cards</span><Icon name="chevronDown" className="size-4 shrink-0" /></summary>
       <div className="space-y-4 border-t border-line p-4 sm:p-5">
         <p className="text-sm leading-6 text-copy">Generate cards for this event’s eligible appointments, then save or print them for the beneficiaries. Issuing a card does not verify identity or record assistance as released.</p>
-        {error ? <div role="alert" className="rounded-lg border border-red-200 bg-danger-soft p-4 text-sm text-brand-red"><p>{error}</p><button type="button" onClick={() => setReload(value => value + 1)} className="ga-btn-secondary mt-3 text-sm">Refresh QR availability</button></div> : data ? <QrCredentialIssuance distribution={distribution} accessToken={accessToken} data={data.tokens} readyCount={data.eligible.summary.qrEligibleScheduleCount} eligibility={data.eligible.summary} busy={busy || (loading ? 'loading' : '')} onGenerate={generate} onSessionExpired={onSessionExpired} /> : <p role="status" className="py-4 text-sm text-copy"><LoadingLabel>Loading QR availability...</LoadingLabel></p>}
+        {error ? <div role="alert" className="rounded-lg border border-red-200 bg-danger-soft p-4 text-sm text-brand-red"><p>{error}</p><button type="button" onClick={() => setReload(value => value + 1)} className="ga-btn-secondary mt-3 text-sm">Refresh QR availability</button></div> : data ? <QrCredentialIssuance distribution={distribution} accessToken={accessToken} data={data.tokens} readyCount={data.eligible.summary.qrEligibleScheduleCount} eligibility={data.eligible.summary} busy={busy || (loading ? 'loading' : '')} onGenerate={generate} onSessionExpired={onSessionExpired} /> : <SkeletonRows label="Loading QR availability" rows={2} />}
       </div>
     </details>
     {rawTokens && <QrCredentialsDialog distribution={distribution} tokens={rawTokens} onClose={() => setRawTokens(null)} />}

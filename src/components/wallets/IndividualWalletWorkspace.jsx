@@ -10,6 +10,7 @@ import {
 } from '../../auth/staffAuth.js'
 import { ConfirmationDialog } from '../ui/confirmation-dialog.jsx'
 import { Icon } from '../ui/icon.jsx'
+import { Skeleton, SkeletonRows } from '../ui/skeleton.jsx'
 import { LoadingLabel } from '../ui/spinner.jsx'
 import { useMotionEntry } from '../ui/use-motion-entry.js'
 
@@ -29,13 +30,13 @@ function signedAmount(transaction) {
   return ['SIMULATED_TRANSFER_OUT', 'BENEFIT_REVERSAL'].includes(transaction.transactionType) ? -Number(transaction.amount) : Number(transaction.amount)
 }
 
-function WalletHistory({ history, loadingReceiptId, onPage, onReceipt, showPagination = true }) {
-  if (!history) return null
-  if (history.transactions.length === 0) return <div className="border-t border-line px-5 py-10 text-center"><p className="font-extrabold text-ink">No wallet activity yet</p><p className="mt-2 text-sm text-muted-copy">Credits and internal simulated transfers will appear here.</p></div>
+function WalletHistory({ history, loading, loadingReceiptId, onPage, onReceipt, showPagination = true }) {
+  if (!loading && !history) return <p className="px-5 py-4 text-sm text-muted-copy">Wallet history is unavailable. Use Refresh to try again.</p>
+  if (!loading && history.transactions.length === 0) return <div className="border-t border-line px-5 py-10 text-center"><p className="font-extrabold text-ink">No wallet activity yet</p><p className="mt-2 text-sm text-muted-copy">Credits and internal simulated transfers will appear here.</p></div>
 
   return (
     <>
-      <ul className="divide-y divide-line">
+      {loading ? <SkeletonRows label="Loading wallet history" /> : <ul className="divide-y divide-line">
         {history.transactions.map((transaction) => {
           const amount = signedAmount(transaction)
           return (
@@ -52,8 +53,8 @@ function WalletHistory({ history, loadingReceiptId, onPage, onReceipt, showPagin
             </li>
           )
         })}
-      </ul>
-      {showPagination && <div className="flex items-center justify-between border-t border-line px-5 py-4"><p className="text-xs font-semibold text-muted-copy">Page {history.pagination.page} of {Math.max(history.pagination.totalPages, 1)}</p><div className="flex gap-2"><button type="button" disabled={history.pagination.page <= 1} onClick={() => onPage(history.pagination.page - 1)} className="min-h-10 cursor-pointer rounded-lg border border-line px-3 text-sm font-bold text-copy disabled:cursor-not-allowed disabled:opacity-50">Previous</button><button type="button" disabled={history.pagination.page >= history.pagination.totalPages} onClick={() => onPage(history.pagination.page + 1)} className="min-h-10 cursor-pointer rounded-lg border border-line px-3 text-sm font-bold text-copy disabled:cursor-not-allowed disabled:opacity-50">Next</button></div></div>}
+      </ul>}
+      {showPagination && history?.transactions.length > 0 && <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-5 py-4"><p className="text-xs font-semibold text-muted-copy">Page {history.pagination.page} of {Math.max(history.pagination.totalPages, 1)}</p><div className="flex gap-2"><button type="button" aria-disabled={loading || history.pagination.page <= 1} onClick={() => { if (!loading && history.pagination.page > 1) onPage(history.pagination.page - 1) }} className="ga-btn-secondary px-3 aria-disabled:opacity-50">Previous</button><button type="button" aria-disabled={loading || history.pagination.page >= history.pagination.totalPages} onClick={() => { if (!loading && history.pagination.page < history.pagination.totalPages) onPage(history.pagination.page + 1) }} className="ga-btn-secondary px-3 aria-disabled:opacity-50">Next</button></div></div>}
     </>
   )
 }
@@ -258,6 +259,9 @@ export default function IndividualWalletWorkspace({ session, loadingReceiptId, o
         <div className="flex flex-col gap-3 border-t border-line bg-slate-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6"><p className="text-sm leading-6 text-muted-copy">Don't have the ID? Open the beneficiary record, then choose <strong className="font-semibold text-copy">View simulated wallet</strong> under Other record services.</p><a href="/beneficiaries" aria-disabled={Boolean(busy || transferAttempt)} onClick={(event) => { event.preventDefault(); if (!busy && !transferAttempt) onNavigate('/beneficiaries') }} className="ga-btn-secondary shrink-0 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"><Icon name="people" className="size-4" />Find beneficiary by name<Icon name="arrowRight" className="size-4" /></a></div>
       </section>
 
+      {busy === 'lookup' && !record && <div className="ga-card mt-6 grid gap-5 p-5 sm:p-6 lg:grid-cols-[minmax(0,1.3fr)_repeat(2,minmax(12rem,0.55fr))]" role="status" aria-label="Loading selected wallet">
+        {[0, 1, 2].map((index) => <div key={index} className="space-y-3"><Skeleton className="h-3 w-24" /><Skeleton className="h-8 w-36 max-w-full" /><Skeleton className="h-4 w-40 max-w-full" /></div>)}
+      </div>}
       {record && <div ref={detailRef} tabIndex={-1} aria-label="Selected wallet record" className="scroll-mt-36 outline-none focus-visible:outline-2 focus-visible:outline-brand-blue">
         <section className="ga-card mt-6 overflow-hidden" aria-labelledby="wallet-owner-heading">
           <div className="grid gap-px bg-line lg:grid-cols-[minmax(0,1.3fr)_repeat(2,minmax(12rem,0.55fr))]">
@@ -280,7 +284,7 @@ export default function IndividualWalletWorkspace({ session, loadingReceiptId, o
             </fieldset></form>
           </section>}
 
-          <section className="ga-card overflow-hidden" aria-labelledby="wallet-history-heading"><div className="flex flex-wrap items-center justify-between gap-3 p-5 sm:p-6"><div><p className="ga-eyebrow">Account activity</p><h2 id="wallet-history-heading" className="mt-1 text-xl font-extrabold text-ink">Wallet history</h2></div><button type="button" onClick={() => fetchHistory(record.wallet.walletId, history?.pagination.page ?? 1)} disabled={Boolean(busy)} className="ga-btn-secondary min-h-10 px-3 text-sm">{busy === 'history' ? <LoadingLabel>Refreshing...</LoadingLabel> : 'Refresh'}</button></div><WalletHistory history={history} loadingReceiptId={loadingReceiptId} onPage={(page) => fetchHistory(record.wallet.walletId, page)} onReceipt={onReceipt} /></section>
+          <section className="ga-card overflow-hidden" aria-labelledby="wallet-history-heading"><div className="flex flex-wrap items-center justify-between gap-3 p-5 sm:p-6"><div><p className="ga-eyebrow">Account activity</p><h2 id="wallet-history-heading" className="mt-1 text-xl font-extrabold text-ink">Wallet history</h2></div><button type="button" onClick={() => fetchHistory(record.wallet.walletId, history?.pagination.page ?? 1)} disabled={Boolean(busy)} className="ga-btn-secondary min-h-10 px-3 text-sm">{busy === 'history' ? <LoadingLabel>Refreshing...</LoadingLabel> : 'Refresh'}</button></div><WalletHistory history={history} loading={['lookup', 'history', 'create'].includes(busy)} loadingReceiptId={loadingReceiptId} onPage={(page) => fetchHistory(record.wallet.walletId, page)} onReceipt={onReceipt} /></section>
         </div>}
 
         <TransferResult result={lastTransfer} recipient={lastTransfer?.recipient} resultRef={resultRef} />

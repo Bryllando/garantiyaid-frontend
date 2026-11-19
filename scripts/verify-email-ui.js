@@ -112,9 +112,9 @@ try {
 
   await page.goto(`${origin}/account?section=authenticator`)
   await expect(page.getByRole('heading', { name: 'Review your account security' })).toBeVisible()
-  await page.getByLabel('Username', { exact: true }).fill('SYS-0001')
+  await page.getByLabel('Staff ID or username', { exact: true }).fill('SYS-0001')
   await page.getByLabel('Password', { exact: true }).fill('SAMPLE-ONLY-123!')
-  await page.getByRole('button', { name: 'Sign in securely', exact: true }).click()
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page).toHaveURL(`${origin}/totp-verification`)
   await page.getByLabel('Six-digit code', { exact: true }).fill('123456')
   await page.getByRole('button', { name: 'Verify and continue', exact: true }).click()

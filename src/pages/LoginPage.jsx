@@ -67,15 +67,15 @@ function LoginPage({ onAuthenticated, onPasswordChangeRequired, onTotpRequired, 
         ) : (
           <>
             <div>
-              <p className="flex items-center gap-2 text-sm font-medium text-brand-blue"><Icon name="lock" className="size-4" />Staff sign in</p>
-              <h1 id="login-title" className="mt-3 text-3xl font-bold tracking-tight text-ink">{securityReview ? 'Review your account security' : 'Welcome back'}</h1>
-              <p className="mt-2 text-base leading-6 text-muted-copy">{securityReview ? 'Sign in to continue to the account settings linked in your email.' : 'Sign in to continue to your staff workspace.'}</p>
+              <h1 id="login-title" className="text-3xl font-bold tracking-tight text-ink">{securityReview ? 'Review your account security' : 'Staff sign in'}</h1>
+              {securityReview && <p className="mt-2 text-base leading-6 text-muted-copy">Sign in to continue to the account settings linked in your email.</p>}
             </div>
 
             <form className="mt-7" onSubmit={handleSubmit} aria-label="Staff sign in" aria-busy={isSubmitting}>
               <div className="space-y-5">
                 <div>
-                  <label htmlFor="identifier" className="ga-label">Username</label>
+                  <label htmlFor="identifier" className="ga-label">Staff ID or username</label>
+                  <p id="identifier-help" className="mt-1 text-sm text-copy">DSWD staff, use your Staff ID. Administrators and barangay facilitators can also use a username.</p>
                   <div className="relative mt-2">
                     <Icon name="profile" className="pointer-events-none absolute left-3.5 top-1/2 size-5 -translate-y-1/2 text-muted-copy" />
                     <input
@@ -90,11 +90,11 @@ function LoginPage({ onAuthenticated, onPasswordChangeRequired, onTotpRequired, 
                       maxLength="30"
                       pattern={'[A-Za-z0-9._\\-]+'}
                       title="Use letters, numbers, periods, underscores, or hyphens."
-                      aria-describedby={error ? 'login-error' : undefined}
+                      aria-describedby={error ? 'identifier-help login-error' : 'identifier-help'}
                       aria-invalid={Boolean(error)}
                       value={identifier}
                       onChange={(event) => { setIdentifier(event.target.value); setError('') }}
-                      placeholder="Enter your username"
+                      placeholder="e.g. DSWD-0001"
                       className="ga-input h-12 pl-11 placeholder:text-slate-500 aria-invalid:border-brand-red"
                     />
                   </div>
@@ -142,7 +142,7 @@ function LoginPage({ onAuthenticated, onPasswordChangeRequired, onTotpRequired, 
               </div>
 
               <button type="submit" disabled={isSubmitting || connectionStatus !== 'ready'} aria-describedby={connectionStatus !== 'ready' ? 'login-connection' : undefined} className="ga-btn-primary w-full shadow-none hover:shadow-none">
-                {isSubmitting ? <LoadingLabel>Signing in...</LoadingLabel> : connectionStatus !== 'ready' ? <LoadingLabel>Connecting...</LoadingLabel> : <>Sign in securely<Icon name="arrowRight" className="size-4" /></>}
+                {isSubmitting ? <LoadingLabel>Signing in...</LoadingLabel> : connectionStatus !== 'ready' ? <LoadingLabel>Connecting...</LoadingLabel> : <>Sign in<Icon name="arrowRight" className="size-4" /></>}
               </button>
             </form>
           </>

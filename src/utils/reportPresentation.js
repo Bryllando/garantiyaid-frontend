@@ -1,4 +1,4 @@
-import { reportDateHelp, reportTypes } from './reportScope.js'
+import { reportDateHelp, reportStatuses, reportTypes } from './reportScope.js'
 
 const numbers = new Intl.NumberFormat('en-PH')
 const money = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' })
@@ -15,6 +15,31 @@ export function formatReportDate(value) {
 const percent = value => value == null || !Number.isFinite(Number(value)) ? 'Unavailable' : `${formatReportNumber(value)}%`
 const text = value => value == null || value === '' ? 'Not recorded' : String(value)
 const statusCoverageNotice = 'Status totals cover all statuses within the date range. Matching records below follow your selected status.'
+const countStatus = (counts, status) => counts ? (Object.hasOwn(counts, status) ? counts[status] : 0) : undefined
+
+export function reportFinding(scope, data) {
+  if (scope.type === 'FUNDS') {
+    const remaining = formatReportMoney(data.totals?.remainingAmount)
+    return remaining === 'Unavailable' ? 'The remaining simulated allocation is unavailable.' : `${remaining} remains in the simulated allocation.`
+  }
+  const [count, singular, plural] = {
+    SUMMARY: [data.beneficiaries?.claimedCount, 'completed claim', 'completed claims'],
+    CLAIMS: [data.summary?.matchingClaimCount, 'matching claim', 'matching claims'],
+    SCHEDULES: [data.summary?.matchingScheduleCount, 'matching schedule', 'matching schedules'],
+    ANOMALIES: [data.summary?.total, 'recorded exception', 'recorded exceptions'],
+  }[scope.type]
+  if (formatReportNumber(count) === 'Unavailable') return 'The record count is unavailable.'
+  if (scope.type === 'SCHEDULES' && scope.status === 'MISSED') {
+    return Number(count) === 1 ? '1 schedule was marked missed.' : `${formatReportNumber(count)} schedules were marked missed.`
+  }
+  if (scope.type === 'CLAIMS' && scope.status) {
+    const status = humanizeReportValue(scope.status).toLowerCase()
+    return Number(count) === 1 ? `1 claim is marked ${status}.` : `${formatReportNumber(count)} claims are marked ${status}.`
+  }
+  const label = Number(count) === 1 ? singular : plural
+  const status = scope.status ? ` with status “${humanizeReportValue(scope.status)}”` : ''
+  return `${formatReportNumber(count)} ${label}${status}.`
+}
 
 function assistanceRecord(row) {
   if (row.deliveryMode !== 'PHYSICAL_GOODS') return row.claimedAt ? `${formatReportDate(row.claimedAt)}\nSimulated wallet credit` : 'Not recorded'
@@ -42,7 +67,7 @@ export function reportDefinition(type, data, report = {}) {
       : `Simulated net credited is ${formatReportMoney(data.fundUtilization?.netCreditedAmount)}. No real funds are transferred.`,
   }
   if (type === 'CLAIMS') return {
-    metrics: [['Matching claims', formatReportNumber(data.summary.matchingClaimCount)], ['Claimed', formatReportNumber(data.summary.statusCounts.CLAIMED ?? 0)], ['Verified', formatReportNumber(data.summary.statusCounts.VERIFIED ?? 0)], ['Rejected or voided', formatReportNumber((data.summary.statusCounts.REJECTED ?? 0) + (data.summary.statusCounts.VOIDED ?? 0))]],
+    metrics: [['Matching claims', formatReportNumber(data.summary?.matchingClaimCount)], ['Claimed', formatReportNumber(countStatus(data.summary?.statusCounts, 'CLAIMED'))], ['Verified', formatReportNumber(countStatus(data.summary?.statusCounts, 'VERIFIED'))], ['Rejected or voided', formatReportNumber(data.summary?.statusCounts ? (data.summary.statusCounts.REJECTED ?? 0) + (data.summary.statusCounts.VOIDED ?? 0) : undefined)]],
     notice: report.coverage?.status ? statusCoverageNotice : undefined,
     rows: data.claims,
     columns: [
@@ -58,7 +83,7 @@ export function reportDefinition(type, data, report = {}) {
     widths: [28, 43, 27, 30, 43, 43, 28, 27],
   }
   if (type === 'SCHEDULES') return {
-    metrics: [['Matching schedules', formatReportNumber(data.summary.matchingScheduleCount)], ['Scheduled', formatReportNumber(data.summary.statusCounts.SCHEDULED ?? 0)], ['Checked in', formatReportNumber(data.summary.statusCounts.CHECKED_IN ?? 0)], ['Missed', formatReportNumber(data.summary.statusCounts.MISSED ?? 0)]],
+    metrics: [['Matching schedules', formatReportNumber(data.summary?.matchingScheduleCount)], ['Scheduled', formatReportNumber(countStatus(data.summary?.statusCounts, 'SCHEDULED'))], ['Checked in', formatReportNumber(countStatus(data.summary?.statusCounts, 'CHECKED_IN'))], ['Missed', formatReportNumber(countStatus(data.summary?.statusCounts, 'MISSED'))]],
     notice: report.coverage?.status ? statusCoverageNotice : undefined,
     rows: data.schedules,
     columns: [['Slot / session', row => `${formatReportDate(row.slotStart)}\n${text(row.sessionLabel)}`], ['Beneficiary / queue', row => `${text(row.beneficiaryName)}\nQueue ${text(row.queueNumber)}`], ['Assignment', row => row.assignedByAi ? 'Automated rules' : 'Staff assigned'], ['Schedule', row => humanizeReportValue(row.scheduleStatus)], ['Claim', row => row.claimStatus ? humanizeReportValue(row.claimStatus) : 'No claim']],
@@ -92,11 +117,113 @@ export function orderedReportFacts(report) {
   return [...highlights, ...(report.facts ?? []).filter(fact => !selected.has(fact.id))]
 }
 
+const calendarDate = new Intl.DateTimeFormat('en-GB', { dateStyle: 'long', timeZone: 'UTC' })
+const simulationNote = 'All amounts come from the prototype’s simulated ledger.'
+
+function explanationDates({ dateFrom, dateTo }) {
+  const start = dateFrom && new Date(dateFrom)
+  const end = dateTo && new Date(dateTo)
+  if (start && end) return calendarDate.formatRange(start, end).replace(/\s*–\s*/g, '–')
+  if (start) return `From ${calendarDate.format(start)}`
+  if (end) return `Through ${calendarDate.format(end)}`
+  return 'All dates'
+}
+
+export function reportExplanation({ report, scope, event }) {
+  const { data } = report
+  const eventTitle = report.event?.title ?? event?.title
+  const details = [
+    ['Event', eventTitle || (scope.distributionId ? 'Selected distribution' : 'All authorized distributions')],
+    ['Date range', explanationDates(scope)],
+    ['Status filter', scope.status ? humanizeReportValue(scope.status) : 'All statuses'],
+  ]
+  let finding = reportFinding(scope, data)
+  let context
+  let topics
+  let table
+  let simulation
+  let matchLabel
+  const summary = data.summary ?? {}
+  const statusCount = status => formatReportNumber(countStatus(summary.statusCounts, status))
+
+  if (scope.type === 'FUNDS') {
+    const allocated = formatReportMoney(data.totals?.allocatedAmount)
+    const credited = formatReportMoney(data.totals?.netCreditedAmount)
+    const remaining = formatReportMoney(data.totals?.remainingAmount)
+    const eventCount = data.pagination?.total
+    if (eventCount === 0) finding = 'No distribution events match the selected filters.'
+    if (eventCount == null) context = 'The number of matching events is unavailable.'
+    else if (eventCount === 1) context = 'The totals cover one matching distribution event.'
+    else if (eventCount > 1) context = `The totals cover all ${formatReportNumber(eventCount)} matching distribution events.`
+    topics = eventCount === 0 ? [] : [
+      ['funds', allocated === 'Unavailable' ? 'The total simulated allocation is unavailable.' : `The total simulated allocation was ${allocated}.`],
+      ['funds', credited === 'Unavailable' ? 'Net simulated credits are unavailable.' : `Net simulated credits totaled ${credited}, after accounting for any completed reversals.`],
+    ]
+    if (eventCount !== 0) table = { caption: 'Simulated ledger totals', columns: ['Key figure', 'Amount'], rows: [['Total simulated allocation', allocated], ['Net simulated credits', credited], ['Remaining simulated allocation', remaining]] }
+    simulation = simulationNote
+  } else if (scope.type === 'CLAIMS' || scope.type === 'SCHEDULES') {
+    const schedules = scope.type === 'SCHEDULES'
+    const noun = schedules ? 'schedules' : 'claims'
+    const count = schedules ? summary.matchingScheduleCount : summary.matchingClaimCount
+    const formattedCount = formatReportNumber(count)
+    const status = scope.status && humanizeReportValue(scope.status)
+    if (status) matchLabel = `Matching ${status.toLowerCase()} ${noun}`
+    if (formattedCount === 'Unavailable') finding = `The number of matching ${noun} is unavailable.`
+    else if (Number(count) === 0) finding = `No ${noun} match the selected filters.`
+    else if (scope.status !== 'MISSED') {
+      const countLabel = Number(count) === 1 ? noun.slice(0, -1) : noun
+      const recordLabel = scope.status === 'CLAIMED' ? `completed ${countLabel}` : `${countLabel}${status ? ` marked ${status.toLowerCase()}` : ''}`
+      finding = `The report includes ${formattedCount} ${recordLabel}.`
+    }
+    context = status
+      ? `The table covers all statuses within the selected dates. The detailed records follow the ${status} filter.`
+      : `The table covers all ${noun} within the selected dates.`
+    const checkedIn = statusCount('CHECKED_IN')
+    topics = schedules ? [
+      ['attendance', checkedIn === 'Unavailable' ? 'The check-in count is unavailable.' : `The status totals show ${checkedIn} check-ins for these dates. A check-in records attendance.`],
+      ['missed', 'Review any schedules marked missed to decide which appointments need follow-up.'],
+    ] : [
+      ['completed', 'A claimed status records a handover or simulated wallet credit, depending on the event’s delivery mode.'],
+      ['verified', 'A verified status means the identity check is complete and assistance is still pending.'],
+    ]
+    table = { caption: schedules ? 'Schedule status totals for the date range' : 'Claim status totals for the date range', columns: [schedules ? 'Schedule status' : 'Claim status', 'Count'], rows: reportStatuses[scope.type].map(value => [humanizeReportValue(value), statusCount(value)]) }
+  } else if (scope.type === 'ANOMALIES') {
+    const count = formatReportNumber(summary.total)
+    if (summary.total === 0) finding = 'No exception records match the selected dates.'
+    else if (count !== 'Unavailable') finding = `The selected dates contain ${count} exception ${summary.total === 1 ? 'record' : 'records'}.`
+    topics = [['review', 'Exception records can include retries, unsuccessful checks, duplicate flags, and reversals. Review the recorded outcome before deciding what needs follow-up.']]
+    if (summary.total !== 0) table = { caption: 'Exception counts by category', columns: ['Category', 'Count'], rows: [
+      ['QR checks', formatReportNumber(summary.qrAnomalyCount)], ['Biometric checks', formatReportNumber(summary.biometricAnomalyCount)],
+      ['Duplicate claim flags', formatReportNumber(summary.duplicateClaimFlagCount)], ['Transaction exceptions', formatReportNumber(summary.transactionAnomalyCount)],
+    ] }
+  } else {
+    const beneficiaries = data.beneficiaries ?? {}
+    const physical = data.distribution?.deliveryMode === 'PHYSICAL_GOODS'
+    const completed = formatReportNumber(beneficiaries.claimedCount)
+    if (completed !== 'Unavailable') finding = `This event has ${completed} completed ${beneficiaries.claimedCount === 1 ? 'claim' : 'claims'} on record.`
+    const pending = formatReportNumber(beneficiaries.verifiedCount)
+    topics = [
+      ['completion', physical ? 'Completed claims are counted when a physical handover is recorded.' : 'Completed claims are counted when a simulated wallet credit is recorded.'],
+      ['awaiting', pending === 'Unavailable' ? 'The count awaiting assistance is unavailable.' : `The records show ${pending} verified claims awaiting assistance.`],
+      ['exceptions', 'The exception records in the full report provide the recorded outcome for each item needing review.'],
+    ]
+    table = { caption: 'Assistance figures for this event', columns: ['Key figure', 'Count'], rows: [
+      ['Allocated beneficiaries', formatReportNumber(beneficiaries.allocatedCount)], ['Completed claims', formatReportNumber(beneficiaries.claimedCount)],
+      ['Verified and awaiting assistance', pending], ['Checked-in schedules', formatReportNumber(beneficiaries.checkedInCount)],
+    ] }
+    if (!physical) simulation = simulationNote
+  }
+
+  const priorities = new Map((report.aiExplanation?.highlights ?? []).map((fact, index) => [fact.id, index]))
+  const paragraphs = topics.sort(([a], [b]) => (priorities.get(a) ?? priorities.size) - (priorities.get(b) ?? priorities.size)).slice(0, 2).map(([, sentence]) => sentence)
+  return { finding, matchLabel, paragraphs, table, details, context, dateMeaning: reportDateHelp[scope.type], simulation }
+}
+
 export function reportDocument(snapshot, user) {
   const { report, scope } = snapshot
   const event = report.event ?? snapshot.event
   const definition = reportDefinition(scope.type, report.data, report)
-  const sections = [{ title: 'Executive summary', metrics: definition.metrics, description: definition.notice }]
+  const sections = [{ title: 'Executive summary', metrics: definition.metrics, description: [reportFinding(scope, report.data), definition.notice].filter(Boolean).join(' ') }]
   sections.push({ title: 'Report explanations', paragraphs: orderedReportFacts(report).map(fact => `${fact.label}. ${fact.explanation}`), description: report.aiExplanation ? 'AI selected the priority of these explanations from the generated report facts.' : reportDateHelp[scope.type] })
   if (definition.rows) sections.push({ title: reportLabel(scope.type), ...definition })
   for (const [type, supporting] of Object.entries(report.supportingReports ?? {})) {

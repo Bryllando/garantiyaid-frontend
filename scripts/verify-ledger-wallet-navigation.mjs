@@ -13,6 +13,10 @@ let credited = false
 let mismatch = false
 let emptyDistributions = false
 const distributionReads = []
+let summaryReads = 0, reconciliationReads = 0, failTransactions = false
+let wallet = { walletId: 'wallet-1', balance: '2500', accountStatus: 'ACTIVE' }
+let walletCreations = 0
+let transactionsGate, walletGate
 const output = resolve('../output/transactions-ui-refinement')
 await mkdir(output, { recursive: true })
 const distribution = (id) => ({ distributionId: id, title: id === 'event-2' ? 'October Assistance' : 'September Assistance', distributionDate: '2026-10-10', program, barangay, status: openEvent ? 'OPEN' : 'CLOSED', deliveryMode: 'SIMULATED_WALLET' })
@@ -32,6 +36,7 @@ try {
   await page.addInitScript(() => {
     sessionStorage.setItem('garantiyaid.accessToken', 'preview-token')
     sessionStorage.setItem('garantiyaid.user', JSON.stringify({ userId: 'staff-1', role: sessionStorage.getItem('local-test-role') || 'SYSTEM_ADMIN', fullName: 'System Administrator', email: 'admin@example.gov.ph' }))
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: async value => { window.copiedLedgerReference = value } } })
   })
   await page.route('**/socket.io/**', (route) => route.abort())
   await page.routeWebSocket(/socket\.io/, () => {})
@@ -53,16 +58,39 @@ try {
       data = { distributions: empty ? [] : [distribution('event-1')], pagination: pagination(empty ? 0 : 1) }
     }
     else if (path === '/distributions/event-2') data = { distribution: distribution('event-2') }
-    else if (path === '/dashboard/distributions/event-2' || path === '/dashboard/distributions/event-1') data = { summary: { distribution: distribution(path.split('/').at(-1)), fundUtilization: zeroFunds } }
-    else if (/^\/distributions\/event-[12]\/transactions$/.test(path)) data = { transactions: credited ? [transaction()] : [], summary: {}, pagination: pagination(credited ? 1 : 0) }
+    else if (path === '/dashboard/distributions/event-2' || path === '/dashboard/distributions/event-1') {
+      summaryReads++
+      data = { summary: { distribution: distribution(path.split('/').at(-1)), fundUtilization: { ...zeroFunds, allocatedAmount: '1500', netCreditedAmount: credited ? '1500' : '0', remainingAmount: credited ? '0' : '1500' } } }
+    }
+    else if (/^\/distributions\/event-[12]\/transactions$/.test(path)) {
+      await transactionsGate
+      if (failTransactions) return route.fulfill({ status: 503, json: { error: { message: 'Sample transactions unavailable' } } })
+      const status = url.searchParams.get('status')
+      const rows = credited && (!status || status === 'COMPLETED') ? [transaction()] : []
+      data = { transactions: rows, summary: {}, pagination: pagination(rows.length) }
+    }
     else if (/^\/distributions\/event-[12]\/creditable-claims$/.test(path)) data = { claims: credited ? [] : [claim()], summary: { creditableClaimCount: credited ? 0 : 1 }, pagination: pagination(credited ? 0 : 1) }
     else if (path === '/distributions/event-2/claims/claim-1') data = { claim: claim() }
     else if (path === '/distributions/event-2/claims/claim-1/credit') {
       credited = true
       data = { transaction: transaction(), wallet: { walletId: 'wallet-1' }, lifecycle: {} }
     }
-    else if (/^\/distributions\/event-[12]\/reconciliation$/.test(path)) data = { reconciliation: { readyToClose: !mismatch && (!openEvent || credited), ledgerBalanced: !mismatch, deliveryMode: 'SIMULATED_WALLET', expectedWalletCreditedAmount: credited ? '1500' : '0', netCreditedAmount: credited ? '1500' : '0', completedBenefitCreditCount: credited ? 1 : 0, reversedBenefitCreditCount: 0, exceptions: mismatch ? [{ code: 'WALLET_LEDGER_BALANCE_MISMATCH', walletId: 'wallet-1', beneficiaryId, storedBalance: '2500', calculatedBalance: '1500' }] : openEvent && !credited ? [{ code: 'VERIFIED_CLAIM_AWAITING_CREDIT', claimId: 'claim-1' }] : [] }, simulation: {} }
-    else if (path === `/wallets/beneficiaries/${beneficiaryId}`) data = { beneficiary, wallet: { walletId: 'wallet-1', balance: '2500', accountStatus: 'ACTIVE' }, simulation: {} }
+    else if (/^\/distributions\/event-[12]\/reconciliation$/.test(path)) {
+      reconciliationReads++
+      data = { reconciliation: { readyToClose: !mismatch && (!openEvent || credited), ledgerBalanced: !mismatch, deliveryMode: 'SIMULATED_WALLET', expectedWalletCreditedAmount: credited ? '1500' : '0', netCreditedAmount: credited ? '1500' : '0', completedBenefitCreditCount: credited ? 1 : 0, reversedBenefitCreditCount: 0, exceptions: mismatch ? [{ code: 'WALLET_LEDGER_BALANCE_MISMATCH', walletId: 'wallet-1', beneficiaryId, storedBalance: '2500', calculatedBalance: '1500' }] : openEvent && !credited ? [{ code: 'VERIFIED_CLAIM_AWAITING_CREDIT', claimId: 'claim-1' }] : [] }, simulation: {} }
+    }
+    else if (path === `/wallets/beneficiaries/${beneficiaryId}`) {
+      await walletGate
+      data = { beneficiary, wallet, simulation: {} }
+    }
+    else if (path === '/wallets') {
+      assert.equal(route.request().method(), 'POST')
+      assert.deepEqual(route.request().postDataJSON(), { beneficiaryId })
+      assert.equal(wallet, null)
+      wallet = { walletId: 'wallet-1', balance: '0', accountStatus: 'ACTIVE' }
+      walletCreations++
+      data = { wallet, created: true, simulation: {} }
+    }
     else if (path === '/wallets/wallet-1/transactions') data = { transactions: [], pagination: pagination(0), simulation: {} }
     await route.fulfill({ json: { data } })
   })
@@ -103,6 +131,11 @@ try {
   assert.equal(await page.getByRole('button', { name: 'Review and credit', exact: true }).count(), 0, 'Admin reviews but cannot credit')
   await page.evaluate(() => sessionStorage.setItem('local-test-role', 'DSWD_STAFF'))
   await page.reload()
+  const eventContext = page.getByRole('region', { name: 'Selected distribution context' })
+  await expect(eventContext.getByText('Event totals last synced', { exact: false })).toContainText('PHT')
+  await expect(eventContext.getByRole('link', { name: '1 ready for simulated credit' })).toBeVisible()
+  await expect(eventContext.getByText('Allocated', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Distribution status')).not.toBeVisible()
   await page.getByRole('button', { name: 'Review and credit', exact: true }).click()
   const confirmation = page.getByRole('dialog', { name: 'Credit this verified claim?' })
   await expect(confirmation).toContainText('Maria Santos')
@@ -110,6 +143,42 @@ try {
   await expect(confirmation).not.toBeVisible()
   await expect(reconciliation.getByText('Reconciled', { exact: true })).toBeVisible()
   assert.equal(credited, true)
+  const transactions = page.getByRole('region', { name: 'Transactions', exact: true })
+  await expect(transactions.getByRole('button', { name: 'View receipt', exact: true })).toBeVisible()
+  await expect(transactions.getByText(/9:00 AM PHT/i).filter({ visible: true })).toBeVisible()
+  await transactions.getByRole('button', { name: 'Copy reference SIM-TEST-001' }).click()
+  assert.equal(await page.evaluate(() => window.copiedLedgerReference), 'SIM-TEST-001')
+  const transactionStatus = transactions.getByLabel('Transaction status')
+  const requestsBeforeFilter = [summaryReads, reconciliationReads]
+  let loadTransactions
+  transactionsGate = new Promise(resolve => { loadTransactions = resolve })
+  await transactionStatus.focus()
+  await transactionStatus.selectOption('FAILED')
+  await expect(transactions.getByRole('status', { name: 'Loading transactions' })).toBeVisible()
+  await expect(transactions.getByRole('button', { name: 'View receipt', exact: true })).toHaveCount(0)
+  await expect(transactions.getByText('No transactions found', { exact: true })).toHaveCount(0)
+  await expect(transactionStatus).toBeFocused()
+  loadTransactions()
+  await expect(transactions.getByText('No transactions found', { exact: true })).toBeVisible()
+  await expect(transactionStatus).toBeFocused()
+  await expect(reconciliation.getByText('Reconciled', { exact: true })).toBeVisible()
+  assert.deepEqual([summaryReads, reconciliationReads], requestsBeforeFilter)
+  failTransactions = true
+  await transactionStatus.selectOption('COMPLETED')
+  await expect(transactions.getByRole('alert')).toContainText('Sample transactions unavailable')
+  await expect(reconciliation.getByText('Reconciled', { exact: true })).toBeVisible()
+  failTransactions = false
+  await transactions.getByRole('button', { name: 'Retry transactions' }).click()
+  await expect(transactions.getByRole('button', { name: 'View receipt', exact: true })).toBeVisible()
+  await page.mouse.move(0, 0)
+  await expect(page.locator('[data-sonner-toast]')).toHaveCount(0, { timeout: 8000 })
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth), { message: `populated ledger overflow at ${width}px` }).toBeLessThanOrEqual(0)
+    await page.screenshot({ path: `${output}/ledger-populated-${width}.png`, fullPage: true })
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
   await page.evaluate(() => sessionStorage.removeItem('local-test-role'))
   await page.reload()
   await expect(reconciliation.getByText('Reconciled', { exact: true })).toBeVisible()
@@ -130,7 +199,7 @@ try {
 
   await page.goto(`${baseUrl}/dswd/ledger`)
   const filters = page.getByRole('form', { name: 'Dashboard filters' })
-  await expect(filters.getByRole('heading', { name: 'Filter distribution events' })).toBeVisible()
+  await page.getByText('Filter events', { exact: true }).click()
   await filters.getByLabel('Distribution status').selectOption('DRAFT')
   await filters.getByLabel('Date from', { exact: true }).fill('2026-11-01')
   await filters.getByLabel('Date to', { exact: true }).fill('2026-11-30')
@@ -205,6 +274,23 @@ try {
   await page.getByRole('link', { name: 'View simulated wallet' }).click()
   await expect(page.getByRole('heading', { name: 'Maria Santos' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Record simulated transfer' })).toBeVisible()
+  for (const role of ['SYSTEM_ADMIN', 'DSWD_STAFF']) {
+    wallet = null
+    await page.evaluate(role => sessionStorage.setItem('local-test-role', role), role)
+    let loadWallet
+    walletGate = new Promise(resolve => { loadWallet = resolve })
+    await page.goto(`${baseUrl}/dswd/ledger?workspace=wallets&beneficiary=${beneficiaryId}`)
+    const create = page.getByRole('button', { name: 'Create simulated wallet', exact: true })
+    await expect(page.getByRole('status', { name: 'Loading selected wallet' })).toBeVisible()
+    await expect(create).toHaveCount(0)
+    loadWallet()
+    await expect(create).toBeEnabled()
+    await create.click()
+    await expect(page.getByRole('heading', { name: 'Wallet history' })).toBeVisible()
+    await expect(create).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'Record simulated transfer' })).toHaveCount(role === 'DSWD_STAFF' ? 1 : 0)
+  }
+  assert.equal(walletCreations, 2)
   assert.deepEqual(errors, [])
   console.log('Ledger and wallet navigation, filter recovery, lookup guidance, role permissions and 1440/1024/768/390/320px layouts passed')
 } finally {

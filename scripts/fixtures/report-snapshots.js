@@ -17,13 +17,13 @@ export function reportFixture(scope) {
     releasedAt: physical && index < 38 ? generatedAt : null, releasedBy: { fullName: 'QA Facilitator' }, releaseEvidenceReference: `RELEASE-LOG-${index + 1}`,
     releasedPackageName: 'Family food pack', releasedPackageUnit: 'packs', releasedQuantity: physical && index < 38 ? 2 : null,
   }))
-  const allSchedules = Array.from({ length: 50 }, (_, index) => ({ scheduleId: `schedule-${index + 1}`, slotStart: generatedAt, sessionLabel: 'Afternoon session', beneficiaryName: `QA Peña ${index + 1}`, queueNumber: index + 1, assignedByAi: index % 2 === 0, scheduleStatus: index < 38 ? 'CHECKED_IN' : 'SCHEDULED', claimStatus: allClaims[index]?.claimStatus }))
+  const allSchedules = Array.from({ length: 50 }, (_, index) => ({ scheduleId: `schedule-${index + 1}`, slotStart: generatedAt, sessionLabel: 'Afternoon session', beneficiaryName: `QA Peña ${index + 1}`, queueNumber: index + 1, assignedByAi: index % 2 === 0, scheduleStatus: index < 38 ? 'CHECKED_IN' : index < 47 ? 'SCHEDULED' : 'MISSED', claimStatus: allClaims[index]?.claimStatus }))
   const anomalies = ['QR_SCAN', 'BIOMETRIC', 'DUPLICATE_CLAIM', 'TRANSACTION'].map((category, index) => ({ anomalyId: `${category}-${index}`, occurredAt: generatedAt, category, result: ['DUPLICATE', 'LIVENESS_FAILED', 'DUPLICATE', 'REVERSED'][index], severity: 'HIGH' }))
   const rows = scope.type === 'CLAIMS' ? allClaims.filter(row => !scope.status || row.claimStatus === scope.status) : scope.type === 'SCHEDULES' ? allSchedules.filter(row => !scope.status || row.scheduleStatus === scope.status) : scope.type === 'ANOMALIES' ? anomalies : [{ distribution: event, utilization: funds }]
   const pagination = { page: 1, pageSize: Math.max(rows.length, 1), total: rows.length, totalPages: rows.length ? 1 : 0 }
   let data
   if (scope.type === 'CLAIMS') data = { claims: rows, summary: { matchingClaimCount: rows.length, statusCounts: { CLAIMED: 38, VERIFIED: 5 } }, pagination }
-  else if (scope.type === 'SCHEDULES') data = { schedules: rows, summary: { matchingScheduleCount: rows.length, statusCounts: { CHECKED_IN: 38, SCHEDULED: 12 } }, pagination }
+  else if (scope.type === 'SCHEDULES') data = { schedules: rows, summary: { matchingScheduleCount: rows.length, statusCounts: { CHECKED_IN: 38, SCHEDULED: 9, MISSED: 3 } }, pagination }
   else if (scope.type === 'ANOMALIES') data = { anomalies: rows, summary: { total: 4, qrAnomalyCount: 1, biometricAnomalyCount: 1, duplicateClaimFlagCount: 1, transactionAnomalyCount: 1 }, pagination }
   else if (scope.type === 'FUNDS') data = { distributions: rows, totals: funds, pagination }
   else data = {

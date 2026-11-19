@@ -58,7 +58,10 @@ try {
   await expect(main.getByLabel('Loading enrollment reviews')).toBeVisible()
   await expect(main.getByLabel('Loading draft distributions')).toBeVisible()
   releaseRecords()
-  await expect(main.getByRole('link', { name: 'Review enrollment for Maria Santos', exact: true })).toBeVisible()
+  await expect(main.getByRole('link', { name: 'View submission for Maria Santos', exact: true })).toBeVisible()
+  const reviewLink = main.getByRole('link', { name: /Review enrollment for Alexandra Maria Victoria/ })
+  await expect(reviewLink).toBeVisible()
+  await expect(main.getByRole('link', { name: 'View draft distributions', exact: true })).toHaveCount(1)
   await expect(main.getByRole('link', { name: /Resume setup for Community assistance/ })).toBeVisible()
   await expect(main.getByText('Another Admin or DSWD reviewer must assess your submission.', { exact: true })).toBeVisible()
   await expect(main.getByText('Awaiting review', { exact: true })).toBeVisible()
@@ -73,7 +76,7 @@ try {
   assert.equal(links.get('View draft distributions'), '/distributions/manage?status=DRAFT')
   assert.equal(links.get('View open distributions'), '/distributions/manage?status=OPEN')
   assert.equal(links.get('View all enrollments'), '/enrollments')
-  assert.deepEqual(readEnrollmentLocation(new URL(links.get('Review enrollment for Maria Santos'), 'http://localhost').search), { filters: { search: '', status: 'PENDING', programId: '' }, page: 1, selectedId: 'review-1' })
+  assert.deepEqual(readEnrollmentLocation(new URL(links.get('View submission for Maria Santos'), 'http://localhost').search), { filters: { search: '', status: 'PENDING', programId: '' }, page: 1, selectedId: 'review-1' })
   assert.equal(links.get('Resume setup for Community assistance — November distribution'), '/distributions/manage?event=draft-1')
   assert.equal(links.get('Review allocations'), '/distributions/manage')
   assert.equal(readReportScope(new URL(links.get('Review verification reports'), 'http://localhost').search).type, 'ANOMALIES')
@@ -84,13 +87,17 @@ try {
   await main.getByRole('heading', { name: 'Overview', exact: true }).click()
 
   for (const width of [1920, 1440, 1280, 1024, 768, 390, 320]) {
-    await page.setViewportSize({ width, height: 1000 })
+    await page.setViewportSize({ width, height: 900 })
     await page.evaluate(() => window.scrollTo(0, 0))
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     const title = await main.getByRole('heading', { name: 'Overview', exact: true }).boundingBox()
     const header = await page.locator('.ga-staff-header').boundingBox()
     assert.ok(title.y >= header.y + header.height + 16, `Heading overlaps header at ${width}px`)
     await expect(main.getByRole('columnheader', { name: 'Beneficiary / program', exact: true })).toHaveCount(1)
+    if (width === 390) {
+      const review = await reviewLink.boundingBox()
+      assert.ok(review.height >= 44 && review.y + review.height <= 900, 'An eligible review action fits in the first mobile viewport')
+    }
     await page.screenshot({ path: resolve(output, `overview-${width}.png`), fullPage: true })
   }
   const longName = main.locator('.ga-overview-enrollments .ga-overview-record-name').last()
@@ -107,7 +114,7 @@ try {
   await page.screenshot({ path: resolve(output, 'record-errors-320.png'), fullPage: true })
   failRecords = false
   await main.getByRole('button', { name: 'Try again', exact: true }).first().click()
-  await expect(main.getByRole('link', { name: 'Review enrollment for Maria Santos', exact: true })).toBeVisible()
+  await expect(main.getByRole('link', { name: 'View submission for Maria Santos', exact: true })).toBeVisible()
 
   failOverview = true
   const savedTime = await updated.textContent()

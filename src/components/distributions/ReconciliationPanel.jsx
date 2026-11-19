@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getAuthErrorMessage, isSessionExpiredError, requestBeneficiary, requestDistributionClaim } from '../../auth/staffAuth.js'
 import { reconciliationIssue } from '../../utils/eventOperations.js'
-import { LoadingLabel } from '../ui/spinner.jsx'
 import { Skeleton } from '../ui/skeleton.jsx'
 
 const money = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' })
@@ -26,7 +25,7 @@ function ReconciliationIssue({ exception, distributionId, token, onNavigate, onS
   const name = [record?.beneficiary?.firstName, record?.beneficiary?.middleName, record?.beneficiary?.lastName].filter(Boolean).join(' ')
   return <li className="min-w-0 px-4 py-4 text-sm sm:px-5">
     <p className="font-semibold text-ink">{guidance.title}</p>
-    {loading ? <p role="status" className="mt-2 text-muted-copy"><LoadingLabel>Loading beneficiary...</LoadingLabel></p> : name ? <p className="mt-1 text-copy"><span>{name}</span>{record.schedule?.queueNumber != null && <span className="text-muted-copy"> · Queue {record.schedule.queueNumber}</span>}</p> : <p className="mt-1 text-muted-copy">Beneficiary details unavailable</p>}
+    {loading ? <div role="status" aria-label="Loading beneficiary"><Skeleton className="mt-2 h-4 w-44 max-w-full" /></div> : name ? <p className="mt-1 text-copy"><span>{name}</span>{record.schedule?.queueNumber != null && <span className="text-muted-copy"> · Queue {record.schedule.queueNumber}</span>}</p> : <p className="mt-1 text-muted-copy">Beneficiary details unavailable</p>}
     {error && <div role="alert" className="mt-2 text-sm text-brand-amber"><p>{error}</p><button type="button" onClick={() => { setDetails(null); setRetry((value) => value + 1) }} className="ga-admin-link">Retry beneficiary details</button></div>}
     <dl className="mt-3 grid gap-1 sm:grid-cols-[7rem_1fr]"><dt className="text-muted-copy">Responsible</dt><dd className="font-medium text-ink">{guidance.owner}</dd><dt className="mt-1 text-muted-copy sm:mt-0">Next step</dt><dd className="leading-6 text-copy">{loading || error ? 'Open the affected record to confirm its current status and any active dispute.' : guidance.next}</dd></dl>
     {exception.code === 'WALLET_LEDGER_BALANCE_MISMATCH' && <p className="mt-2 text-copy">Stored balance {formatMoney(exception.storedBalance)} · Ledger {formatMoney(exception.calculatedBalance)}</p>}

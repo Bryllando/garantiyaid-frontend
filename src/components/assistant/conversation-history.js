@@ -35,7 +35,7 @@ export function saveConversations(owner, activeId, conversations, storage) {
     storage.setItem(ASSISTANT_HISTORY_KEY, JSON.stringify({ owner, activeId, conversations: conversations.filter(row => Array.isArray(row.messages)).map((row) => ({
       id: row.id, language: row.language, input: row.input, unfinished: Boolean(row.unfinished),
       title: row.title, lastUsedAt: row.lastUsedAt, expiresAt: row.expiresAt, archivedAt: row.archivedAt,
-      saved: row.saved, pending: row.pending,
+      saved: row.saved, pending: row.pending, failedAnswer: row.failedAnswer,
       messages: row.messages.map(({ role, content, local }) => ({ role, content, local: Boolean(local) })),
     })) }))
     return true

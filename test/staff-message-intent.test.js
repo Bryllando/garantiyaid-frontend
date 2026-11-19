@@ -44,7 +44,10 @@ const examples = {
   ],
   greeting: ['Hello!', 'good morning', 'Maayong buntag', 'Kumusta?', 'testing'],
   beneficiary: ['Show beneficiary contacts', 'Hi, check the beneficiaries in this sitio'],
-  help: ['How do I send a reminder?', 'Explain SMS reminders', 'Yes', 'Approve', 'Help me', ''],
+  help: [
+    'How do I send a reminder?', 'Explain SMS reminders', 'Yes', 'Approve', 'Help me', '',
+    'Can you make it a table?', 'Make a table comparing Admin and DSWD staff',
+  ],
 }
 
 for (const [expected, messages] of Object.entries(examples)) {

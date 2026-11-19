@@ -51,6 +51,7 @@ try {
         await expect(link).toHaveAttribute('aria-current', 'location')
         if (mobile) await expect(menu).toHaveAttribute('aria-expanded', 'false')
       }
+      await expect(page.locator('#top').getByRole('link', { name: 'Where to request assistance' })).toHaveAttribute('href', '#beneficiary-guidance')
       const hero = page.locator('#top img')
       await expect(hero).toHaveAttribute('src', '/LandingPage(2).png')
       assert.equal(await hero.evaluate(image => Math.abs(image.clientWidth / image.clientHeight - image.naturalWidth / image.naturalHeight) < 0.02), true, 'The complete collage keeps its original proportions')
@@ -150,6 +151,11 @@ try {
         await expect(page.locator('input[type="password"]')).toBeVisible()
         await page.goto(origin)
       }
+      await page.goto('about:blank')
+      await page.goto(origin + '/#beneficiary-guidance')
+      await expect(page.locator('#beneficiary-title')).toBeInViewport()
+      await expect(page.locator('#beneficiary-guidance')).toBeFocused()
+      await page.goto('about:blank')
       await page.goto(`${origin}/#burial-referrals`)
       await expect(page.locator('#burial-referrals')).toBeInViewport()
       await expect(navigation.locator('a[href="#burial-referrals"]')).toHaveAttribute('aria-current', 'location')

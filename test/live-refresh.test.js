@@ -3,6 +3,22 @@ import test from 'node:test'
 import { createLiveRefresh } from '../src/utils/liveRefresh.js'
 import { getApiRetryAfterSeconds, requestPrograms, subscribeApiCooldown } from '../src/auth/staffAuth.js'
 
+test('a leading refresh picks up the first change promptly and coalesces the next burst', t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'] })
+  let calls = 0
+  const refresh = createLiveRefresh('selected-event', () => calls++, { leading: true })
+  refresh()
+  refresh()
+  t.mock.timers.tick(250)
+  assert.equal(calls, 1)
+  refresh()
+  t.mock.timers.tick(19_999)
+  assert.equal(calls, 1)
+  t.mock.timers.tick(1)
+  assert.equal(calls, 2)
+  refresh.cancel()
+})
+
 test('continuous live events remain bounded over a full 15-minute request window and stop on cleanup', t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'] })
   let calls = 0

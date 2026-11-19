@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { mkdir } from 'node:fs/promises'
 import { chromium, expect } from '@playwright/test'
 import { createServer } from 'vite'
 import { historyApiFixture } from './fixtures/assistant-history.js'
@@ -7,6 +8,7 @@ import { historyApiFixture } from './fixtures/assistant-history.js'
 const vite = await createServer({ cacheDir: 'node_modules/.vite-verify/conversations', logLevel: 'error', define: { 'import.meta.env.VITE_API_URL': JSON.stringify('/api/v1') }, server: { host: '127.0.0.1', port: 0, hmr: false } })
 let browser, enqueueCalls = 0, rejectConfirmation = true
 const errors = [], previewRequests = [], guidanceRequests = []
+const guidanceResponses = []
 const events = ['morning', 'next day'].map((label, index) => ({ distributionId: `punta-${index}`, title: `Punta ${label}`, status: 'OPEN', distributionDate: `2099-12-${10 + index}`, startTime: '10:00', endTime: '12:00', program: { programCode: 'TUPAD', programName: 'TUPAD program' }, barangay: { barangayName: 'Punta' } }))
 try {
   await vite.listen()
@@ -29,6 +31,10 @@ try {
     if (path.endsWith('/schedules')) return respond({ schedules: [], summary: {}, pagination: { totalPages: 1 } })
     if (path.endsWith('/staff-assistant/messages')) {
       guidanceRequests.push(route.request().postDataJSON())
+      if (guidanceResponses.length > 0) return guidanceResponses.shift()(route, respond)
+      if (guidanceRequests.at(-1).messageText === 'How does GarantiyAid work?') {
+        return respond({ messageText: 'GarantiyAid tracks assistance from enrollment to receipt.', externalAiUsed: false })
+      }
       return respond({ messageText: 'Mobile push delivery is unavailable. A saved push draft is not a delivered notification.', externalAiUsed: false })
     }
     if (path.endsWith('/notifications/assistant-preview')) {
@@ -124,8 +130,111 @@ try {
     await page.setViewportSize({ width, height: 1000 })
     await expect.poll(() => panel.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
   }
+
+  const output = '../output/staff-ui-ux-fixes/after'
+  await mkdir(output, { recursive: true })
+  const input = panel.locator('#garantiyaid-ai-message')
+  const composer = panel.locator('.ga-assistant-input')
+  const userMessage = panel.getByRole('article', { name: 'Your message', exact: true })
+  const assistantReply = panel.getByRole('article', { name: 'Assistant reply', exact: true })
+  const retry = panel.getByRole('button', { name: 'Retry answer', exact: true })
+  const newChat = panel.getByRole('button', { name: 'New chat', exact: true })
+  const timeout = route => route.fulfill({ status: 504, json: { error: { message: 'The answer took too long.' } } })
+  const interrupted = route => route.fulfill({ contentType: 'text/event-stream', body: 'data: {"type":"text","text":"Partial reply for the fixture."}\n\ndata: {"type":"error"}\n\n' })
+  await newChat.click()
+  await panel.getByRole('combobox', { name: 'Assistant language' }).selectOption('en')
+  const composerHeights = {}
+  for (const width of [320, 1440, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await expect.poll(() => composer.evaluate(el => Math.round(el.getBoundingClientRect().height))).toBeLessThan(120)
+    composerHeights[width] = Math.round((await composer.boundingBox()).height)
+    await input.fill('Short question')
+    await expect.poll(() => input.evaluate(el => el.getBoundingClientRect().height)).toBeLessThanOrEqual(32)
+    await input.fill('First line\nSecond line\nThird line')
+    await expect.poll(() => input.evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThan(50)
+    await input.fill('Long question\n'.repeat(20))
+    await expect.poll(() => input.evaluate(el => el.getBoundingClientRect().height)).toBeLessThanOrEqual(144)
+    await input.clear()
+    await expect.poll(() => input.evaluate(el => el.getBoundingClientRect().height)).toBeLessThanOrEqual(32)
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)
+  }
+  await input.focus()
+  await page.evaluate(() => {
+    const viewport = window.visualViewport
+    Object.defineProperty(viewport, 'height', { configurable: true, value: 560 })
+    viewport.dispatchEvent(new Event('resize'))
+  })
+  await expect.poll(async () => {
+    const send = await panel.getByRole('button', { name: 'Send message', exact: true }).boundingBox()
+    return send.y + send.height
+  }).toBeLessThanOrEqual(560)
+  await page.evaluate(() => {
+    const viewport = window.visualViewport
+    Reflect.deleteProperty(viewport, 'height')
+    viewport.dispatchEvent(new Event('resize'))
+  })
+  await chat('How does GarantiyAid work?')
+  const question = 'Explain how the platform handles a delayed reply.'
+  const start = guidanceRequests.length
+  guidanceResponses.push(timeout, (_route, respond) => respond({ messageText: 'Complete fixture reply.', externalAiUsed: false }))
+  await chat(question)
+  await expect(retry).toBeVisible()
+  await expect(input).toHaveValue('')
+  await expect.poll(() => composer.evaluate(el => el.getBoundingClientRect().height)).toBeLessThan(120)
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await retry.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: `${output}/assistant-timeout-${width}.png` })
+  }
+  await panel.getByRole('combobox', { name: 'Assistant language' }).selectOption('fil')
+  await expect.poll(() => [...history.rows.values()].some(row => row.language === 'fil' && row.messages.at(-1)?.content === question)).toBe(true)
+  await page.reload()
+  await expect(retry).toBeVisible()
+  await expect(retry).toHaveAttribute('aria-disabled', 'false')
+  await expect(userMessage.getByText(question, { exact: true })).toHaveCount(1)
+  assert.equal(guidanceRequests.length - start, 1, 'Refreshing does not retry a guidance question automatically')
+  await retry.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: `${output}/assistant-retry-after-refresh-390.png` })
+  await retry.focus()
+  await page.keyboard.press('Enter')
+  await expect(assistantReply.getByText('Complete fixture reply.', { exact: true })).toBeVisible()
+  assert.equal(guidanceRequests.length - start, 2)
+  assert.deepEqual(guidanceRequests[start + 1], guidanceRequests[start], 'Retry uses the original request, language and context')
+  assert.ok(guidanceRequests[start].history.length > 0)
+  await expect(userMessage.getByText(question, { exact: true })).toHaveCount(1)
+  await expect(assistantReply.getByText('Complete fixture reply.', { exact: true })).toHaveCount(1)
+  await expect(retry).toHaveCount(0)
+  await expect.poll(() => [...history.rows.values()].some(row => row.messages.at(-1)?.content === 'Complete fixture reply.')).toBe(true)
+  await page.reload()
+  await expect(assistantReply.getByText('Complete fixture reply.', { exact: true })).toHaveCount(1)
+  await expect(retry).toHaveCount(0)
+
+  let finishLateReply
+  const lateReply = new Promise(resolve => { finishLateReply = resolve })
+  guidanceResponses.push(interrupted, timeout, async (_route, respond) => {
+    await lateReply
+    await respond({ messageText: 'Late reply for the previous chat.', externalAiUsed: false }).catch(() => {})
+  })
+  await chat('Explain the remaining work for this office.')
+  await expect(panel.getByText('This reply was interrupted before completion.', { exact: true })).toBeVisible()
+  await retry.click()
+  await expect(panel.getByRole('alert')).toContainText('The answer took too long.')
+  await expect(panel.getByText('Partial reply for the fixture.', { exact: true })).toHaveCount(0)
+  const beforeDoubleClick = guidanceRequests.length
+  await retry.evaluate(button => { button.click(); button.click() })
+  await expect(panel.getByRole('status').filter({ hasText: 'Retrying answer...' })).toBeVisible()
+  assert.equal(guidanceRequests.length - beforeDoubleClick, 1)
+  try {
+    await panel.getByRole('button', { name: 'History', exact: true }).click()
+    await panel.getByRole('button', { name: 'Pahinumdomi ang scheduled beneficiaries sa TUPAD sa Punta.', exact: true }).click()
+    await expect(userMessage.getByText('Pahinumdomi ang scheduled beneficiaries sa TUPAD sa Punta.', { exact: true })).toBeVisible()
+  } finally {
+    finishLateReply()
+  }
+  await expect(panel.getByText('Late reply for the previous chat.', { exact: true })).toHaveCount(0)
+  assert.equal(enqueueCalls, 2)
   assert.deepEqual(errors, [])
-  console.log('PASS: event choices, follow-ups, cancellation, unavailable push, permission rejection, confirmation, and repeatable tasks after success without a new chat or duplicate send. No real SMS sent.')
+  console.log('PASS: reminder preview, confirmation and cancellation, chat retry after refresh and switching, and composer sizing. Empty composer heights: ' + JSON.stringify(composerHeights))
 } finally {
   await browser?.close()
   await vite.close()

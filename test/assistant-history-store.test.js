@@ -64,6 +64,28 @@ test('offline and interrupted saves retain drafts; retry never duplicates messag
   assert.equal(reloaded.current().input, 'Still typing')
 })
 
+test('failed answer metadata stays in the tab cache when another conversation is active', async () => {
+  const data = setup()
+  const id = await data.fixture.seed('How do I review an enrollment?', 1)
+  await data.store.load()
+  await data.store.select(id)
+  const failedAnswer = { index: 0, language: 'en', intent: 'ENROLLMENT' }
+  data.store.change({ failedAnswer })
+  await data.store.start()
+  const otherChat = setup(data.fixture, data.storage)
+  await otherChat.store.load()
+  otherChat.store.change({ input: 'A different conversation' })
+  await otherChat.store.flush()
+  const writes = data.fixture.writes
+  const reloaded = setup(data.fixture, data.storage)
+  await reloaded.store.load()
+  assert.equal(reloaded.current().failedAnswer, undefined)
+  await reloaded.store.select(id)
+  assert.deepEqual(reloaded.current().failedAnswer, failedAnswer)
+  assert.equal(data.fixture.rows.get(id).failedAnswer, undefined)
+  assert.equal(data.fixture.writes, writes)
+})
+
 test('archive/restore/delete affect only the chosen chat and never recreate deleted chats', async () => {
   const data = setup(); await data.store.load()
   data.store.change({ messages: [{ role: 'user', content: 'Archive me' }] }); await data.store.flush()

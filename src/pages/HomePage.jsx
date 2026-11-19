@@ -61,6 +61,11 @@ function HomePage() {
       if (window.matchMedia('(min-width: 1024px)').matches) setMenuOpen(false)
       onScroll()
     }
+    const initialTarget = document.getElementById(window.location.hash.slice(1))
+    if (initialTarget?.hasAttribute('tabindex')) {
+      initialTarget.scrollIntoView({ behavior: 'instant', block: 'start' })
+      initialTarget.focus({ preventScroll: true })
+    }
     updateSection()
     window.addEventListener('scroll', onScroll, { passive: true })
     window.addEventListener('resize', onResize)
@@ -128,11 +133,14 @@ function HomePage() {
               <p className="mt-6 max-w-md text-base leading-7 text-blue-100 sm:text-lg sm:leading-8">A shared staff workspace for beneficiary records, distribution schedules, and accountable assistance releases.</p>
               <div className="mt-8 flex flex-wrap items-center gap-x-7 gap-y-3">
                 <a href="/login" className="inline-flex min-h-12 items-center justify-center gap-4 rounded-sm bg-amber-300 px-6 py-3 text-sm font-bold text-brand-navy hover:bg-amber-200 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">Staff sign in <Icon name="arrowRight" className="size-4" /></a>
-                <a href="#workflow" className="inline-flex min-h-12 items-center gap-2 rounded-sm text-sm font-semibold text-white underline decoration-white/50 underline-offset-4 hover:decoration-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">See the process <Icon name="chevronDown" className="size-4" /></a>
+                <a href="#beneficiary-guidance" className="inline-flex min-h-12 items-center gap-2 rounded-sm text-sm font-semibold text-white underline decoration-white/50 underline-offset-4 hover:decoration-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">Where to request assistance <Icon name="chevronDown" className="size-4" /></a>
               </div>
             </div>
             <figure className="min-w-0">
-              <img src="/LandingPage(2).png" alt="A collage of community outreach activities, assistance processing, and children gathered outside a school." width="1466" height="877" fetchPriority="high" className="h-auto w-full rounded-sm border border-white/20" />
+              <picture>
+                <source type="image/webp" srcSet="/community-outreach-736.webp 736w, /community-outreach-1466.webp 1466w" sizes="(min-width: 1280px) 672px, (min-width: 1024px) 54vw, 100vw" />
+                <img src="/LandingPage(2).png" alt="A collage of community outreach activities, assistance processing, and children gathered outside a school." width="1466" height="877" fetchPriority="high" className="h-auto w-full rounded-sm border border-white/20" />
+              </picture>
               <figcaption className="mt-3 border-l-2 border-amber-300 pl-3 text-xs leading-5 text-blue-100">Community outreach &amp; assistance</figcaption>
             </figure>
           </div>

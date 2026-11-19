@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ConfirmationDialog } from '../ui/confirmation-dialog.jsx'
 import { Icon } from '../ui/icon.jsx'
-import { LoadingLabel } from '../ui/spinner.jsx'
+import { SkeletonRows } from '../ui/skeleton.jsx'
 import { getAuthErrorMessage, isSessionExpiredError, requestBeneficiaryList, requestMobileAccounts, reviewMobileAccount } from '../../auth/staffAuth.js'
 
 const fullName = person => [person.firstName, person.middleName, person.lastName].filter(Boolean).join(' ')
@@ -64,7 +64,7 @@ function LinkReview({ account, token, onSessionExpired, onReviewed, onOpenRecord
         <button type="submit" className="ga-btn-secondary" disabled={loading}>Search records</button>
       </form>
       {error && <p role="alert" className="mt-4 text-sm text-brand-red">{error} Search again to retry.</p>}
-      {loading ? <p role="status" className="mt-5 text-sm text-copy"><LoadingLabel>Finding records…</LoadingLabel></p> : !error && results && <>
+      {loading ? <SkeletonRows label="Finding beneficiary records" className="mt-5" rows={2} /> : !error && results && <>
         <p className="mt-4 text-xs leading-5 text-muted-copy">{results.pagination.total} matching records. Select only after comparing the details. A name match does not prove identity.</p>
         <ul className="mt-3 divide-y divide-line rounded-lg border border-line">
           {results.beneficiaries.map(person => <li key={person.beneficiaryId} className="p-3">
@@ -117,7 +117,7 @@ export default function MobileAccountRequestsDialog({ token, barangays, onClose,
     <header className="flex items-start justify-between gap-4 border-b border-line p-5 sm:p-6"><div><h2 id="mobile-requests-title" className="flex items-center gap-2 text-xl font-bold"><Icon name="mobile" className="size-5 text-brand-blue" />Mobile account requests</h2><p className="mt-2 text-sm leading-6 text-copy">Connect an account to one verified beneficiary record.</p></div><button type="button" aria-label="Close mobile account requests" className="ga-btn-secondary shrink-0 px-3" onClick={onClose}><Icon name="close" className="size-5" /></button></header>
     <div className="flex flex-wrap items-end gap-3 border-b border-line px-5 py-4 sm:px-6"><div><label htmlFor="mobile-request-status" className="ga-label">Request status</label><select id="mobile-request-status" value={status} onChange={event => { setStatus(event.target.value); setPage(1); setLoading(true); setSelectedId(''); setError('') }} className="ga-input mt-2"><option value="PENDING">Needs review</option><option value="LINKED">Linked accounts</option><option value="REJECTED">Correction requested</option></select></div><button type="button" className="ga-btn-secondary" onClick={refresh} disabled={loading}><Icon name="reset" className="size-4" />Refresh</button></div>
     {notice && <p role="status" className="border-b border-line bg-emerald-50 px-6 py-3 text-sm text-emerald-800">{notice}</p>}
-    {loading ? <p role="status" className="p-6"><LoadingLabel>Loading requests…</LoadingLabel></p> : error ? <div role="alert" className="p-6"><p className="text-sm text-brand-red">{error}</p><button type="button" className="ga-btn-secondary mt-4" onClick={refresh}>Try again</button></div> : data && <>
+    {loading ? <SkeletonRows label="Loading account requests" /> : error ? <div role="alert" className="p-6"><p className="text-sm text-brand-red">{error}</p><button type="button" className="ga-btn-secondary mt-4" onClick={refresh}>Try again</button></div> : data && <>
       {!data.mobileAuthenticationConfigured && <p className="border-b border-line bg-slate-50 px-6 py-3 text-sm leading-6 text-copy">Mobile integration is not connected yet. Requests will appear after your mobile backend is configured.</p>}
       {data.accounts.length === 0 ? <div className="px-6 py-10 text-center"><Icon name="mobile" className="mx-auto size-8 text-muted-copy" /><h3 className="mt-3 font-semibold">{status === 'PENDING' ? 'No accounts waiting for review' : 'No requests in this status'}</h3><p className="mt-2 text-sm leading-6 text-muted-copy">Existing imported beneficiaries stay in the beneficiary register. Mobile registration will request a link rather than create a second person.</p></div> : <div className="grid min-w-0 md:grid-cols-[16rem_minmax(0,1fr)]">
         <nav aria-label="Mobile account requests" className={`border-b border-line md:border-b-0 md:border-r ${selected ? 'hidden md:block' : ''}`}><ul className="divide-y divide-line">{data.accounts.map(account => <li key={account.accountId}><button type="button" aria-current={selectedId === account.accountId ? 'true' : undefined} onClick={() => setSelectedId(account.accountId)} className={`w-full p-5 text-left hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-blue ${selectedId === account.accountId ? 'bg-info-soft' : ''}`}><strong className="block break-words text-sm">{fullName(account)}</strong><span className="mt-1 block text-xs text-muted-copy">{date(account.birthDate)} · {barangays.find(item => item.barangayId === account.barangayId)?.barangayName ?? 'Service barangay'}</span><span className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-brand-blue">Review request<Icon name="chevronRight" className="size-3" /></span></button></li>)}</ul></nav>

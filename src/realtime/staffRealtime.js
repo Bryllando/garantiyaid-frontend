@@ -22,6 +22,7 @@ export const FACILITATOR_QUEUE_LIVE_EVENTS = Object.freeze([
   'schedule.checked_in',
   'claim.updated',
   'claim.released',
+  'dashboard.metrics.updated',
 ])
 export const CHATBOT_LIVE_EVENTS = Object.freeze([
   'chatbot.session.escalated',

@@ -48,7 +48,7 @@ export default function AdminOverview({ session, overview, draftEvents, draftErr
   const metrics = [
     ['Active programs', overview.programs.activeProgramCount, '/programs', 'programs'],
     ['Approved beneficiaries', overview.beneficiaries.approvedBeneficiaryCount, '/enrollments?status=APPROVED', 'beneficiaries'],
-    ['Draft distributions', overview.distributions.statusCounts ? overview.distributions.statusCounts.DRAFT ?? 0 : null, '/distributions/manage?status=DRAFT', 'audit'],
+    ['Draft distributions', overview.distributions.statusCounts ? overview.distributions.statusCounts.DRAFT ?? 0 : null, null, 'audit'],
     ['Open distributions', overview.distributions.openDistributionCount, '/distributions/manage?status=OPEN', 'distributions'],
   ]
 
@@ -58,10 +58,6 @@ export default function AdminOverview({ session, overview, draftEvents, draftErr
       <button type="button" className="ga-btn-secondary" onClick={onRefresh} disabled={refreshDisabled}><Icon name="reset" className="size-4" />Refresh</button>
     </header>
     <OverviewUpdate generatedAt={overview.generatedAt} liveStatus={liveStatus} />
-
-    <dl className="ga-admin-summary grid grid-cols-2 lg:grid-cols-4" aria-label="Operations summary">
-      {metrics.map(([label, value, href, icon]) => <div key={label}><dt><span className="ga-overview-icon"><Icon name={icon} /></span><span>{label}</span></dt><dd><span className="ga-overview-total">{value == null ? '—' : number.format(value)}</span><Link onNavigate={onNavigate} href={href}>View<span className="sr-only"> {label.toLowerCase()}</span><Icon name="arrowRight" className="size-4" /></Link></dd></div>)}
-    </dl>
 
     <div className="ga-overview-work">
       <section className="ga-admin-register" aria-labelledby="admin-review-heading">
@@ -74,7 +70,7 @@ export default function AdminOverview({ session, overview, draftEvents, draftErr
             <tbody>{reviewRows.map((enrollment) => <tr key={enrollment.enrollmentId}>
               <td><p className="ga-overview-record-name">{[enrollment.beneficiary.firstName, enrollment.beneficiary.lastName].filter(Boolean).join(' ')}</p><p className="ga-overview-record-detail">{enrollment.program.programName}</p>{enrollment.submittedById === session.user.userId && <p className="ga-overview-review-rule">Another Admin or DSWD reviewer must assess your submission.</p>}</td>
               <td><time dateTime={enrollment.createdAt}>{formatDate(enrollment.createdAt) || 'Not recorded'}</time><span className={`ga-overview-status ${enrollment.status === 'PENDING' ? 'ga-overview-status-pending' : ''}`}>{enrollment.status === 'PENDING' ? 'Awaiting review' : 'Under validation'}</span></td>
-              <td><Link onNavigate={onNavigate} className="ga-admin-link ga-overview-row-action" href={`/enrollments?status=${enrollment.status}&enrollment=${encodeURIComponent(enrollment.enrollmentId)}`}>Review enrollment<span className="sr-only"> for {enrollment.beneficiary.firstName} {enrollment.beneficiary.lastName}</span></Link></td>
+              <td><Link onNavigate={onNavigate} className="ga-admin-link ga-overview-row-action" href={`/enrollments?status=${enrollment.status}&enrollment=${encodeURIComponent(enrollment.enrollmentId)}`}>{enrollment.submittedById === session.user.userId ? 'View submission' : 'Review enrollment'}<span className="sr-only"> for {enrollment.beneficiary.firstName} {enrollment.beneficiary.lastName}</span></Link></td>
             </tr>)}</tbody>
           </table> : <OverviewEmptyState icon="enrollments" title="No enrollments awaiting review"><p>Submitted enrollments will appear here.</p><Link onNavigate={onNavigate} href="/beneficiaries">View beneficiary records</Link></OverviewEmptyState>}
         </>}
@@ -90,6 +86,16 @@ export default function AdminOverview({ session, overview, draftEvents, draftErr
         </li>)}</ul> : <OverviewEmptyState icon="distributions" title="No draft distributions"><p>Create a distribution for an active program and barangay.</p><Link onNavigate={onNavigate} href="/distributions/manage?create=1">Create a distribution</Link></OverviewEmptyState>}
       </section>
     </div>
+
+    <dl className="ga-admin-summary mt-5 grid grid-cols-2 lg:grid-cols-4" aria-label="Operations summary">
+      {metrics.map(([label, value, href, icon]) => <div key={label}>
+        <dt><span className="ga-overview-icon"><Icon name={icon} /></span><span>{label}</span></dt>
+        <dd>
+          <span className="ga-overview-total">{value == null ? '—' : number.format(value)}</span>
+          {href && <Link onNavigate={onNavigate} href={href}>View {label.toLowerCase()}<Icon name="arrowRight" className="size-4" /></Link>}
+        </dd>
+      </div>)}
+    </dl>
 
     <section className="ga-admin-register ga-overview-follow-up" aria-labelledby="admin-operations-heading">
       <header><h2 id="admin-operations-heading"><Icon name="monitoring" />Distribution follow-up</h2><Link onNavigate={onNavigate} href="/dswd/live-dashboard">View live monitoring<Icon name="arrowRight" className="size-4" /></Link></header>

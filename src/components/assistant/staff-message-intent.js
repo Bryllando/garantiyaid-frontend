@@ -3,7 +3,7 @@ import { isTaskCancellation, isTaskQuestion } from './task-details.js'
 const distributionTopic = /\b(distributions?|events?|schedules?|queue|iskedyul|sesyon|allocation|allocat(?:e|ion)s?)\b/
 const reminderTopic = /\b(reminders?|sms|messages?|notifications?|text|mensahe|pahibalo)\b/
 const deliveryTopic = /\b(status|delivery|failed|fail|failure|sent|queued|delivered|undelivered|napadala|naipadala|accepted|kadawat|nadawat)\b/
-const informationRequest = /\b(how|what|why|when|where|explain|show|view|check|review|steps|guide|unsa|unsaon|ngano|nganong|kanus.a|asa|ipakita|ipasabot|paano|ano|bakit|kailan|saan|ipaliwanag)\b/
+const informationRequest = /\b(how|what|why|when|where|explain|show|view|check|review|steps|guide|walkthrough|make (?:it|that) (?:into )?a table|compare|comparing|unsa|unsaon|ngano|nganong|kanus.a|asa|ipakita|ipasabot|paano|ano|bakit|kailan|saan|ipaliwanag)\b/
 const pauseRequest = /\b(no|not|never|don'?t|do not|cannot|can'?t|won'?t|without|stop|cancel|hold off|wait|never ?mind|ayaw|dili|huwag|wag|hindi|kanselahin|kanselaha)\b/
 
 export function messageIntent(message, userRole) {

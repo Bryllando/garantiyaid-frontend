@@ -32,7 +32,7 @@ export function createHistoryStore({ owner, api, storage, onUnauthorized = () =>
       metadata = data.conversation; revision = metadata.revision
       messages.push(...data.messages); offset = data.nextOffset
     } while (offset !== null)
-    return { ...metadata, messages, saved: checkpoint(metadata) }
+    return { ...metadata, messages, saved: checkpoint(metadata), failedAnswer: row.failedAnswer }
   }
   async function load() {
     if (loading) return loading
@@ -45,6 +45,13 @@ export function createHistoryStore({ owner, api, storage, onUnauthorized = () =>
           rows.push(...data.conversations.map(row => ({ ...row, saved: checkpoint(row) })))
           offset = data.nextOffset
         } while (offset !== null)
+        const cachedFailures = new Map(state.conversations.filter(row => row.failedAnswer).map(row => [row.id, row]))
+        rows = rows.map(row => {
+          const cached = cachedFailures.get(row.id)
+          if (!cached || row.archivedAt) return row
+          // Keep inactive failures in the tab cache until their transcript is fetched on selection.
+          return { ...row, failedAnswer: cached.failedAnswer, ...(row.id !== state.activeId && { messages: cached.messages }) }
+        })
         const local = state.conversations.filter(row => conversationDirty(row) || row.id === state.activeId && !row.saved)
         rows = [...local, ...rows.filter(row => !local.some(item => item.id === row.id))]
         let selected = rows.find(row => row.id === state.activeId && !row.archivedAt)

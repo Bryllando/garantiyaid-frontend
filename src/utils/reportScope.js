@@ -5,6 +5,13 @@ export const reportTypes = [
   ['ANOMALIES', 'Anomaly review'],
   ['FUNDS', 'Simulated fund utilization'],
 ]
+export const reportQuestions = {
+  SUMMARY: 'What happened at this distribution event?',
+  CLAIMS: 'Which claims have a recorded completion?',
+  SCHEDULES: 'Who was scheduled, checked in, or marked missed?',
+  ANOMALIES: 'Which recorded exceptions need a closer look?',
+  FUNDS: 'How much of the simulated allocation remains?',
+}
 export const reportStatuses = {
   CLAIMS: ['PENDING', 'VERIFIED', 'CLAIMED', 'REJECTED', 'VOIDED'],
   SCHEDULES: ['SCHEDULED', 'CHECKED_IN', 'MISSED', 'CANCELLED'],

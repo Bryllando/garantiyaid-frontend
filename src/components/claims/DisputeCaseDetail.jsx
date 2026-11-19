@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getAuthErrorMessage, isSessionExpiredError, requestClaimDispute, requestDistribution, requestDistributionClaim } from '../../auth/staffAuth.js'
 import { claimChecks, disputeLedgerHref, disputeReviewState } from '../../utils/claimWorkflow.js'
 import { LoadingLabel } from '../ui/spinner.jsx'
+import { Skeleton } from '../ui/skeleton.jsx'
 
 const humanize = (value) => value ? value.toLowerCase().replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase()) : 'Not recorded'
 const personName = (person) => [person?.firstName, person?.middleName, person?.lastName].filter(Boolean).join(' ') || 'Name not recorded'
@@ -68,7 +69,10 @@ export default function DisputeCaseDetail({ caseId, distributionId, refresh, ses
     </div>
     <h2 ref={heading} tabIndex={-1} className="sr-only">Case details</h2>
     {error && <div role="alert" className="mt-4 border-l-4 border-brand-amber bg-warning-soft p-4 text-sm leading-6"><p className="font-bold">Case details could not be refreshed</p><p className="mt-1">{error}</p>{snapshot && <p className="mt-2">Previously loaded details remain visible. Refresh the case before taking action.</p>}</div>}
-    {!snapshot ? <p role="status" className="mt-5 border border-line bg-white p-6 text-sm">{loading ? <LoadingLabel>Loading statement and claim evidence...</LoadingLabel> : 'Case details are unavailable. Refresh the case or return to the list.'}</p> : <>
+    {!snapshot ? (loading ? <div role="status" aria-label="Loading statement and claim evidence" className="mt-4 space-y-5">
+      <div className="ga-card space-y-4 border-t-4 border-t-brand-navy p-5 sm:p-6"><Skeleton className="h-4 w-28" /><Skeleton className="h-7 w-56 max-w-full" /><Skeleton className="h-4 w-full max-w-sm" /><Skeleton className="h-20 w-full" /></div>
+      <div className="ga-card space-y-4 p-5 sm:p-6"><Skeleton className="h-5 w-40" /><Skeleton className="h-4 w-full max-w-md" /><Skeleton className="h-4 w-full max-w-sm" /></div>
+    </div> : <p className="mt-5 border border-line bg-white p-6 text-sm">Case details are unavailable. Refresh the case or return to the list.</p>) : <>
       <header className="mt-4 border border-line border-t-4 border-t-brand-navy bg-white p-5 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0"><p className="break-all text-sm font-semibold text-muted-copy">{dispute.referenceNo}</p><h3 className="mt-2 break-words text-2xl font-bold text-ink">{personName(claim.beneficiary)}</h3></div>

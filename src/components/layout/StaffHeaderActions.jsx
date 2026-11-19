@@ -8,6 +8,7 @@ import {
 import { connectStaffNotificationRealtime } from '../../realtime/staffRealtime.js'
 import { Icon } from '../ui/icon.jsx'
 import { LoadingLabel } from '../ui/spinner.jsx'
+import { SkeletonRows } from '../ui/skeleton.jsx'
 import { SecurityEmailStatus } from '../ui/SecurityEmailStatus.jsx'
 import { getPhilippineDayPeriod } from './philippine-day-period.js'
 import { createLiveRefresh } from '../../utils/liveRefresh.js'
@@ -89,7 +90,7 @@ export function PhilippineClock({ onDayPeriodChange }) {
     <div className="flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-slate-300/70 bg-slate-200/80 px-3 py-2 text-copy shadow-sm sm:min-h-11 sm:gap-2.5 sm:px-4 sm:py-2.5" title={serverSynced ? 'Philippine Standard Time · Synced with the GarantiyAid server' : 'Philippine Standard Time · Using this device clock until the server reconnects'}>
       <Icon name="calendar" className="hidden size-[1.125rem] shrink-0 text-brand-navy sm:block" />
       <time dateTime={now.toISOString()} className="min-w-0 text-xs leading-5 sm:flex sm:flex-wrap sm:items-baseline sm:gap-x-1 sm:gap-y-0.5 sm:text-[0.8125rem]">
-        <span className="whitespace-nowrap sm:hidden">{compactPhilippineDate.format(now)} · {compactPhilippineTime.format(now)} PHT</span>
+        <span className="sm:hidden">{compactPhilippineDate.format(now)} · <span className="whitespace-nowrap">{compactPhilippineTime.format(now)} PHT</span></span>
         <span className="hidden sm:inline">{philippineDate.format(now)}</span>
         <span className="hidden whitespace-nowrap tabular-nums sm:inline">at {philippineTime.format(now)} <span className="text-[0.625rem] font-medium text-muted-copy">PHT</span></span>
       </time>
@@ -272,7 +273,7 @@ export function StaffNotificationCenter({ accessToken, onNavigate }) {
 
           <div className="min-h-0 max-h-[min(28rem,calc(100dvh-9rem))] overflow-y-auto">
             {loading ? (
-              <div className="grid min-h-40 place-items-center px-6 text-sm font-semibold text-muted-copy"><LoadingLabel>Loading notifications...</LoadingLabel></div>
+              <SkeletonRows label="Loading notifications" />
             ) : notifications.length === 0 ? (
               <div className="px-6 py-10 text-center">
                 <span aria-hidden="true" className="mx-auto grid size-12 place-items-center rounded-full bg-info-soft text-brand-blue"><Icon name="notifications" /></span>

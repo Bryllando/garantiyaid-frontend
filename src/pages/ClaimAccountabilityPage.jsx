@@ -64,8 +64,17 @@ function StatusBadge({ status }) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${statusStyle(status)}`}>{humanize(status)}</span>
 }
 
-function AccountabilitySkeleton() {
-  return <div className="mt-6 space-y-5" role="status" aria-label="Loading claim accountability records"><Skeleton className="h-32 rounded-xl" /><Skeleton className="h-20 rounded-xl" /><Skeleton className="h-96 rounded-xl" /></div>
+function AccountabilitySkeleton({ view }) {
+  return <div className="ga-card mt-5 overflow-hidden" role="status" aria-label={view === 'claims' ? 'Loading claims and receipts' : 'Loading dispute cases'}>
+    <div aria-hidden="true" className="divide-y divide-line">
+      {[0, 1].map((index) => <div key={index} className="space-y-4 p-5 sm:p-6">
+        <div className="flex flex-wrap justify-between gap-3"><Skeleton className="h-6 w-44 max-w-full" /><Skeleton className="h-7 w-24 rounded-full" /></div>
+        <Skeleton className="h-4 w-32 max-w-full" />
+        {view === 'claims' && <div className="grid gap-4 lg:grid-cols-3">{[0, 1, 2].map((column) => <div key={column} className="space-y-2"><Skeleton className="h-4 w-28" /><Skeleton className="h-4 w-full max-w-48" /></div>)}</div>}
+        <div className="border-t border-line pt-4"><Skeleton className="h-11 w-36 max-w-full" /></div>
+      </div>)}
+    </div>
+  </div>
 }
 
 function validateFields(form, errors, setErrors) {
@@ -300,11 +309,9 @@ export default function ClaimAccountabilityPage({ session, onLogout, onNavigate,
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [filters, setFilters] = useState({ search: initialQuery.search, status: initialQuery.status })
   const [page, setPage] = useState(initialQuery.page)
-  const [records, setRecords] = useState(null)
-  const [summary, setSummary] = useState({ countsByStatus: {} })
-  const [pagination, setPagination] = useState(null)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(true)
+  const [snapshot, setSnapshot] = useState(null)
+  const [recordsError, setRecordsError] = useState(null)
+  const [eventsLoading, setEventsLoading] = useState(true)
   const [refresh, setRefresh] = useState(0)
   const [receipt, setReceipt] = useState(null)
   const [releaseClaim, setReleaseClaim] = useState(null)
@@ -315,9 +322,16 @@ export default function ClaimAccountabilityPage({ session, onLogout, onNavigate,
   const [listReload, setListReload] = useState(0)
   const [listError, setListError] = useState('')
   const [refreshing, setRefreshing] = useState(false)
-  const [updatedAt, setUpdatedAt] = useState(null)
   const [connection, setConnection] = useState('connecting')
   const [actionError, setActionError] = useState('')
+  const scope = JSON.stringify([selectedId, view, filters.search, filters.status])
+  const matchingSnapshot = snapshot?.scope === scope ? snapshot : null
+  const current = matchingSnapshot?.pagination.page === page ? matchingSnapshot : null
+  const failedResult = recordsError?.scope === scope && recordsError.page === page ? recordsError : null
+  const error = failedResult?.refresh === refresh ? failedResult.message : ''
+  const loading = selectedId ? !current && !error : eventsLoading
+  const pagination = matchingSnapshot?.pagination
+  const { records, summary, updatedAt } = current ?? {}
 
   const refreshRecords = useCallback(() => {
     setRefreshing(true)
@@ -384,14 +398,13 @@ export default function ClaimAccountabilityPage({ session, onLogout, onNavigate,
         setListError('')
         setDistributions(items)
         setSelectedId((current) => items.some((item) => item.distributionId === current) ? current : items.find((item) => item.status === 'OPEN')?.distributionId ?? items[0]?.distributionId ?? '')
-        setLoading(false)
       })
       .catch((requestError) => {
         if (!active) return
         if (isSessionExpiredError(requestError)) return onSessionExpired()
         setListError(getAuthErrorMessage(requestError))
-        setLoading(false)
       })
+      .finally(() => { if (active) setEventsLoading(false) })
     return () => { active = false }
   }, [caseId, initialQuery.distributionId, listReload, onSessionExpired, session.accessToken])
 
@@ -407,18 +420,15 @@ export default function ClaimAccountabilityPage({ session, onLogout, onNavigate,
       if (distribution.distributionId !== selectedId) throw new Error('The returned event does not match the selected distribution.')
       if (page > Math.max(1, data.pagination.totalPages)) { setPage(Math.max(1, data.pagination.totalPages)); return }
       setDistributions((items) => items.map((item) => item.distributionId === selectedId ? distribution : item))
-      setRecords(view === 'claims' ? data.claims : data.disputes)
-      setSummary(data.summary)
-      setPagination(data.pagination)
-      setError('')
-      setUpdatedAt(new Date())
+      setSnapshot({ scope, records: view === 'claims' ? data.claims : data.disputes, summary: data.summary, pagination: data.pagination, distribution, updatedAt: new Date() })
+      setRecordsError(null)
     }).catch((requestError) => {
       if (!active) return
       if (isSessionExpiredError(requestError)) return onSessionExpired()
-      setError(getAuthErrorMessage(requestError))
-    }).finally(() => { if (active) { setLoading(false); setRefreshing(false) } })
+      setRecordsError({ scope, page, refresh, message: getAuthErrorMessage(requestError) })
+    }).finally(() => { if (active) setRefreshing(false) })
     return () => { active = false }
-  }, [caseId, filters, onSessionExpired, page, refresh, selectedId, session.accessToken, view])
+  }, [caseId, filters, onSessionExpired, page, refresh, scope, selectedId, session.accessToken, view])
 
   async function openCurrentClaim(claim, setDialog, release = false) {
     setBusyClaimId(claim.claimId); setActionError('')
@@ -438,28 +448,25 @@ export default function ClaimAccountabilityPage({ session, onLogout, onNavigate,
 
   function applyFilters(event) {
     event.preventDefault()
-    setLoading(true)
-    setError('')
+    const search = draftSearch.trim()
+    if (page === 1 && search === filters.search && draftStatus === filters.status) return refreshRecords()
     setPage(1)
-    setFilters({ search: draftSearch.trim(), status: draftStatus })
+    setFilters({ search, status: draftStatus })
   }
 
   function changeView(nextView) {
-    setLoading(true)
-    setError('')
+    if (nextView === view) return
     setView(nextView)
     setDraftStatus('')
     setFilters({ search: '', status: '' })
     setDraftSearch('')
     setPage(1)
-    setRecords(null)
   }
 
   async function fileDispute(payload) {
     const created = await createClaimDispute(session.accessToken, selectedId, disputeClaim.claimId, payload)
     toast.success('Dispute filed', { description: `Case ${created.referenceNo} is awaiting independent review.` })
     setView('disputes')
-    setLoading(true)
     setFilters({ search: '', status: '' })
     setDraftSearch('')
     setDraftStatus('')
@@ -527,7 +534,7 @@ export default function ClaimAccountabilityPage({ session, onLogout, onNavigate,
     onNavigate(url.pathname + url.search)
   }
 
-  const selectedDistribution = distributions.find((item) => item.distributionId === selectedId)
+  const selectedDistribution = current?.distribution ?? distributions.find((item) => item.distributionId === selectedId)
   const statusOptions = view === 'claims' ? claimStatuses : disputeStatuses
   const counts = summary?.countsByStatus ?? {}
   const total = pagination?.total ?? 0
@@ -541,13 +548,20 @@ export default function ClaimAccountabilityPage({ session, onLogout, onNavigate,
       {!caseId && <>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-copy">
         <p role="status">{updatedAt ? 'Updated ' + dateTime.format(updatedAt) + ' PHT · ' : ''}{connection === 'connected' ? 'Live claim updates connected' : connection === 'connecting' ? 'Connecting to live updates' : 'Live connection unavailable; automatic refresh remains active'}</p>
-        <button type="button" disabled={refreshing || loading} onClick={() => { if (listError || !selectedId) { setListReload((value) => value + 1); setLoading(true) } else refreshRecords() }} className="ga-btn-secondary">{refreshing ? <LoadingLabel>Refreshing...</LoadingLabel> : 'Refresh records'}</button>
+        <button type="button" aria-disabled={refreshing || loading || eventsLoading} onClick={() => {
+          if (refreshing || loading || eventsLoading) return
+          if (listError || !selectedId) { setEventsLoading(true); setListReload((value) => value + 1) } else refreshRecords()
+        }} className="ga-btn-secondary aria-disabled:opacity-60">{refreshing ? <LoadingLabel>Refreshing...</LoadingLabel> : 'Refresh records'}</button>
       </div>
-      <section className="ga-card mt-6 p-4 sm:p-5" aria-label="Claim accountability filters">
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div role="tablist" aria-label="Accountability record type" className="inline-flex w-full rounded-xl border border-line bg-white p-1 shadow-sm sm:w-auto"><button type="button" role="tab" aria-selected={view === 'claims'} onClick={() => changeView('claims')} className={`min-h-11 flex-1 rounded-lg px-3 text-sm font-bold sm:flex-none sm:px-5 ${view === 'claims' ? 'bg-brand-navy text-white' : 'text-copy hover:bg-slate-50'}`}>Claims & receipts</button><button type="button" role="tab" aria-selected={view === 'disputes'} onClick={() => changeView('disputes')} className={`min-h-11 flex-1 rounded-lg px-3 text-sm font-bold sm:flex-none sm:px-5 ${view === 'disputes' ? 'bg-brand-navy text-white' : 'text-copy hover:bg-slate-50'}`}>Dispute review</button></div>
+        <div className="flex min-h-5 items-center text-sm font-semibold text-muted-copy">{loading ? <Skeleton aria-hidden="true" className="h-4 w-32" /> : current && <p>{total} matching {view === 'claims' ? 'claim' : 'case'} record{total === 1 ? '' : 's'}</p>}</div>
+      </div>
+      <section className="ga-card mt-4 p-4 sm:p-5" aria-label="Claim accountability filters">
         {view === 'disputes' && <button type="button" aria-expanded={filtersOpen} aria-controls="accountability-filter-fields" onClick={() => setFiltersOpen((value) => !value)} className="ga-btn-secondary w-full lg:hidden">{filtersOpen ? 'Hide case filters' : `Filter cases${filters.status ? ' · ' + humanize(filters.status) : ''}`}</button>}
         <div id="accountability-filter-fields" className={view === 'disputes' ? `${filtersOpen ? 'mt-4' : 'hidden'} lg:mt-0 lg:block` : ''}>
-        <form onSubmit={applyFilters} className="grid gap-4 lg:grid-cols-[minmax(16rem,1.2fr)_minmax(12rem,0.7fr)_minmax(12rem,0.7fr)_auto]">
-          <div><label htmlFor="accountability-distribution" className="ga-label">Distribution event</label><select id="accountability-distribution" value={selectedId} onChange={(event) => { setSelectedId(event.target.value); setPagination(null); setRecords(event.target.value ? null : []); setLoading(Boolean(event.target.value)); setError(''); setActionError(''); setUpdatedAt(null); setDraftSearch(''); setDraftStatus(''); setFilters({ search: '', status: '' }); setPage(1) }} className="ga-input mt-2 cursor-pointer font-semibold"><option value="">Select a distribution</option>{distributions.map((item) => <option key={item.distributionId} value={item.distributionId}>{item.title} — {dateOnly.format(new Date(item.distributionDate))}</option>)}</select></div>
+        <form onSubmit={applyFilters} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_auto]">
+          <div className="min-w-0"><label htmlFor="accountability-distribution" className="ga-label">Distribution event</label><select id="accountability-distribution" disabled={eventsLoading} value={selectedId} onChange={(event) => { setSelectedId(event.target.value); setActionError(''); setDraftSearch(''); setDraftStatus(''); setFilters({ search: '', status: '' }); setPage(1) }} className="ga-input mt-2 cursor-pointer font-semibold"><option value="">{eventsLoading ? 'Loading events…' : 'Select a distribution'}</option>{distributions.map((item) => <option key={item.distributionId} value={item.distributionId}>{item.title} — {dateOnly.format(new Date(item.distributionDate))}</option>)}</select></div>
           <div><label htmlFor="accountability-search" className="ga-label">Search</label><input id="accountability-search" type="search" value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} placeholder="Name or reference" className="ga-input mt-2" /></div>
           <div><label htmlFor="accountability-status" className="ga-label">Status</label><select id="accountability-status" value={draftStatus} onChange={(event) => setDraftStatus(event.target.value)} className="ga-input mt-2 cursor-pointer"><option value="">All statuses</option>{statusOptions.filter(Boolean).map((status) => <option key={status} value={status}>{humanize(status)}</option>)}</select></div>
           <button type="submit" disabled={!selectedId} className="ga-btn-primary self-end">Apply</button>
@@ -563,29 +577,29 @@ export default function ClaimAccountabilityPage({ session, onLogout, onNavigate,
         {selectedDistribution.deliveryMode === 'SIMULATED_WALLET' && ['SYSTEM_ADMIN', 'DSWD_STAFF'].includes(session.user.role) && <button type="button" onClick={() => onNavigate(`/dswd/ledger?distribution=${encodeURIComponent(selectedId)}`)} className="ga-btn-secondary mt-3">{session.user.role === 'DSWD_STAFF' ? 'Open wallet credits' : 'Review transactions'}</button>}
       </section>}
 
-      <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div role="tablist" aria-label="Accountability record type" className="inline-flex w-full rounded-xl border border-line bg-white p-1 shadow-sm sm:w-auto"><button type="button" role="tab" aria-selected={view === 'claims'} onClick={() => changeView('claims')} className={`min-h-11 flex-1 rounded-lg px-5 text-sm font-bold sm:flex-none ${view === 'claims' ? 'bg-brand-navy text-white' : 'text-copy hover:bg-slate-50'}`}>Claims & receipts</button><button type="button" role="tab" aria-selected={view === 'disputes'} onClick={() => changeView('disputes')} className={`min-h-11 flex-1 rounded-lg px-5 text-sm font-bold sm:flex-none ${view === 'disputes' ? 'bg-brand-navy text-white' : 'text-copy hover:bg-slate-50'}`}>Dispute review</button></div>
-        <p className="text-sm font-semibold text-muted-copy">{total} matching {view === 'claims' ? 'claim' : 'case'} record(s)</p>
-      </div>
-
-      {view === 'disputes' && <section className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label="Dispute status summary">{['OPEN', 'UNDER_REVIEW', 'REFERRED', 'RESOLVED'].map((status) => <div key={status} className="ga-card-flat p-4"><p className="text-xs font-bold uppercase tracking-[0.08em] text-muted-copy">{humanize(status)}</p><p className="mt-2 text-2xl font-black tabular-nums text-ink">{counts[status] ?? 0}</p></div>)}</section>}
+      {view === 'disputes' && (loading || current) && <section className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label="Dispute status summary">{['OPEN', 'UNDER_REVIEW', 'REFERRED', 'RESOLVED'].map((status) => <div key={status} className="ga-card-flat p-4"><p className="text-xs font-semibold text-muted-copy">{humanize(status)}</p>{loading ? <Skeleton aria-hidden="true" className="mt-2 h-8 w-10" /> : <p className="mt-2 text-2xl font-bold tabular-nums text-ink">{counts[status] ?? 0}</p>}</div>)}</section>}
 
       </>}
-      {(caseId ? actionError : error || listError || actionError) && <section className="ga-card mt-5 border-amber-200 p-5" role="alert"><h2 className="font-bold">{actionError ? 'Action unavailable' : 'Records could not be refreshed'}</h2><p className="mt-2 text-sm leading-6 text-copy">{caseId ? actionError : listError || error || actionError}</p>{!caseId && records && <p className="mt-2 text-sm text-copy">Previously loaded records remain visible. Refresh before taking action.</p>}<button type="button" onClick={() => { setActionError(''); if (listError) { setLoading(true); setListReload((value) => value + 1) } else refreshRecords() }} className="ga-btn-secondary mt-3">Try again</button></section>}
+      {(caseId ? actionError : error || listError || actionError) && <section className="ga-card mt-5 border-amber-200 p-5" role="alert"><h2 className="font-bold">{actionError ? 'Action unavailable' : 'Records could not be refreshed'}</h2><p className="mt-2 text-sm leading-6 text-copy">{caseId ? actionError : listError || error || actionError}</p>{!caseId && records && <p className="mt-2 text-sm text-copy">Previously loaded records remain visible. Refresh before taking action.</p>}<button type="button" disabled={!caseId && (eventsLoading || refreshing)} onClick={() => {
+        setActionError('')
+        if (caseId) setRefresh((value) => value + 1)
+        else if (listError) { setEventsLoading(true); setListReload((value) => value + 1) }
+        else refreshRecords()
+      }} className="ga-btn-secondary mt-3">Try again</button></section>}
       {caseId && (selectedId ? (
         <DisputeCaseDetail key={selectedId + caseId} caseId={caseId} distributionId={selectedId} refresh={refresh} session={session} busy={Boolean(busyDisputeId)} onStart={startReview} onDecision={(dispute, action) => setDecision({ dispute, action })} onBack={backToCases} onNavigate={onNavigate} onSessionExpired={onSessionExpired} />
       ) : (
         <section role="alert" className="ga-card mt-5 p-6"><h2 className="font-bold">This case link is missing its event</h2><p className="mt-2 text-sm leading-6 text-copy">Return to the case list and select the distribution event.</p><button type="button" onClick={backToCases} className="ga-btn-secondary mt-4">Back to cases</button></section>
       ))}
-      {!caseId && (loading ? <AccountabilitySkeleton /> : !selectedId ? (
+      {!caseId && (loading ? <AccountabilitySkeleton view={view} /> : !selectedId && !listError ? (
         <section className="ga-card mt-5 p-6"><h2 className="font-bold">Select a distribution event</h2><p className="mt-2 text-sm text-copy">Choose an event above to review its claims, releases, and receipts.</p></section>
       ) : records && (
         <section className="ga-card mt-5 overflow-hidden" aria-busy={refreshing}>
-          {view === 'claims' ? <ClaimsView busyClaimId={busyClaimId} unavailable={Boolean(error || listError)} distribution={selectedDistribution} role={session.user.role} claims={records} onNavigate={onNavigate} onDispute={(claim) => openCurrentClaim(claim, setDisputeClaim)} onReceipt={openReceipt} onRelease={(claim) => openCurrentClaim(claim, setReleaseClaim, true)} /> : <DisputesView disputes={records} onOpen={openCase} />}
+          {view === 'claims' ? <ClaimsView busyClaimId={busyClaimId} unavailable={Boolean(failedResult || listError)} distribution={selectedDistribution} role={session.user.role} claims={records} onNavigate={onNavigate} onDispute={(claim) => openCurrentClaim(claim, setDisputeClaim)} onReceipt={openReceipt} onRelease={(claim) => openCurrentClaim(claim, setReleaseClaim, true)} /> : <DisputesView disputes={records} onOpen={openCase} />}
         </section>
       ))}
 
-      {!caseId && pagination?.totalPages > 1 && <nav aria-label={`${view} pagination`} className="mt-5 flex items-center justify-between gap-4"><button type="button" disabled={page <= 1 || loading} onClick={() => { setLoading(true); setPage((value) => value - 1) }} className="ga-btn-secondary">Previous</button><p className="text-sm font-bold text-copy">Page {pagination.page} of {pagination.totalPages}</p><button type="button" disabled={page >= pagination.totalPages || loading} onClick={() => { setLoading(true); setPage((value) => value + 1) }} className="ga-btn-secondary">Next</button></nav>}
+      {!caseId && pagination?.totalPages > 1 && <nav aria-label={`${view} pagination`} className="mt-5 flex flex-wrap items-center justify-between gap-3"><button type="button" aria-disabled={page <= 1 || loading} onClick={() => { if (page > 1 && !loading) setPage((value) => value - 1) }} className="ga-btn-secondary aria-disabled:opacity-60">Previous</button><p className="text-sm font-semibold text-copy">Page {page} of {pagination.totalPages}</p><button type="button" aria-disabled={page >= pagination.totalPages || loading} onClick={() => { if (page < pagination.totalPages && !loading) setPage((value) => value + 1) }} className="ga-btn-secondary aria-disabled:opacity-60">Next</button></nav>}
 
       {receipt && <ClaimReceiptDialog receipt={receipt} onClose={() => setReceipt(null)} onDispute={() => { const claim = records?.find((item) => item.claimId === receipt.claimId); setReceipt(null); if (claim) openCurrentClaim(claim, setDisputeClaim) }} onPrint={async () => { const updated = await recordClaimReceiptPrint(session.accessToken, selectedId, receipt.claimId); setReceipt(updated) }} />}
       {releaseClaim && <PhysicalReleaseDialog claim={releaseClaim} onClose={() => setReleaseClaim(null)} onSubmit={releasePhysicalAssistance} />}

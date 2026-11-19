@@ -36,7 +36,7 @@ function DeleteChatDialog({ conversation, busy, error, onCancel, onDelete }) {
   </dialog>
 }
 
-export default function AssistantHistory({ historyRef, open, history, store, locked, onClose, onSelect, onReset }) {
+export default function AssistantHistory({ historyRef, open, history, store, locked, allowSelection, onClose, onSelect, onReset }) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('active')
   const [actionsId, setActionsId] = useState(null)
@@ -67,13 +67,13 @@ export default function AssistantHistory({ historyRef, open, history, store, loc
     </div>
     <label htmlFor="assistant-history-search" className="sr-only">Search conversations</label>
     <div className="ga-assistant-history-search"><Icon name="search" className="size-4" /><input id="assistant-history-search" type="search" value={search} onChange={event => { setSearch(event.target.value); setVisibleCount(50) }} placeholder="Search saved chats" /></div>
-    {locked && <p className="mt-3 text-xs leading-5 text-copy">Finish or cancel the current task before managing conversations.</p>}
+    {locked && <p className="mt-3 text-xs leading-5 text-copy">{allowSelection ? 'Opening another conversation stops the current reply.' : 'Finish or cancel the current task before managing conversations.'}</p>}
     {notice && <p className="ga-assistant-history-notice" role="status">{notice}</p>}
     {history.working && <p className="mt-3 text-sm text-muted-copy" role="status">Updating conversation…</p>}
     <ul className="ga-assistant-history-list">
       {rows.slice(0, visibleCount).map(row => <li key={row.id} className="ga-assistant-history-row" data-current={row.id === history.activeId}>
         <div className="ga-assistant-history-row-heading">
-          <button type="button" disabled={disabled || Boolean(row.archivedAt)} onClick={() => onSelect(row)} aria-label={conversationTitle(row)} aria-current={row.id === history.activeId ? 'true' : undefined} className="ga-assistant-history-item">
+          <button type="button" disabled={(disabled && !allowSelection) || Boolean(row.archivedAt) || (locked && row.id === history.activeId)} onClick={() => onSelect(row)} aria-label={conversationTitle(row)} aria-current={row.id === history.activeId ? 'true' : undefined} className="ga-assistant-history-item">
             <Icon name={row.archivedAt ? 'archive' : 'helpCases'} className="mt-0.5 size-4 shrink-0" /><span className="min-w-0"><span className="ga-assistant-history-title">{conversationTitle(row)}</span><span className="ga-assistant-history-date">{row.saved ? `Last used ${dateLabel(row.lastUsedAt)}` : 'Saving new chat…'}</span></span>
           </button>
           <button type="button" className="ga-assistant-tool ga-assistant-history-more" disabled={disabled} aria-label={`Actions for ${conversationTitle(row)}`} aria-expanded={actionsId === row.id} onClick={() => setActionsId(actionsId === row.id ? null : row.id)}><Icon name="more" className="size-4" /></button>

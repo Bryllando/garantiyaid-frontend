@@ -7,6 +7,7 @@ import {
 } from '../../auth/staffAuth.js'
 import { Icon } from '../ui/icon.jsx'
 import { LoadingLabel } from '../ui/spinner.jsx'
+import { SkeletonRows } from '../ui/skeleton.jsx'
 import { allPages, distributionFormFromTask, formatPreviewTime } from './task-preview.js'
 import { confirmationSnapshot, uncertainConfirmation, retryConfirmationMessage } from './confirmation-state.js'
 
@@ -148,7 +149,7 @@ function AssistantDistributionScheduler({ accessToken, onBack, onDone, onSession
     }
   }
 
-  if (busy === 'loading') return <div role="status" className="grid min-h-64 place-items-center text-sm font-semibold text-muted-copy"><LoadingLabel>Loading approved setup data...</LoadingLabel></div>
+  if (busy === 'loading') return <SkeletonRows label="Loading distribution setup" />
 
   if (preview) {
     return (

@@ -22,7 +22,9 @@ test('staff AI assistant has a shared role-aware page and collapsible history', 
 
 test('staff guidance uses authenticated NVIDIA AI with bounded conversation context', () => {
   assert.match(authSource, /\/chatbot\/staff-assistant\/messages/)
-  assert.match(source, /requestStaffAssistantMessage\(accessToken, \{[\s\S]*messageText: content,[\s\S]*messages\.filter\(\(message\) => !message\.local\)\.slice\(-6\)/)
+  assert.match(source, /messages\.filter\(\(message\) => !message\.local\)\.slice\(-6\)/)
+  assert.match(source, /messageText: content,\s*history: answerContext\(messages\)/)
+  assert.match(source, /requestStaffAssistantMessage\(accessToken, turn\.request/)
   assert.match(source, /Review AI guidance/)
   assert.match(source, /Preparing your answer/)
 })

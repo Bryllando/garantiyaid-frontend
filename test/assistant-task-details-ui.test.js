@@ -87,7 +87,7 @@ test('task summary renders labelled fields, editable values, progress, and an ho
 test('collection stays local, keeps task review forms, and clears on staff identity changes', () => {
   const source = readFileSync(new URL('../src/components/assistant/StaffAiAssistant.jsx', import.meta.url), 'utf8')
   const shell = readFileSync(new URL('../src/components/layout/DashboardShell.jsx', import.meta.url), 'utf8')
-  assert.match(source, /history: messages\.filter\(\(message\) => !message\.local\)\.slice\(-6\)/)
+  assert.match(source, /function answerContext\(messages\)[\s\S]*?messages\.filter\(\(message\) => !message\.local\)\.slice\(-6\)/)
   assert.match(source, /if \(isTaskCancellation\(content\)\) return cancelTask\(\)/)
   assert.match(source, /if \(!guidanceDuringTask\) return keepTaskDetails/)
   assert.match(source, /<AssistantDistributionScheduler/)

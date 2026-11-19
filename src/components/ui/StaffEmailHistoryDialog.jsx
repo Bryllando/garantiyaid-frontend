@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getAuthErrorMessage, isSessionExpiredError, requestStaffEmailDeliveries } from '../../auth/staffAuth.js'
 import { SecurityEmailStatus } from './SecurityEmailStatus.jsx'
 import { LoadingLabel } from './spinner.jsx'
+import { SkeletonRows } from './skeleton.jsx'
 import { Icon } from './icon.jsx'
 
 const dateTime = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Manila' })
@@ -42,7 +43,7 @@ export function StaffEmailHistoryDialog({ user, accessToken, onClose, onSessionE
         <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-copy">Latest 20 emails · PHT</p><button type="button" disabled={loading} onClick={() => { setLoading(true); setError(''); setReload((value) => value + 1) }} className="ga-btn-secondary">{loading ? <LoadingLabel>Checking status…</LoadingLabel> : <><Icon name="reset" className="size-4" />Refresh status</>}</button></div>
         <p role="status" aria-atomic="true" className="sr-only">{loading ? 'Checking email delivery status.' : error ? 'Email history could not be loaded.' : `Loaded ${notifications.length} email records.`}</p>
         {error ? <div role="alert" className="mt-5 border-l-4 border-brand-red bg-danger-soft p-4 text-sm leading-6"><p className="font-semibold text-brand-red">Email history unavailable</p><p className="mt-1 text-copy">{error} Use Refresh status to try again.</p></div>
-          : !loading && notifications.length === 0 ? <div className="py-8"><Icon name="email" className="size-6 text-copy" /><h3 className="mt-3 font-semibold">No emails yet</h3><p className="mt-2 text-sm leading-6 text-copy">Account and security emails will appear here when they are recorded for this staff member.</p></div>
+          : loading && notifications.length === 0 ? <SkeletonRows label="Loading email history" className="mt-5" /> : notifications.length === 0 ? <div className="py-8"><Icon name="email" className="size-6 text-copy" /><h3 className="mt-3 font-semibold">No emails yet</h3><p className="mt-2 text-sm leading-6 text-copy">Account and security emails will appear here when they are recorded for this staff member.</p></div>
             : <ul className="mt-5 divide-y divide-line border-y border-line" aria-busy={loading}>{notifications.map((notification) => {
               const delivery = notification.emailDelivery
               const finalTime = delivery?.status === 'SENT' ? delivery.sentAt : delivery?.status === 'FAILED' ? delivery.failedAt : null

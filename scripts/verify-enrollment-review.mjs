@@ -296,6 +296,11 @@ try {
   await expect(page.getByRole('button', { name: 'Accept', exact: true })).toHaveCount(4)
   await expect(approve).toBeDisabled()
   await expect(page.getByText('Age · at least 18 years', { exact: true })).toBeVisible()
+  const reviewSummary = page.getByRole('region', { name: 'Documents incomplete', exact: true })
+  await expect(reviewSummary.getByText('Approval requirements remaining', { exact: true })).toBeVisible()
+  await expect(reviewSummary.getByRole('link', { name: 'Review required documents', exact: true })).toHaveAttribute('href', '#enrollment-documents-heading')
+  await expect(reviewSummary.getByRole('link', { name: 'Decision options', exact: true })).toHaveAttribute('href', '#enrollment-decision-heading')
+  await expect(reviewSummary.getByRole('link', { name: 'Go to decision', exact: true })).toHaveCount(0)
   for (const width of [1440, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 })
     await page.evaluate(() => window.scrollTo(0, 0))

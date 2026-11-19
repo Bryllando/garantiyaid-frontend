@@ -1,4 +1,5 @@
 import { Skeleton } from './skeleton.jsx'
+import { LiquidWaveSpinner } from './liquid-wave-spinner.jsx'
 
 function Spinner({ className = '', label = 'Loading', ...props }) {
   const decorative = props['aria-hidden'] === true || props['aria-hidden'] === 'true'
@@ -25,39 +26,40 @@ function LoadingLabel({ children }) {
 
 function PageLoader({ label = 'Loading secure workspace...' }) {
   return (
-    <div className="grid min-h-[100dvh] place-items-center bg-page p-6 text-center" role="status" aria-live="polite" aria-busy="true">
-      <div className="ga-card-flat flex min-w-64 items-center justify-center gap-3 px-6 py-5 text-brand-navy shadow-sm">
-        <Spinner aria-hidden="true" className="size-5 text-brand-blue" />
-        <span className="font-bold">{label}</span>
+    <div className="grid min-h-[100dvh] place-items-center bg-page p-4 sm:p-6" role="status">
+      <div className="ga-card-flat grid w-full max-w-xs justify-items-center gap-4 px-6 py-8 text-center text-brand-navy shadow-sm">
+        <LiquidWaveSpinner />
+        <p className="font-semibold">{label}</p>
       </div>
     </div>
   )
 }
 
-function ContentLoader({ label = 'Loading page content...' }) {
+function ContentLoader({ title }) {
   return (
-    <section className="space-y-5" role="status" aria-live="polite" aria-busy="true">
-      <span className="sr-only">{label}</span>
-      <div aria-hidden="true" className="space-y-5">
-        <div className="border-b border-line pb-6">
-          <Skeleton className="h-3 w-28" />
-          <Skeleton className="mt-3 h-8 w-72 max-w-full" />
-          <Skeleton className="mt-3 h-4 w-full max-w-xl" />
-        </div>
-        <div className="ga-card flex flex-wrap items-center gap-3 p-4 sm:p-5">
-          <Skeleton className="h-11 min-w-40 flex-1" />
-          <Skeleton className="h-11 w-36 max-w-full" />
-          <Skeleton className="h-11 w-28 max-w-full" />
-        </div>
-        <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(22rem,0.9fr)]">
-          <div className="ga-card p-5">
-            <Skeleton className="h-6 w-44 max-w-full" />
-            <div className="mt-5 space-y-4">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-16 w-full" />)}</div>
+    <section className="space-y-5">
+      <header className="ga-page-header border-b border-line pb-6">
+        <h1 className="ga-page-title">{title}</h1>
+        <Skeleton aria-hidden="true" className="mt-3 h-5 w-full max-w-lg" />
+      </header>
+      <div role="status" className="space-y-5">
+        <span className="sr-only">Loading page content...</span>
+        <div aria-hidden="true" className="space-y-5">
+          <div className="ga-card flex flex-wrap items-center gap-3 p-4 sm:p-5">
+            <Skeleton className="h-11 min-w-0 flex-1 basis-40" />
+            <Skeleton className="h-11 w-36 max-w-full" />
+            <Skeleton className="h-11 w-28 max-w-full" />
           </div>
-          <div className="ga-card p-5">
-            <Skeleton className="h-6 w-40 max-w-full" />
-            <Skeleton className="mt-5 h-28 w-full" />
-            <Skeleton className="mt-4 h-20 w-full" />
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(22rem,0.9fr)]">
+            <div className="ga-card p-5">
+              <Skeleton className="h-6 w-44 max-w-full" />
+              <div className="mt-5 space-y-4">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-16 w-full" />)}</div>
+            </div>
+            <div className="ga-card p-5">
+              <Skeleton className="h-6 w-40 max-w-full" />
+              <Skeleton className="mt-5 h-28 w-full" />
+              <Skeleton className="mt-4 h-20 w-full" />
+            </div>
           </div>
         </div>
       </div>

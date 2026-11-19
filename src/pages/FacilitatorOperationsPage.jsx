@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import QrIssuancePanel from '../components/distributions/QrIssuancePanel.jsx'
 import { DistributionSessionPlanner, DistributionSessionSummary } from '../components/distributions/DistributionSessionPlanner.jsx'
@@ -6,7 +6,7 @@ import SlotCapacityDialog from '../components/distributions/SlotCapacityDialog.j
 import AiScheduleDraft from '../components/distributions/AiScheduleDraft.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
 import { Icon } from '../components/ui/icon.jsx'
-import { Skeleton } from '../components/ui/skeleton.jsx'
+import { Skeleton, SkeletonRows } from '../components/ui/skeleton.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
 import { manualVerificationAllowed, eventVerificationLabel } from '../utils/claimVerification.js'
 import {
@@ -29,6 +29,9 @@ import {
 } from '../auth/staffAuth.js'
 import { connectFacilitatorQueueRealtime } from '../realtime/staffRealtime.js'
 import { createLiveRefresh } from '../utils/liveRefresh.js'
+import { useDistributionActivity } from '../hooks/useDistributionActivity.js'
+import DistributionLiveStatus from '../components/distributions/DistributionLiveStatus.jsx'
+import DistributionActivity from '../components/distributions/DistributionActivity.jsx'
 import { queueNextAction } from '../utils/claimWorkflow.js'
 import { cameraConstraints, cameraErrorMessage, createQrDetector, watchCameraDisconnection } from '../utils/camera.js'
 import { CameraDeviceSelect } from '../components/ui/camera-device-select.jsx'
@@ -36,6 +39,7 @@ import { useCameraDevices } from '../hooks/useCameraDevices.js'
 
 const dateFormatter = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeZone: 'Asia/Manila' })
 const timeFormatter = new Intl.DateTimeFormat('en-PH', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila' })
+const queueSyncTime = new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeStyle: 'medium', timeZone: 'Asia/Manila' })
 const queueStatuses = ['', 'SCHEDULED', 'CHECKED_IN', 'MISSED', 'CANCELLED']
 
 const statusStyles = {
@@ -83,6 +87,18 @@ function DistributionSelector({ distributions, selectedId, onChange, disabled })
       </div>
     </div>
   )
+}
+
+const distributionPickerLayout = 'ga-card mt-5 grid gap-4 p-4 sm:p-6'
+const distributionPickerColumns = 'md:grid-cols-[minmax(0,1fr)_minmax(16rem,0.7fr)] md:items-start'
+
+function DistributionPickerSkeleton({ showDetails }) {
+  return <div role="status" aria-label="Loading distribution events">
+    <div aria-hidden="true" className={`${distributionPickerLayout} ${showDetails ? distributionPickerColumns : ''}`}>
+      <div><Skeleton className="h-5 w-32" /><Skeleton className="mt-2 h-11 w-full" /></div>
+      {showDetails && <div className="grid gap-4 rounded-lg bg-slate-50 p-4 sm:grid-cols-2">{[0, 1, 2, 3].map((index) => <div key={index} className="space-y-2"><Skeleton className="h-3 w-24 max-w-full" /><Skeleton className="h-4 w-36 max-w-full" /></div>)}</div>}
+    </div>
+  </div>
 }
 
 function QueueSkeleton() {
@@ -141,7 +157,6 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
   })
   const [page, setPage] = useState(1)
   const [liveStatus, setLiveStatus] = useState('connecting')
-  const [liveNotice, setLiveNotice] = useState('')
 
   const [qrToken, setQrToken] = useState('')
   const [qrPreview, setQrPreview] = useState(null)
@@ -158,6 +173,8 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
   const authorized = isAdmin || isFacilitator || (isDswd && view === 'qr')
   const selectedIdRef = useRef(selectedId)
   const selectedDistribution = distributions.find((distribution) => distribution.distributionId === selectedId)
+  const [activity, recordActivity] = useDistributionActivity(selectedId, selectedDistribution?.title)
+  const receiveActivity = useEffectEvent(recordActivity)
   const queuePath = isAdmin ? '/admin/schedules' : '/facilitator/queue'
   const qrPath = isAdmin ? '/admin/verify-claims' : isDswd ? '/dswd/verify-claims' : '/facilitator/qr-verification'
   const currentPath = view === 'queue' ? queuePath : qrPath
@@ -168,29 +185,30 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
   useEffect(() => {
     if (!authorized || view !== 'queue') return undefined
     let active = true
-    let connectedOnce = false
-    const refreshQueue = createLiveRefresh(session.accessToken, () => setQueueReload(count => count + 1))
-    const refreshDistributions = createLiveRefresh(session.accessToken, () => setDistributionReload(count => count + 1))
+    let interrupted = false
+    const refreshQueue = createLiveRefresh(session.accessToken, () => setQueueReload(count => count + 1), { leading: true })
+    const refreshDistributions = createLiveRefresh(session.accessToken, () => setDistributionReload(count => count + 1), { leading: true })
     const disconnect = connectFacilitatorQueueRealtime(session.accessToken, {
       onReady: () => {
         if (!active) return
         setLiveStatus('connected')
-        if (connectedOnce) { refreshDistributions(); refreshQueue() }
-        connectedOnce = true
+        if (interrupted) { refreshDistributions(); refreshQueue() }
+        interrupted = false
       },
       onUpdate: (eventName, payload) => {
         if (!active) return
         if (eventName === 'distribution.updated') refreshDistributions()
         if (payload?.distributionId !== selectedIdRef.current) return
         refreshQueue()
-        setLiveNotice(eventName === 'claim.released' ? 'Physical assistance released' : eventName.startsWith('claim.') ? 'Claim updated' : eventName === 'distribution.updated' ? 'Distribution updated' : 'Schedule updated')
+        receiveActivity(eventName, payload)
       },
       onError: (socketError) => {
         if (!active) return
         if (['AUTHENTICATION_REQUIRED', 'INVALID_TOKEN', 'INVALID_SESSION'].includes(socketError?.data?.code)) return onSessionExpired()
+        interrupted = true
         setLiveStatus('reconnecting')
       },
-      onDisconnect: () => { if (active) setLiveStatus('reconnecting') },
+      onDisconnect: () => { if (active) { interrupted = true; setLiveStatus('reconnecting') } },
     })
     return () => {
       active = false
@@ -264,7 +282,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
         const lastPage = Math.max(1, data.pagination.totalPages)
         if (page > lastPage) { setPage(lastPage); return }
         setQueueError('')
-        setQueue({ ...data, distributionId: selectedId })
+        setQueue({ ...data, distributionId: selectedId, updatedAt: new Date() })
       })
       .catch((error) => {
         if (!active) return
@@ -415,7 +433,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
       const slots = data.slots.filter((slot) => slot.slotId !== schedule.slotId && slot.slotStatus === 'AVAILABLE'
         && (!slot.serviceAreas.length || (area && slot.serviceAreas.some((name) => name.trim().toLocaleLowerCase('en-PH') === area))))
       if (slots.length === 0) {
-        setQueueError(isAdmin ? 'No other available time slot covers this beneficiary’s service area. Return to the event to review capacity.' : 'No other available time slot covers this beneficiary’s service area. Review Service sessions and capacity above.')
+        setQueueError(isAdmin ? 'No other available time slot covers this beneficiary’s service area. Return to the event to review capacity.' : 'No other available time slot covers this beneficiary’s service area. Review Service sessions and capacity.')
         return
       }
       setReschedule({ schedule, slots })
@@ -513,32 +531,61 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
 
   if (!authorized) return <AccessDenied session={session} onLogout={onLogout} onNavigate={onNavigate} />
 
+  const openQueue = view === 'queue' && selectedDistribution?.status === 'OPEN'
+  const currentQueue = queue?.distributionId === selectedId ? queue : null
+  const queueFilters = <QueueFilters searchInput={searchInput} setSearchInput={setSearchInput}
+    status={status} filtered={Boolean(search || status || searchInput)} onFilter={filterQueue}
+    onClear={clearQueueFilters} onStatusChange={changeQueueStatus} />
+  const eventFacts = selectedDistribution && (
+    <dl className="grid min-w-0 grid-cols-1 gap-4 rounded-lg bg-slate-50 p-4 text-sm [overflow-wrap:anywhere] sm:grid-cols-2">
+      <div><dt className="text-xs font-semibold text-muted-copy">Location</dt><dd className="mt-1 font-bold text-ink">{selectedDistribution?.location}</dd></div>
+      <div><dt className="text-xs font-semibold text-muted-copy">Event time</dt><dd className="mt-1 font-bold text-ink">{selectedDistribution?.startTime}–{selectedDistribution?.endTime}</dd></div>
+      <div><dt className="text-xs font-semibold text-muted-copy">Assistance</dt><dd className="mt-1 font-semibold text-ink">{selectedDistribution?.deliveryMode === 'PHYSICAL_GOODS' ? 'Physical handover' : 'Simulated wallet credit'}</dd></div>
+      <div><dt className="text-xs font-semibold text-muted-copy">Allowed verification</dt><dd className="mt-1 font-semibold text-ink">{eventVerificationLabel(selectedDistribution)}</dd></div>
+    </dl>
+  )
+  const serviceSessions = isFacilitator && view === 'queue' && selectedDistribution && (
+    <section className="ga-card mt-6 overflow-hidden" aria-labelledby="barangay-sessions-title" aria-busy={isLoadingSessionPlan || isScheduleBusy}>
+      <header className="border-b border-line p-5 sm:p-6"><h2 id="barangay-sessions-title" className="text-lg font-extrabold text-ink">Service sessions and capacity</h2><p className="mt-2 text-sm leading-6 text-muted-copy">{selectedDistribution.status === 'DRAFT' ? 'Generate time slots and manage the number of beneficiaries per slot for your assigned barangay.' : 'Sessions and capacity are locked because this event is open.'}</p></header>
+      <div className="p-5 sm:p-6">
+        {sessionPlanError ? <div role="alert"><p className="text-sm text-brand-red">{sessionPlanError}</p><button type="button" disabled={isLoadingSessionPlan} onClick={() => { setIsLoadingSessionPlan(true); setQueueReload(count => count + 1) }} className="ga-btn-secondary mt-3">Reload service sessions</button></div> : sessionPlan?.distributionId !== selectedId ? <SkeletonRows label="Loading service sessions" rows={2} /> : <fieldset disabled={isScheduleBusy || isLoadingSessionPlan || Boolean(scheduleAction) || Boolean(reschedule)} className="min-w-0">
+          {sessionPlan.summary.matchingSlotCount > 0 ? <DistributionSessionSummary slots={sessionPlan.slots} summary={sessionPlan.summary} onEditCapacity={selectedDistribution.status === 'DRAFT' ? setCapacitySlot : undefined} /> : selectedDistribution.status === 'DRAFT' ? <DistributionSessionPlanner key={selectedId} busy={isScheduleBusy || isLoadingSessionPlan} distribution={selectedDistribution} onGenerate={createSlots} serviceAreaSummary={sessionPlan.eligible?.summary} /> : <p className="text-sm text-muted-copy">No service sessions are available for this event.</p>}
+        </fieldset>}
+      </div>
+    </section>
+  )
+
   return (
     <DashboardShell breadcrumbs={['Operations', 'Distributions', pageTitle]} currentPath={currentPath} onLogout={onLogout} onNavigate={onNavigate} pageTitle={pageTitle} showAssistant={isAdmin && view !== 'qr'} user={session.user}>
-      <header className="ga-page-header flex flex-col gap-4 border-b border-line pb-6 xl:flex-row xl:items-end xl:justify-between">
-        <div className="min-w-0 flex-1">
+      <header className="ga-page-header ga-page-header-with-actions border-b border-line pb-6">
+        <div className="ga-page-heading">
           <p className="ga-eyebrow">{isAdmin ? 'Distribution administration' : isDswd ? 'DSWD claim review' : 'Assigned barangay operations'}</p>
           <h1 className="ga-page-title mt-2">{pageTitle}</h1>
           <p className="ga-page-copy">
-            {view === 'queue' ? 'Find the beneficiary, check their session, and continue to verification or the claim record. Schedules can only be changed while the event is a draft.' : 'Check the beneficiary and event before confirming the QR claim. Assistance is released in a separate step.'}
+            {view === 'queue' ? 'Find a beneficiary by name or queue number to see their next step.' : 'Check the beneficiary and event before confirming the QR claim. Assistance is released in a separate step.'}
           </p>
         </div>
-        <div className="flex flex-col items-start gap-3 xl:items-end">
-          <div className="flex flex-wrap items-center gap-2">
-            {view === 'queue' && <button type="button" onClick={refreshQueueRecords} disabled={isLoadingDistributions || isScheduleBusy || Boolean(scheduleAction) || Boolean(reschedule)} className="ga-btn-secondary"><Icon name="reset" className="size-4" />Refresh queue</button>}
-            {(isAdmin ? Boolean(selectedDistribution) : view === 'qr') && <button type="button" onClick={() => onNavigate(isDswd ? `/claim-accountability${selectedId ? `?distribution=${encodeURIComponent(selectedId)}` : ''}` : isAdmin ? `/distributions/manage${selectedId ? `?event=${encodeURIComponent(selectedId)}` : ''}` : `${queuePath}${selectedId ? `?distribution=${encodeURIComponent(selectedId)}` : ''}`)} className="ga-btn-secondary"><Icon name="arrowLeft" className="size-4" />
-              {isDswd ? 'View claims and receipts' : isAdmin ? 'Return to distribution event' : 'View beneficiary queue'}
-            </button>}
-            {view === 'queue' && selectedDistribution?.status === 'OPEN' && ['QR', 'QR_AND_BIOMETRIC', 'QR_OR_BIOMETRIC'].includes(selectedDistribution.verificationRequirement) && <button type="button" onClick={() => onNavigate(`${qrPath}?distribution=${encodeURIComponent(selectedId)}`)} className="ga-btn-primary"><Icon name="qr" className="size-4" />{isAdmin ? 'Verify QR claims' : 'Open QR verification'}</button>}
-          </div>
-          {view === 'queue' && <span role="status" className="text-xs leading-5 text-muted-copy">{liveStatus === 'connected' ? 'Live updates connected' : liveStatus === 'connecting' ? 'Connecting live updates…' : 'Live updates unavailable. Refresh to check the queue.'}</span>}
+        <div className="ga-page-actions">
+          {isFacilitator && view === 'queue' && selectedDistribution && <a href="#queue-heading" className="ga-btn-secondary" onClick={(event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+            const heading = document.getElementById('queue-heading')
+            if (!heading) return
+            event.preventDefault()
+            heading.focus({ preventScroll: true })
+            heading.scrollIntoView({ block: 'start', behavior: 'instant' })
+          }}>{selectedDistribution.status === 'DRAFT' ? 'View beneficiary schedules' : 'View beneficiary queue'}<Icon name="arrowRight" className="size-4 rotate-90" /></a>}
+          {view === 'queue' && <button type="button" onClick={refreshQueueRecords} disabled={isLoadingDistributions || isScheduleBusy || Boolean(scheduleAction) || Boolean(reschedule)} className="ga-btn-secondary"><Icon name="reset" className="size-4" />Refresh queue</button>}
+          {(isAdmin ? Boolean(selectedDistribution) : view === 'qr') && <button type="button" onClick={() => onNavigate(isDswd ? `/claim-accountability${selectedId ? `?distribution=${encodeURIComponent(selectedId)}` : ''}` : isAdmin ? `/distributions/manage${selectedId ? `?event=${encodeURIComponent(selectedId)}` : ''}` : `${queuePath}${selectedId ? `?distribution=${encodeURIComponent(selectedId)}` : ''}`)} className="ga-btn-secondary"><Icon name="arrowLeft" className="size-4" />
+            {isDswd ? 'View claims and receipts' : isAdmin ? 'Return to distribution event' : 'View beneficiary queue'}
+          </button>}
+          {view === 'queue' && selectedDistribution?.status === 'OPEN' && ['QR', 'QR_AND_BIOMETRIC', 'QR_OR_BIOMETRIC'].includes(selectedDistribution.verificationRequirement) && <button type="button" onClick={() => onNavigate(`${qrPath}?distribution=${encodeURIComponent(selectedId)}`)} className="ga-btn-primary"><Icon name="qr" className="size-4" />{isAdmin ? 'Verify QR claims' : 'Open QR verification'}</button>}
         </div>
       </header>
 
-      {view === 'queue' && liveNotice && <p role="status" aria-live="polite" className="mt-4 text-xs font-semibold text-muted-copy">{liveNotice} · Updating the selected queue</p>}
+      {view === 'queue' && liveStatus === 'reconnecting' && <p className="mt-3 text-sm text-copy">Live connection unavailable. Use Refresh queue to check for changes.</p>}
 
       {isLoadingDistributions ? (
-        <div className="ga-card mt-7 p-6"><Skeleton className="h-4 w-40" /><Skeleton className="mt-3 h-12 w-full" /></div>
+        <DistributionPickerSkeleton showDetails={view === 'qr'} />
       ) : distributionError ? (
         <section className="mt-7 rounded-xl border border-amber-200 bg-white p-6" role="alert">
           <h2 className="font-extrabold text-ink">Unable to load distribution events</h2>
@@ -556,34 +603,38 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
         </section>
       ) : (
         <>
-          <section className="ga-card mt-7 grid gap-5 p-5 md:grid-cols-[minmax(0,1fr)_minmax(16rem,0.7fr)] md:items-end sm:p-6" aria-label="Selected distribution event">
+          <section className={`${distributionPickerLayout} ${openQueue ? '' : distributionPickerColumns}`} aria-label="Selected distribution event">
             <DistributionSelector distributions={distributions} selectedId={selectedId} onChange={selectDistribution} disabled={isPreviewing || isVerifying || isQrIssuing || isScheduleBusy || Boolean(scheduleAction) || Boolean(reschedule)} />
-            <dl className="grid min-w-0 grid-cols-1 gap-4 rounded-lg bg-slate-50 p-4 text-sm [overflow-wrap:anywhere] sm:grid-cols-2">
-              <div><dt className="text-xs font-semibold text-muted-copy">Location</dt><dd className="mt-1 font-bold text-ink">{selectedDistribution?.location}</dd></div>
-              <div><dt className="text-xs font-semibold text-muted-copy">Event time</dt><dd className="mt-1 font-bold text-ink">{selectedDistribution?.startTime}–{selectedDistribution?.endTime}</dd></div>
-              <div><dt className="text-xs font-semibold text-muted-copy">Assistance</dt><dd className="mt-1 font-semibold text-ink">{selectedDistribution?.deliveryMode === 'PHYSICAL_GOODS' ? 'Physical handover' : 'Simulated wallet credit'}</dd></div>
-              <div><dt className="text-xs font-semibold text-muted-copy">Allowed verification</dt><dd className="mt-1 font-semibold text-ink">{eventVerificationLabel(selectedDistribution)}</dd></div>
-            </dl>
+            {view === 'queue' && <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <DistributionLiveStatus connection={liveStatus} />
+              {currentQueue && <p className="text-sm text-copy">Queue last synced <time dateTime={currentQueue.updatedAt.toISOString()}>{queueSyncTime.format(currentQueue.updatedAt)} PHT</time></p>}
+            </div>}
+            {openQueue && queueFilters}
+            {openQueue ? <details className="border-t border-line pt-2">
+              <summary className="cursor-pointer py-2 text-sm font-semibold text-brand-blue">Event details and verification</summary>
+              {eventFacts}
+            </details> : eventFacts}
 
-            {view === 'queue' && !isAdmin && selectedDistribution?.status === 'OPEN' && manualVerificationAllowed(selectedDistribution) && <button type="button" disabled={isScheduleBusy || Boolean(scheduleAction) || Boolean(reschedule)} onClick={() => onNavigate(`/manual-verification?distribution=${encodeURIComponent(selectedId)}`)} className="ga-btn-secondary md:col-span-2 md:justify-self-start">Open manual identity review</button>}
+            {view === 'queue' && !isAdmin && selectedDistribution?.status === 'OPEN' && manualVerificationAllowed(selectedDistribution) && <button type="button" disabled={isScheduleBusy || Boolean(scheduleAction) || Boolean(reschedule)} onClick={() => onNavigate(`/manual-verification?distribution=${encodeURIComponent(selectedId)}`)} className="ga-btn-secondary justify-self-start">Open manual identity review</button>}
           </section>
 
           {isDswd && view === 'qr' && selectedDistribution && <QrIssuancePanel key={selectedId} distribution={selectedDistribution} accessToken={session.accessToken} onSessionExpired={onSessionExpired} claimId={verificationResult?.claim?.claimId} onBusyChange={setIsQrIssuing} />}
 
-          {isFacilitator && view === 'queue' && selectedDistribution && <section className="ga-card mt-6 overflow-hidden" aria-labelledby="barangay-sessions-title" aria-busy={isLoadingSessionPlan || isScheduleBusy}>
-            <header className="border-b border-line p-5 sm:p-6"><h2 id="barangay-sessions-title" className="text-lg font-extrabold text-ink">Service sessions and capacity</h2><p className="mt-2 text-sm leading-6 text-muted-copy">{selectedDistribution.status === 'DRAFT' ? 'Generate time slots and manage the number of beneficiaries per slot for your assigned barangay.' : 'Sessions and capacity are locked because this event is open.'}</p></header>
-            <div className="p-5 sm:p-6">
-              {sessionPlanError ? <div role="alert"><p className="text-sm text-brand-red">{sessionPlanError}</p><button type="button" disabled={isLoadingSessionPlan} onClick={() => { setIsLoadingSessionPlan(true); setQueueReload(count => count + 1) }} className="ga-btn-secondary mt-3">Reload service sessions</button></div> : sessionPlan?.distributionId !== selectedId ? <p role="status" className="text-sm text-muted-copy"><LoadingLabel>Loading service sessions...</LoadingLabel></p> : <fieldset disabled={isScheduleBusy || isLoadingSessionPlan || Boolean(scheduleAction) || Boolean(reschedule)} className="min-w-0">
-                {sessionPlan.summary.matchingSlotCount > 0 ? <DistributionSessionSummary slots={sessionPlan.slots} summary={sessionPlan.summary} onEditCapacity={selectedDistribution.status === 'DRAFT' ? setCapacitySlot : undefined} /> : selectedDistribution.status === 'DRAFT' ? <DistributionSessionPlanner key={selectedId} busy={isScheduleBusy || isLoadingSessionPlan} distribution={selectedDistribution} onGenerate={createSlots} serviceAreaSummary={sessionPlan.eligible?.summary} /> : <p className="text-sm text-muted-copy">No service sessions are available for this event.</p>}
-              </fieldset>}
-            </div>
-          </section>}
+          {!openQueue && serviceSessions}
 
           {view === 'queue' ? (
             <>
+            {selectedDistribution && <div className="mt-5"><DistributionActivity entries={activity} claimLink={claimId => {
+              const href = `/claim-accountability?distribution=${encodeURIComponent(selectedId)}&claim=${encodeURIComponent(claimId)}`
+              return <a href={href} className="ga-admin-link" onClick={event => {
+                if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+                event.preventDefault()
+                onNavigate(href)
+              }}>View claim</a>
+            }} /></div>}
             {selectedDistribution?.status === 'DRAFT' && <div className="mt-6"><AiScheduleDraft key={selectedId} accessToken={session.accessToken} distributionId={selectedId} remainingCount={queue?.summary?.schedulableAllocationCount} disabled={isScheduleBusy || isLoadingQueue || Boolean(scheduleAction) || Boolean(reschedule)} onBusyChange={setIsScheduleBusy} onSessionExpired={onSessionExpired} onSaved={result => { if (result) setScheduleNotice(`${result.generatedScheduleCount} appointments saved from the reviewed AI draft. The event is still a draft.`); refreshQueueRecords() }} /></div>}
             <QueueView
-              queue={queue?.distributionId === selectedId ? queue : null}
+              queue={currentQueue}
               role={session.user.role}
               onNavigate={onNavigate}
               distribution={selectedDistribution}
@@ -591,13 +642,8 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
               isLoading={isLoadingQueue}
               isScheduleBusy={isScheduleBusy}
               page={page}
-              searchInput={searchInput}
+              filters={openQueue ? null : queueFilters}
               filtered={Boolean(search || status || searchInput)}
-              setSearchInput={setSearchInput}
-              status={status}
-              onFilter={filterQueue}
-              onClear={clearQueueFilters}
-              onStatusChange={changeQueueStatus}
               onGenerate={generateSchedules}
               onReschedule={beginReschedule}
               onScheduleAction={setScheduleAction}
@@ -605,6 +651,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
               onRetry={() => { setQueueError(''); setIsLoadingQueue(true); setQueueReload((count) => count + 1) }}
               scheduleNotice={scheduleNotice}
             />
+            {openQueue && serviceSessions}
             </>
           ) : (
             <QrVerificationView
@@ -693,8 +740,18 @@ function QueueClaimAction({ schedule, distribution, role, onNavigate }) {
   }}>{action.label}</a>
 }
 
-function QueueView({ distribution, queue, role, onNavigate, queueError, isLoading, isScheduleBusy, page, searchInput, filtered, setSearchInput, status, onFilter, onClear, onGenerate, onReschedule, onScheduleAction, onStatusChange, onPageChange, onRetry, scheduleNotice }) {
+function QueueFilters({ searchInput, filtered, setSearchInput, status, onFilter, onClear, onStatusChange }) {
   const searchRef = useRef(null)
+  return (
+    <form aria-label="Find beneficiary schedules" onSubmit={onFilter} className="mt-4 grid gap-4 sm:grid-cols-[minmax(0,1fr)_13rem] xl:grid-cols-[minmax(0,1fr)_13rem_auto]">
+      <div className="min-w-0"><label htmlFor="queue-search" className="ga-label">Search beneficiary or queue number</label><div className="relative mt-2"><Icon name="search" className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-copy" /><input ref={searchRef} id="queue-search" type="search" autoComplete="off" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} maxLength="100" placeholder="Name or queue number" className="ga-input pl-11" /></div></div>
+      <div className="min-w-0"><label htmlFor="queue-status" className="ga-label">Filter by queue status</label><select id="queue-status" value={status} onChange={(event) => onStatusChange(event.target.value)} className="ga-input mt-2 cursor-pointer font-semibold">{queueStatuses.map((value) => <option key={value || 'ALL'} value={value}>{value ? humanize(value) : 'All statuses'}</option>)}</select></div>
+      <div className="flex flex-wrap items-center gap-2 sm:col-span-2 xl:col-span-1 xl:self-end"><button type="submit" className="ga-btn-primary"><Icon name="search" className="size-4" />Search</button>{filtered && <button type="button" onClick={() => { onClear(); searchRef.current?.focus() }} className="ga-btn-secondary"><Icon name="close" className="size-4" />Clear filters</button>}</div>
+    </form>
+  )
+}
+
+function QueueView({ distribution, queue, role, onNavigate, queueError, isLoading, isScheduleBusy, page, filtered, filters, onGenerate, onReschedule, onScheduleAction, onPageChange, onRetry, scheduleNotice }) {
   const counts = queue?.summary.countsByStatus ?? {}
   const isDraft = distribution?.status === 'DRAFT'
 
@@ -728,12 +785,8 @@ function QueueView({ distribution, queue, role, onNavigate, queueError, isLoadin
 
       <div className="ga-card mt-6 overflow-hidden">
         <div className="border-b border-line p-5 sm:p-6">
-          <h2 id="queue-heading" className="text-xl font-extrabold text-ink">{isDraft ? 'Beneficiary schedules' : 'Beneficiary queue'}</h2>
-          <form aria-label="Find beneficiary schedules" onSubmit={onFilter} className="mt-4 grid gap-4 sm:grid-cols-[minmax(0,1fr)_13rem] xl:grid-cols-[minmax(0,1fr)_13rem_auto]">
-            <div className="min-w-0"><label htmlFor="queue-search" className="ga-label">Search beneficiary or queue number</label><div className="relative mt-2"><Icon name="search" className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-copy" /><input ref={searchRef} id="queue-search" type="search" autoComplete="off" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} maxLength="100" placeholder="Name or queue number" className="ga-input pl-11" /></div></div>
-            <div className="min-w-0"><label htmlFor="queue-status" className="ga-label">Filter by queue status</label><select id="queue-status" value={status} onChange={(event) => onStatusChange(event.target.value)} className="ga-input mt-2 cursor-pointer font-semibold">{queueStatuses.map((value) => <option key={value || 'ALL'} value={value}>{value ? humanize(value) : 'All statuses'}</option>)}</select></div>
-            <div className="flex flex-wrap items-center gap-2 sm:col-span-2 xl:col-span-1 xl:self-end"><button type="submit" className="ga-btn-primary"><Icon name="search" className="size-4" />Search</button>{filtered && <button type="button" onClick={() => { onClear(); searchRef.current?.focus() }} className="ga-btn-secondary"><Icon name="close" className="size-4" />Clear filters</button>}</div>
-          </form>
+          <h2 id="queue-heading" tabIndex={-1} className="text-xl font-extrabold text-ink">{isDraft ? 'Beneficiary schedules' : 'Beneficiary queue'}</h2>
+          {filters}
         </div>
 
         <div className="p-4 sm:p-6">
@@ -750,7 +803,33 @@ function QueueView({ distribution, queue, role, onNavigate, queueError, isLoadin
                   <tbody className="divide-y divide-line">{queue.schedules.map((schedule) => <tr key={schedule.scheduleId}><td className="px-3 py-4"><p className="text-lg font-black text-brand-navy">#{schedule.queueNumber}</p><p className="mt-1 text-xs text-muted-copy">{schedule.assignmentMethod === 'AUTOMATED_RULES' || schedule.assignedByAi ? 'Automatically assigned' : 'Staff assigned'}</p></td><td className="px-3 py-4"><p className="font-bold text-ink">{beneficiaryName(schedule.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p><ClaimProgress claim={schedule.claim} /></td><td className="px-3 py-4"><p className="font-semibold text-ink">{schedule.slot.sessionLabel}</p><p className="mt-1 text-xs text-muted-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p><p className="mt-1 text-xs text-muted-copy">{schedule.slot.location}</p></td><td className="px-3 py-4"><StatusBadge status={schedule.status} /></td><td className="px-3 py-4 text-right">{isDraft ? <ScheduleActions schedule={schedule} busy={isScheduleBusy} onReschedule={onReschedule} onScheduleAction={onScheduleAction} /> : <QueueClaimAction schedule={schedule} distribution={distribution} role={role} onNavigate={onNavigate} />}</td></tr>)}</tbody>
                 </table>
               </div>
-              <ul className="space-y-3 md:hidden">{queue.schedules.map((schedule) => <li key={schedule.scheduleId} className="rounded-lg border border-line p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-lg font-black text-brand-navy">Queue #{schedule.queueNumber}</p><p className="mt-1 font-bold text-ink">{beneficiaryName(schedule.beneficiary)}</p><p className="mt-1 text-xs text-muted-copy">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p><ClaimProgress claim={schedule.claim} /></div><StatusBadge status={schedule.status} /></div><div className="mt-3 rounded-lg bg-slate-50 p-3"><p className="text-sm font-bold text-ink">{schedule.slot.sessionLabel}</p><p className="mt-1 text-xs text-muted-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p><p className="mt-1 text-xs text-muted-copy">{schedule.slot.location}</p></div>{isDraft ? <ScheduleActions schedule={schedule} busy={isScheduleBusy} mobile onReschedule={onReschedule} onScheduleAction={onScheduleAction} /> : <div className="mt-3 border-t border-line pt-2"><QueueClaimAction schedule={schedule} distribution={distribution} role={role} onNavigate={onNavigate} /></div>}</li>)}</ul>
+              <ul className="divide-y divide-line md:hidden" aria-label="Beneficiary distribution schedules">
+                {queue.schedules.map((schedule) => (
+                  <li key={schedule.scheduleId} className="py-4 first:pt-0 last:pb-0">
+                    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                      <div className="min-w-0 flex-1 basis-36">
+                        <p className="text-sm font-semibold tabular-nums text-brand-blue">Queue #{schedule.queueNumber}</p>
+                        <p className="mt-1 font-bold text-ink [overflow-wrap:anywhere]">{beneficiaryName(schedule.beneficiary)}</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-copy [overflow-wrap:anywhere]">{schedule.beneficiary.sitioPurok ?? schedule.beneficiary.barangay?.barangayName}</p>
+                      </div>
+                      <div><span className="sr-only">Queue status </span><StatusBadge status={schedule.status} /></div>
+                    </div>
+                    <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-2 border-y border-line py-2.5 text-sm leading-5">
+                      <dt className="font-semibold text-muted-copy">Appointment</dt>
+                      <dd className="min-w-0 [overflow-wrap:anywhere]">
+                        <p className="font-semibold text-ink">{timeFormatter.format(new Date(schedule.slot.slotStart))}–{timeFormatter.format(new Date(schedule.slot.slotEnd))}</p>
+                        <p className="mt-1 text-xs text-copy">{dateFormatter.format(new Date(schedule.slot.slotStart))} · {schedule.slot.sessionLabel}</p>
+                        <p className="mt-1 text-xs text-copy">{schedule.slot.location}</p>
+                      </dd>
+                    </dl>
+                    {isDraft ? <ScheduleActions schedule={schedule} busy={isScheduleBusy} mobile onReschedule={onReschedule} onScheduleAction={onScheduleAction} /> : <div className="pt-2">
+                      <ClaimProgress claim={schedule.claim} />
+                      <span className="mr-3 text-xs font-semibold text-muted-copy">Next step</span>
+                      <QueueClaimAction schedule={schedule} distribution={distribution} role={role} onNavigate={onNavigate} />
+                    </div>}
+                  </li>
+                ))}
+              </ul>
               <div className="mt-5 flex items-center justify-between border-t border-line pt-4"><p className="text-xs font-semibold text-muted-copy">Page {queue.pagination.page} of {Math.max(queue.pagination.totalPages, 1)}</p><div className="flex gap-2"><button type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)} className="min-h-11 cursor-pointer rounded-lg border border-line px-4 text-sm font-bold text-copy disabled:cursor-not-allowed disabled:opacity-50">Previous</button><button type="button" disabled={page >= queue.pagination.totalPages} onClick={() => onPageChange(page + 1)} className="min-h-11 cursor-pointer rounded-lg border border-line px-4 text-sm font-bold text-copy disabled:cursor-not-allowed disabled:opacity-50">Next</button></div></div>
             </>
           )}
@@ -1018,7 +1097,10 @@ function QrVerificationView({ role, distribution, qrToken, setQrToken, error, pr
               <div className="mt-5 grid gap-3 sm:grid-cols-2"><button type="button" disabled={isVerifying} onClick={onReset} className="ga-btn-secondary">Use a different QR</button><button ref={confirmRef} type="button" disabled={isVerifying} onClick={onConfirm} className="ga-btn-primary">{isVerifying ? <LoadingLabel>Recording verification...</LoadingLabel> : <><Icon name="check" /> {isAdmin ? 'Confirm QR validation' : preview.checksInBeneficiary ? 'Confirm check-in' : 'Confirm QR verification'}</>}</button></div>
             </section>
           ) : isPreviewing ? (
-            <section role="status" className="ga-card p-6"><h2 className="font-bold text-ink"><LoadingLabel>Reviewing credential...</LoadingLabel></h2><p className="mt-2 text-sm leading-6 text-copy">Checking the selected event and beneficiary. No queue or claim record has changed yet.</p></section>
+            <section className="ga-card p-6" role="status">
+              <h2 className="font-bold text-ink">Reviewing credential...</h2>
+              <div aria-hidden="true" className="mt-4 space-y-4"><Skeleton className="h-7 w-56 max-w-full" /><div className="space-y-4 rounded-lg border border-line bg-slate-50 p-4">{[0, 1, 2, 3].map((index) => <div key={index} className="flex justify-between gap-3"><Skeleton className="h-4 w-24" /><Skeleton className="h-4 w-32" /></div>)}</div><Skeleton className="h-11 w-full" /></div>
+            </section>
           ) : (
             <section className="rounded-xl border border-dashed border-line bg-white p-7 text-center"><span aria-hidden="true" className="mx-auto grid size-12 place-items-center rounded-full bg-info-soft text-brand-blue"><Icon name="qr" className="size-6" /></span><h2 className="mt-4 font-bold text-ink">Beneficiary review</h2><p className="mt-2 text-sm leading-6 text-muted-copy">{isAdmin ? 'Enter a QR credential to see the beneficiary, queue number, and remaining checks here.' : 'Scan with the camera or USB scanner. Beneficiary details will appear here for review before check-in.'}</p></section>
           )}

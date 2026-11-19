@@ -27,6 +27,10 @@ const DEFAULT_MESSAGE = 'GarantiyAid Notice: {beneficiary}, scheduled ka sa {dis
 
 const LANGUAGE_LABELS = { en: 'English', fil: 'Filipino', ceb: 'Cebuano' }
 
+function answerContext(messages) {
+  return messages.filter((message) => !message.local).slice(-6).map((message) => ({ role: message.role, content: message.content.slice(0, 1000) }))
+}
+
 const roleExperience = {
   SYSTEM_ADMIN: {
     greeting: {
@@ -84,6 +88,20 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
   const [recovery, setRecovery] = useState(() => pendingConfirmation(user?.userId))
   const [view, setView] = useState(() => pendingConfirmation(user?.userId) ? 'recovery' : 'home')
   const [streamingText, setStreamingText] = useState('')
+  const [liveAnswerTurn, setAnswerTurn] = useState(null)
+  const { failedAnswer, unfinished } = conversation
+  const restoredAnswerTurn = useMemo(() => {
+    if (!failedAnswer || unfinished) return null
+    const { index, intent, language: answerLanguage } = failedAnswer
+    const question = messages[index]
+    if (!Number.isInteger(index) || index !== messages.length - 1 || question?.role !== 'user' || question.local
+      || !Object.hasOwn(LANGUAGE_LABELS, answerLanguage) || typeof intent !== 'string' || !/^[A-Z_]{1,32}$/.test(intent)) return null
+    return {
+      conversationId: activeId, index, failure: 'The last answer did not finish.',
+      request: { language: answerLanguage, intent, messageText: question.content, history: answerContext(messages.slice(0, index)) },
+    }
+  }, [activeId, failedAnswer, messages, unfinished])
+  const answerTurn = liveAnswerTurn?.conversationId === activeId ? liveAnswerTurn : restoredAnswerTurn
   const [chatStatus, setChatStatus] = useState('thinking')
   const [lastIntent, setLastIntent] = useState('GUIDANCE')
   const [feedbackBusy, setFeedbackBusy] = useState(false)
@@ -129,6 +147,8 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
   const guidanceLink = guidanceTarget(lastIntent, user?.role)
   const taskInProgress = Boolean(pendingTask || recovery || !['home', 'success'].includes(view))
   const conversationLocked = Boolean(busy || feedbackBusy || taskInProgress || history.working || !history.ready)
+  const retryInProgress = busy === 'chat' && answerTurn?.retrying
+  const conversationNavigationLocked = Boolean((busy && !retryInProgress) || feedbackBusy || taskInProgress || history.working || !history.ready)
   const previousTaskRef = useRef(false)
 
   const visibleDistributions = useMemo(() => distributions.filter((row) => ['DRAFT', 'OPEN'].includes(row.status)), [distributions])
@@ -279,7 +299,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
     function fitInput() {
       if (!input.clientWidth) return
       input.style.height = '0px'
-      input.style.height = `${Math.min(144, input.scrollHeight)}px`
+      input.style.height = input.value ? `${Math.min(144, input.scrollHeight)}px` : '30px'
     }
     fitInput()
     let width = input.clientWidth
@@ -294,6 +314,24 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
     observer.observe(input)
     return () => { observer.disconnect(); cancelAnimationFrame(frame) }
   }, [active, chatInput, view, historyOpen, pendingTask, taskChatOpen])
+
+  useLayoutEffect(() => {
+    const viewport = window.visualViewport
+    const panel = panelRef.current
+    if (!active || !viewport || !panel) return
+    const fitViewport = () => {
+      const inset = viewport.scale === 1 ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0
+      panel.style.setProperty('--assistant-keyboard-inset', `${inset}px`)
+    }
+    fitViewport()
+    viewport.addEventListener('resize', fitViewport)
+    viewport.addEventListener('scroll', fitViewport)
+    return () => {
+      viewport.removeEventListener('resize', fitViewport)
+      viewport.removeEventListener('scroll', fitViewport)
+      panel.style.removeProperty('--assistant-keyboard-inset')
+    }
+  }, [active])
 
   useEffect(() => {
     if (active && historyOpen) historyRef.current?.querySelector('input')?.focus()
@@ -317,7 +355,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
     observer.observe(content)
     observer.observe(readingRef.current)
     return () => { observer.disconnect(); cancelAnimationFrame(frame) }
-  }, [active, historyOpen, messages, pendingTask, streamingText, view])
+  }, [active, answerTurn, historyOpen, messages, pendingTask, streamingText, view])
 
   function rememberReadingPosition() {
     const content = contentRef.current
@@ -362,7 +400,8 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
   }
 
   async function selectConversation(conversation) {
-    if (conversationLocked) return
+    if (conversationNavigationLocked || (retryInProgress && conversation.id === activeId)) return
+    cancelRetryForNavigation()
     const selected = await historyStore.select(conversation.id)
     if (!selected) return
     finishSwitch(selected)
@@ -382,9 +421,18 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
   }
 
   async function startConversation() {
-    if (conversationLocked) return
+    if (conversationNavigationLocked) return
+    cancelRetryForNavigation()
     const selected = await historyStore.start()
     if (selected) finishSwitch(selected)
+  }
+
+  function cancelRetryForNavigation() {
+    if (!retryInProgress) return
+    chatRequestRef.current?.abort()
+    chatRequestRef.current = null
+    setStreamingText('')
+    setBusy('')
   }
 
   async function copyReply(content, index) {
@@ -648,12 +696,16 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
     const classifiedIntent = conversationIntent(content, user?.role, pendingTask)
     const guidanceDuringTask = pendingTask && (isTaskQuestion(content) || ['mobile', 'concern', 'unsupported', 'identity', 'release', 'enrollment', 'document_requirements', 'schedule', 'delivery', 'beneficiary'].includes(classifiedIntent))
     const intent = guidanceDuringTask && ['reminder', 'distributionDraft'].includes(classifiedIntent) ? 'help' : classifiedIntent
-    setMessages((current) => [...current, { role: 'user', content, local: Boolean(pendingTask || ['reminder', 'distributionDraft'].includes(intent)) }])
+    historyStore.change((row) => ({
+      messages: [...row.messages, { role: 'user', content, local: Boolean(pendingTask || ['reminder', 'distributionDraft'].includes(intent)) }],
+      failedAnswer: undefined,
+    }))
     setLastIntent(intent.replace(/([A-Z])/g, '_$1').toUpperCase())
     setFeedbackStatus('')
     setChatInput('')
     setError('')
     setChatNotice('')
+    setAnswerTurn(null)
     if (pendingTask) {
       if (isTaskCancellation(content)) return cancelTask()
       if (intent === 'cancel') return taskMessage(routingReplies.cancel[language])
@@ -667,32 +719,65 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
       return
     }
     if (intent === 'reminder' || intent === 'distributionDraft') return beginTask(intent, content)
+    await requestAnswer({
+      conversationId: activeId,
+      index: messages.length,
+      request: {
+        language,
+        intent: intent.toUpperCase(),
+        messageText: content,
+        history: answerContext(messages),
+      },
+    })
+  }
+
+  async function requestAnswer(turn, retrying = false) {
+    if (chatRequestRef.current || historyStore.getSnapshot().activeId !== turn.conversationId) return
+    setAnswerTurn({ ...turn, retrying })
+    setLastIntent(turn.request.intent)
     setBusy('chat')
-    setError('')
     setStreamingText('')
     setChatStatus('thinking')
     const controller = new AbortController()
     chatRequestRef.current = controller
+    const isCurrent = () => chatRequestRef.current === controller && historyStore.getSnapshot().activeId === turn.conversationId
     let partialReply = ''
     try {
-      const data = await requestStaffAssistantMessage(accessToken, {
-        language,
-        intent: intent.toUpperCase(),
-        messageText: content,
-        history: messages.filter((message) => !message.local).slice(-6).map((message) => ({ role: message.role, content: message.content.slice(0, 1000) })),
-      }, {
+      const data = await requestStaffAssistantMessage(accessToken, turn.request, {
         signal: controller.signal,
-        onText: (text) => { if (chatRequestRef.current === controller) { partialReply = text; setStreamingText(text) } },
-        onStatus: (status) => { if (chatRequestRef.current === controller) setChatStatus(status) },
+        onText: (text) => { if (isCurrent()) { partialReply = text; setStreamingText(text) } },
+        onStatus: (status) => { if (isCurrent()) setChatStatus(status) },
       })
-      if (chatRequestRef.current !== controller) return
-      setMessages((current) => [...current, { role: 'assistant', content: data.messageText }])
+      if (!isCurrent()) return
+      historyStore.change((row) => ({ messages: [...row.messages, { role: 'assistant', content: data.messageText }], failedAnswer: undefined }))
+      setAnswerTurn(null)
+      if (retrying) requestAnimationFrame(() => {
+        if (document.activeElement === document.body && historyStore.getSnapshot().activeId === turn.conversationId) {
+          contentRef.current?.querySelector('.ga-assistant-turn:last-child .ga-assistant-reply')?.focus({ preventScroll: true })
+        }
+      })
     } catch (requestError) {
-      if (chatRequestRef.current !== controller) return
-      if (requestError.status === 401) onSessionExpired?.()
-      if (partialReply) setMessages((current) => [...current, { role: 'assistant', content: `${partialReply}\n\n*This reply was interrupted before completion.*`, local: true }])
-      if (controller.signal.aborted) setChatNotice('Response stopped. You can send another message.')
-      else setError(requestError.name === 'TimeoutError' ? 'The answer took too long. Please try again.' : requestError.message || 'GarantiyAid AI could not answer. Please try again.')
+      if (!isCurrent()) return
+      if (requestError.status === 401) {
+        historyStore.change({ failedAnswer: undefined })
+        setAnswerTurn(null)
+        onSessionExpired?.()
+      } else if (controller.signal.aborted) {
+        historyStore.change({ failedAnswer: undefined })
+        if (partialReply) setMessages((current) => [...current, { role: 'assistant', content: `${partialReply}\n\n*This reply was interrupted before completion.*`, local: true }])
+        setAnswerTurn(null)
+        setChatNotice('Response stopped. You can send another message.')
+      } else {
+        const failure = requestError.name === 'TimeoutError' ? 'The answer took too long.' : requestError.message || 'GarantiyAid AI could not answer.'
+        const { index, request } = turn
+        historyStore.change((row) => {
+          const question = row.messages[index]
+          // shortcut: retry recovery stays in the current tab until account-wide recovery is needed.
+          return index === row.messages.length - 1 && question?.role === 'user' && !question.local
+            ? { failedAnswer: { index, language: request.language, intent: request.intent } } : {}
+        })
+        setAnswerTurn({ ...turn, retrying: false, failure, partialReply })
+      }
     } finally {
       if (chatRequestRef.current === controller) {
         chatRequestRef.current = null
@@ -733,6 +818,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
     setFeedbackStatus('')
     setError('')
     setChatNotice('')
+    setAnswerTurn(null)
   }
 
   const currentTaskPrompts = pendingTask ? Object.keys(LANGUAGE_LABELS).map(locale => taskReply(pendingTask, locale)) : []
@@ -768,7 +854,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
         </div>
         <div className="ga-assistant-toolbar">
           {(view !== 'home' || pendingTask && !taskChatOpen) && languageControl}
-          <button type="button" onClick={startConversation} disabled={conversationLocked} aria-label="New chat" title={conversationLocked ? 'Finish or cancel the current task before starting a new conversation.' : 'New chat'} className="ga-assistant-tool"><Icon name="pen" /><span className="ga-assistant-tool-label">New chat</span></button>
+          <button type="button" onClick={startConversation} disabled={conversationNavigationLocked} aria-label="New chat" title={conversationNavigationLocked ? 'Finish or cancel the current task before starting a new conversation.' : 'New chat'} className="ga-assistant-tool"><Icon name="pen" /><span className="ga-assistant-tool-label">New chat</span></button>
           <button ref={historyButtonRef} type="button" onClick={() => historyOpen ? closeHistory() : setHistoryOpen(true)} aria-label="History" title="Conversation history" aria-controls="staff-assistant-history" aria-expanded={historyOpen} className="ga-assistant-tool"><Icon name="clock" /><span className="ga-assistant-tool-label">History</span></button>
           <button type="button" onClick={resizeConversation} aria-label={compact ? 'Expand conversation' : 'Use compact window'} title={compact ? 'Expand conversation' : 'Use compact window'} className="ga-assistant-tool ga-assistant-icon-tool"><Icon name={compact ? 'expand' : 'compact'} /></button>
           <button type="button" onClick={minimizeConversation} aria-label="Minimize conversation" title="Minimize to chat button" className="ga-assistant-tool"><Icon name="minimize" /><span className="ga-assistant-tool-label">Minimize</span></button>
@@ -789,27 +875,38 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
               {(restoredTask || conversation.unfinished && !taskInProgress) && !recovery && <p role="status" className="mb-6 border-l-2 border-brand-blue bg-info-soft p-3 text-sm leading-6 text-copy">Your conversation was restored. The unfinished task needs to be prepared again. Check the official records before submitting a new request.</p>}
               <div className="space-y-7" aria-label="Conversation">
                 {visibleMessages.map((message, index) => (
-                  <article key={`${activeId}-${index}`} className={message.role === 'user' ? 'ga-assistant-user-message' : 'ga-assistant-reply'} aria-label={message.role === 'user' ? 'Your message' : 'Assistant reply'}>
-                    {message.role === 'user' ? <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{message.content}</p> : <>
-                      <p className="ga-assistant-reply-author"><img src="/GarantiyAid-AI-logo.svg" alt="" width="22" height="22" />GarantiyAid</p>
-                      <Suspense fallback={<p className="whitespace-pre-wrap break-words">{message.content}</p>}><AssistantMessage content={message.content} /></Suspense>
-                      {index === messages.length - 1 && !pendingTask && view === 'home' && guidanceLink && <button type="button" onClick={() => navigate(guidanceLink.path)} className="ga-btn-secondary mt-3">Open {guidanceLink.label}<Icon name="arrowRight" className="size-4" /></button>}
-                      <div className="ga-assistant-reply-actions">
-                        <button type="button" onClick={() => copyReply(message.content, index)} className="ga-assistant-copy" aria-label={`Copy reply ${index + 1}`} title={copyStatus?.index === index && copyStatus.copied ? 'Copied' : 'Copy reply'}><Icon name={copyStatus?.index === index && copyStatus.copied ? 'check' : 'copy'} className="size-4" /></button>
-                        {index === messages.length - 1 && !pendingTask && view === 'home' && <AssistantFeedback busy={feedbackBusy || Boolean(busy)} status={feedbackStatus} onRate={submitFeedback} />}
-                        {copyStatus?.index === index && <p role="status" className={copyStatus.copied ? 'text-xs text-muted-copy' : 'w-full text-xs text-brand-red'}>{copyStatus.text}</p>}
-                      </div>
-                    </>}
-                  </article>
+                  <div key={`${activeId}-${index}`} className="ga-assistant-turn">
+                    <article className={message.role === 'user' ? 'ga-assistant-user-message' : 'ga-assistant-reply'} tabIndex={message.role === 'assistant' ? -1 : undefined} aria-label={message.role === 'user' ? 'Your message' : 'Assistant reply'}>
+                      {message.role === 'user' ? <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{message.content}</p> : <>
+                        <p className="ga-assistant-reply-author"><img src="/GarantiyAid-AI-logo.svg" alt="" width="22" height="22" />GarantiyAid</p>
+                        <Suspense fallback={<p className="whitespace-pre-wrap break-words">{message.content}</p>}><AssistantMessage content={message.content} /></Suspense>
+                        {index === messages.length - 1 && !pendingTask && view === 'home' && guidanceLink && <button type="button" onClick={() => navigate(guidanceLink.path)} className="ga-btn-secondary mt-3">Open {guidanceLink.label}<Icon name="arrowRight" className="size-4" /></button>}
+                        <div className="ga-assistant-reply-actions">
+                          <button type="button" onClick={() => copyReply(message.content, index)} className="ga-assistant-copy" aria-label={`Copy reply ${index + 1}`} title={copyStatus?.index === index && copyStatus.copied ? 'Copied' : 'Copy reply'}><Icon name={copyStatus?.index === index && copyStatus.copied ? 'check' : 'copy'} className="size-4" /></button>
+                          {index === messages.length - 1 && !pendingTask && view === 'home' && <AssistantFeedback busy={feedbackBusy || Boolean(busy)} status={feedbackStatus} onRate={submitFeedback} />}
+                          {copyStatus?.index === index && <p role="status" className={copyStatus.copied ? 'text-xs text-muted-copy' : 'w-full text-xs text-brand-red'}>{copyStatus.text}</p>}
+                        </div>
+                      </>}
+                    </article>
+                    {answerTurn?.conversationId === activeId && answerTurn.index === index && <section className="ga-assistant-answer-state" aria-label="Answer status">
+                      {busy === 'chat' && <div className="ga-assistant-reply">
+                        <p className="ga-assistant-reply-author"><img src="/GarantiyAid-AI-logo.svg" alt="" width="22" height="22" />GarantiyAid</p>
+                        {streamingText && <div aria-live="off"><Suspense fallback={<p className="whitespace-pre-wrap break-words">{streamingText}</p>}><AssistantMessage content={streamingText} /></Suspense></div>}
+                        <p role="status" className="mt-2 text-sm text-muted-copy"><LoadingLabel>{streamingText ? 'Writing reply...' : answerTurn.retrying ? 'Retrying answer...' : chatStatus === 'retrying' ? 'Still working on your answer...' : 'Preparing your answer...'}</LoadingLabel></p>
+                      </div>}
+                      {answerTurn.failure && <div className="ga-assistant-answer-error">
+                        {!busy && <>
+                          {answerTurn.partialReply && <div className="ga-assistant-reply"><Suspense fallback={<p className="whitespace-pre-wrap break-words">{answerTurn.partialReply}</p>}><AssistantMessage content={answerTurn.partialReply} /></Suspense><p className="mt-2 text-sm text-muted-copy">This reply was interrupted before completion.</p></div>}
+                          <p role="alert">{answerTurn.failure}</p>
+                        </>}
+                        <button type="button" className="ga-admin-link" aria-disabled={Boolean(busy || !history.ready || history.working)} onClick={() => { if (!busy && history.ready && !history.working) void requestAnswer(answerTurn, true) }}>Retry answer</button>
+                      </div>}
+                    </section>}
+                  </div>
                 ))}
-                {busy === 'chat' && <div className="ga-assistant-reply">
-                  <p className="ga-assistant-reply-author"><img src="/GarantiyAid-AI-logo.svg" alt="" width="22" height="22" />GarantiyAid</p>
-                  {streamingText && <div aria-live="off"><Suspense fallback={<p className="whitespace-pre-wrap break-words">{streamingText}</p>}><AssistantMessage content={streamingText} /></Suspense></div>}
-                  <p role="status" className="mt-2 text-sm text-muted-copy"><LoadingLabel>{streamingText ? 'Writing reply...' : chatStatus === 'retrying' ? 'Still working on your answer...' : 'Preparing your answer...'}</LoadingLabel></p>
-                </div>}
               </div>
               <p role="status" className="sr-only">{active && !pendingTask && busy !== 'chat' && messages.at(-1)?.role === 'assistant' ? messages.at(-1).content : ''}</p>
-              {view === 'home' && messages.length > 0 && !pendingTask && !recovery && nextTaskShortcuts}
+              {view === 'home' && messages.length > 0 && !answerTurn && !pendingTask && !recovery && nextTaskShortcuts}
               {view === 'home' && chatNotice && <p role="status" className="mt-4 text-sm text-muted-copy">{chatNotice}</p>}
               {view === 'home' && error && <p role="alert" className="mt-4 border-l-2 border-brand-red bg-danger-soft p-3 text-sm text-brand-red">{error}</p>}
               {view === 'home' && pendingTask && <div className={visibleMessages.length ? 'mt-6' : ''}>
@@ -998,7 +1095,7 @@ function StaffAiAssistant({ active = false, compact = false, onExpand, onCompact
           </div>}
         </div>
 
-        <AssistantHistory historyRef={historyRef} open={historyOpen} history={history} store={historyStore} locked={Boolean(busy || feedbackBusy || taskInProgress)} onClose={closeHistory} onSelect={selectConversation} onReset={() => { setRestoredTask(false); setCopyStatus(null); setLastIntent('GUIDANCE'); resetWorkflow() }} />
+        <AssistantHistory historyRef={historyRef} open={historyOpen} history={history} store={historyStore} locked={Boolean(busy || feedbackBusy || taskInProgress)} allowSelection={!conversationNavigationLocked} onClose={closeHistory} onSelect={selectConversation} onReset={() => { setRestoredTask(false); setCopyStatus(null); setLastIntent('GUIDANCE'); resetWorkflow() }} />
       </div>
     </section>
     </>

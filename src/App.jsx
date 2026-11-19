@@ -1,21 +1,21 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import AppLayout from './components/layout/AppLayout.jsx'
-import DashboardShell from './components/layout/DashboardShell.jsx'
 import { StaffShellContext } from './components/layout/staff-shell-context.js'
 import HomePage from './pages/HomePage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
-import ReportsAuditPage from './pages/ReportsAuditPage.jsx'
-import AdminStaffSecurityPage from './pages/AdminStaffSecurityPage.jsx'
-import DashboardPage from './pages/DashboardPage.jsx'
-import FacilitatorOperationsPage from './pages/FacilitatorOperationsPage.jsx'
-import BeneficiaryManagementPage from './pages/BeneficiaryManagementPage.jsx'
-import EnrollmentReviewPage from './pages/EnrollmentReviewPage.jsx'
 import { NotFoundPage, PrivacyPage, SessionExpiredPage } from './pages/SystemPages.jsx'
 import { clearStaffSession, getDashboardNavigation, getStoredStaffSession, requestStaffLogout } from './auth/staffAuth.js'
 import { accountReturnPath } from './auth/account-return-path.js'
 import { Toaster } from './components/ui/sonner.jsx'
 import { ContentLoader, PageLoader } from './components/ui/spinner.jsx'
 
+const DashboardShell = lazy(() => import('./components/layout/DashboardShell.jsx'))
+const ReportsAuditPage = lazy(() => import('./pages/ReportsAuditPage.jsx'))
+const AdminStaffSecurityPage = lazy(() => import('./pages/AdminStaffSecurityPage.jsx'))
+const DashboardPage = lazy(() => import('./pages/DashboardPage.jsx'))
+const FacilitatorOperationsPage = lazy(() => import('./pages/FacilitatorOperationsPage.jsx'))
+const BeneficiaryManagementPage = lazy(() => import('./pages/BeneficiaryManagementPage.jsx'))
+const EnrollmentReviewPage = lazy(() => import('./pages/EnrollmentReviewPage.jsx'))
 const ProgramManagementPage = lazy(() => import('./pages/ProgramManagementPage.jsx'))
 const InitialPasswordPage = lazy(() => import('./pages/InitialPasswordPage.jsx'))
 const PasswordResetPage = lazy(() => import('./pages/PasswordResetPage.jsx'))
@@ -33,7 +33,15 @@ const DswdMonitoringPage = lazy(() => import('./pages/DswdMonitoringPage.jsx'))
 const ClaimAccountabilityPage = lazy(() => import('./pages/ClaimAccountabilityPage.jsx'))
 const AccountSettingsPage = lazy(() => import('./pages/AccountSettingsPage.jsx'))
 const BurialReferralPage = lazy(() => import('./pages/BurialReferralPage.jsx'))
-const staffPaths = new Set(['/dashboard', '/account', '/admin/staff-security', '/admin/administration', '/admin/schedules', '/admin/verify-claims', '/dswd/verify-claims', '/notifications', '/help-cases', '/service-review', '/biometrics', '/facilitator/queue', '/facilitator/qr-verification', '/dswd/live-dashboard', '/dswd/ledger', '/claim-accountability', '/reports', '/audit-logs', '/beneficiaries', '/enrollments', '/programs', '/distributions/manage'])
+const staffPaths = new Set(['/dashboard', '/account', '/assistant', '/manual-verification', '/burial-referrals', '/admin/staff-security', '/admin/administration', '/admin/schedules', '/admin/verify-claims', '/dswd/verify-claims', '/notifications', '/help-cases', '/service-review', '/biometrics', '/facilitator/queue', '/facilitator/qr-verification', '/dswd/live-dashboard', '/dswd/ledger', '/claim-accountability', '/reports', '/audit-logs', '/beneficiaries', '/enrollments', '/programs', '/distributions/manage'])
+const staffPathsWithoutAssistant = new Set(['/service-review', '/notifications', '/dswd/live-dashboard', '/dswd/ledger', '/claim-accountability', '/admin/verify-claims', '/dswd/verify-claims', '/facilitator/queue', '/facilitator/qr-verification'])
+
+const publicTitles = {
+  '/': 'Assistance information', '/privacy': 'Privacy notice', '/login': 'Staff sign in',
+  '/account': 'Staff sign in', '/forgot-password': 'Forgot password', '/reset-password': 'Reset password',
+  '/password-setup': 'Set your password', '/totp-verification': 'Verify sign-in',
+  '/totp-setup': 'Set up your authenticator', '/session-expired': 'Session expired',
+}
 
 function currentPath() {
   return window.location.pathname.replace(/\/$/, '') || '/'
@@ -42,6 +50,7 @@ function currentPath() {
 function App() {
   const [route, setRoute] = useState(() => ({ path: currentPath(), search: window.location.search }))
   const path = route.path
+  const pendingNavigation = useRef(null)
   const [pageDetails, setPageDetails] = useState(null)
   const [pendingLogin, setPendingLogin] = useState(null)
   const [returnTo, setReturnTo] = useState(() => accountReturnPath(window.location.pathname + window.location.search)
@@ -62,21 +71,25 @@ function App() {
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
-  function navigate(nextPath) {
+  const navigate = useCallback((nextPath) => {
+    pendingNavigation.current = new URL(nextPath, window.location.origin).hash
     window.history.pushState({}, '', nextPath)
     window.dispatchEvent(new PopStateEvent('popstate'))
+  }, [])
 
-    const hash = new URL(nextPath, window.location.origin).hash
-    requestAnimationFrame(() => {
-      if (hash) {
-        document.querySelector(hash)?.scrollIntoView({ block: 'start' })
-        return
-      }
-
-      window.scrollTo({ top: 0 })
-      document.querySelector('[data-route-focus]')?.focus({ preventScroll: true })
-    })
-  }
+  useLayoutEffect(() => {
+    const hash = pendingNavigation.current
+    if (hash === null) return
+    pendingNavigation.current = null
+    const target = hash && document.getElementById(hash.slice(1))
+    if (target) {
+      target.scrollIntoView({ block: 'start', behavior: 'instant' })
+      target.focus({ preventScroll: true })
+      return
+    }
+    window.scrollTo({ top: 0, behavior: 'instant' })
+    document.querySelector('[data-route-focus]')?.focus({ preventScroll: true })
+  }, [route])
 
   function backToLogin() {
     setPendingLogin(null)
@@ -92,13 +105,13 @@ function App() {
     navigate(destination)
   }
 
-  function expireSession() {
+  const expireSession = useCallback(() => {
     setReturnTo(accountReturnPath(window.location.pathname + window.location.search))
     clearStaffSession()
     navigate('/session-expired')
-  }
+  }, [navigate])
 
-  async function logout() {
+  const logout = useCallback(async () => {
     const { accessToken } = getStoredStaffSession()
     try {
       if (accessToken) await requestStaffLogout(accessToken)
@@ -110,7 +123,7 @@ function App() {
       clearStaffSession()
       navigate('/login')
     }
-  }
+  }, [navigate])
 
   let page = path === '/' ? <HomePage /> : <NotFoundPage />
   const session = getStoredStaffSession()
@@ -170,9 +183,7 @@ function App() {
     page = session.accessToken && session.user ? null : <SessionExpiredPage onLogin={backToLogin} />
   } else if (path === '/account') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<ContentLoader label="Loading account settings..." />}>
-        <AccountSettingsPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
-      </Suspense>
+      <AccountSettingsPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
     )
@@ -184,43 +195,33 @@ function App() {
     )
   } else if (path === '/admin/administration') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<ContentLoader />}>
-        <StaffBarangayAdministrationPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
-      </Suspense>
+      <StaffBarangayAdministrationPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
     )
   } else if (path === '/notifications') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<ContentLoader />}>
-        <NotificationManagementPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
-      </Suspense>
+      <NotificationManagementPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
     )
   } else if (path === '/help-cases') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<ContentLoader label="Loading help cases..." />}>
-        <ChatbotOperationsPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
-      </Suspense>
+      <ChatbotOperationsPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
     )
   } else if (path === '/service-review') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<ContentLoader label="Loading service review..." />}>
-        <ServiceReviewPage session={session} onLogout={logout} onNavigate={navigate} />
-      </Suspense>
+      <ServiceReviewPage session={session} onLogout={logout} onNavigate={navigate} />
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
     )
   } else if (path === '/manual-verification') {
-    page = session.accessToken && session.user ? <Suspense fallback={<ContentLoader />}><ManualVerificationPage key={`${session.user.userId}:${session.user.role}:${session.user.barangayId || ''}`} session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} /></Suspense> : <SessionExpiredPage onLogin={backToLogin} />
+    page = session.accessToken && session.user ? <ManualVerificationPage key={`${session.user.userId}:${session.user.role}:${session.user.barangayId || ''}`} session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} /> : <SessionExpiredPage onLogin={backToLogin} />
   } else if (path === '/biometrics') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<ContentLoader />}>
-        <BiometricIdentityPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
-      </Suspense>
+      <BiometricIdentityPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
     )
@@ -239,24 +240,20 @@ function App() {
     )
   } else if (path === '/dswd/live-dashboard' || path === '/dswd/ledger') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<ContentLoader />}>
-        {path === '/dswd/live-dashboard' ? <DswdMonitoringPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} /> : <DswdOperationsPage
+      path === '/dswd/live-dashboard' ? <DswdMonitoringPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} /> : <DswdOperationsPage
           key={path}
           view="ledger"
           session={session}
           onLogout={logout}
           onNavigate={navigate}
           onSessionExpired={expireSession}
-        />}
-      </Suspense>
+        />
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
     )
   } else if (path === '/claim-accountability') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<ContentLoader />}>
-        <ClaimAccountabilityPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
-      </Suspense>
+      <ClaimAccountabilityPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
     )
@@ -285,36 +282,42 @@ function App() {
     )
   } else if (path === '/programs' || path === '/distributions/manage') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<ContentLoader />}>
-        {path === '/programs' ? (
+      path === '/programs' ? (
           <ProgramManagementPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
         ) : (
           <DistributionManagementPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
-        )}
-      </Suspense>
+        )
     ) : (
       <SessionExpiredPage onLogin={backToLogin} />
     )
   } else if (path === '/burial-referrals') {
     page = session.accessToken && session.user ? (
-      <Suspense fallback={<ContentLoader />}><BurialReferralPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} /></Suspense>
+      <BurialReferralPage session={session} onLogout={logout} onNavigate={navigate} onSessionExpired={expireSession} />
     ) : <SessionExpiredPage onLogin={backToLogin} />
   } else if (path === '/session-expired') {
     page = <SessionExpiredPage onLogin={backToLogin} />
   }
 
-  const isStaffPage = Boolean(session.accessToken && session.user && (staffPaths.has(path) || path === '/assistant' || path === '/burial-referrals' || path === '/manual-verification'))
+  const isStaffPage = Boolean(session.accessToken && session.user && staffPaths.has(path))
   const navigation = isStaffPage ? getDashboardNavigation(session.user.role) : []
   const navigationItem = navigation.flatMap((item) => item.children ?? [item]).find((item) => item.href === path)
   const shellDetails = pageDetails?.currentPath === path ? pageDetails : null
   const pageTitle = shellDetails?.pageTitle ?? navigationItem?.label ?? 'Staff workspace'
+  const loadingTitle = path === '/dswd/live-dashboard' ? 'Real-time transparency dashboard' : path === '/claim-accountability' ? 'Claims and receipts' : pageTitle
+
+  const title = isStaffPage ? pageTitle : publicTitles[path] ?? (staffPaths.has(path) ? 'Staff sign-in required' : 'Page not found')
+  useEffect(() => { document.title = `${title} | GarantiyAid` }, [title])
 
   return (
     <AppLayout>
       {isStaffPage ? (
-        <DashboardShell breadcrumbs={shellDetails?.breadcrumbs ?? ['Operations', pageTitle]} currentPath={path} onLogout={logout} onNavigate={navigate} pageTitle={pageTitle} showAssistant={shellDetails?.showAssistant ?? path !== '/service-review'} user={session.user}>
-          <StaffShellContext.Provider key={route.path + route.search} value={setPageDetails}>{page}</StaffShellContext.Provider>
-        </DashboardShell>
+        <Suspense fallback={<PageLoader label="Loading staff workspace..." />}>
+          <DashboardShell breadcrumbs={shellDetails?.breadcrumbs ?? ['Operations', pageTitle]} currentPath={path} onLogout={logout} onNavigate={navigate} pageTitle={pageTitle} showAssistant={shellDetails?.showAssistant ?? !staffPathsWithoutAssistant.has(path)} user={session.user}>
+            <StaffShellContext.Provider key={route.path + route.search} value={setPageDetails}>
+              <Suspense fallback={<ContentLoader title={loadingTitle} />}>{page}</Suspense>
+            </StaffShellContext.Provider>
+          </DashboardShell>
+        </Suspense>
       ) : page}
       <Toaster />
     </AppLayout>
