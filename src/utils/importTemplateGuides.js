@@ -1,54 +1,54 @@
 export const staffTemplateGuide = [
   ['Full name', 'Required. Use the staff member’s complete name.', 'Maria Santos'],
-  ['Email', 'Required. Use a unique email the staff member can access.', 'maria@example.com'],
+  ['Email', 'Required. Use a unique email the staff member can access.', 'maria.santos@example.invalid'],
   ['Role', 'Choose DSWD Staff or Barangay Facilitator. You can also select one role for the entire file in the next step.', 'Barangay Facilitator'],
   ['Username', 'Required for Barangay Facilitators. Use a unique username; leave blank for DSWD Staff.', 'maria.santos'],
-  ['Contact number', 'Optional. Use a Philippine mobile number and keep the cell as Text.', '09171234567'],
-  ['Barangay', 'Required for Barangay Facilitators. Use an existing active barangay code or name, then confirm the assignment.', 'San Nicolas, Cebu City'],
+  ['Contact number', 'Optional. Use an 11-digit Philippine mobile number. Keep the leading zero.', '09000000301'],
+  ['Barangay', 'Required for Barangay Facilitators. Match an active barangay by code or name. Include the city if names repeat.', 'Apas, Cebu City'],
 ]
 
 export const beneficiaryTemplateGuide = [
-  ['First name', 'Required. Keep first, middle and last names in separate columns.', 'Maria'],
-  ['Middle name', 'Optional. Leave blank if there is no middle name.', 'Reyes'],
-  ['Last name', 'Required.', 'Santos'],
-  ['Birth date', 'Required. Use YYYY-MM-DD. The next step also supports matching other date formats.', '1990-05-23'],
-  ['Sex', 'Required. Use MALE, FEMALE, OTHER or UNKNOWN.', 'FEMALE'],
-  ['Address', 'Required. Enter the home address.', '12 Mabini Street'],
+  ['First name', 'Required. Enter the given name as recorded.', 'Jonel'],
+  ['Middle name', 'Optional. Leave blank if there is no middle name.', 'Cabahug'],
+  ['Last name', 'Required. Enter the family name as recorded.', 'Ramas'],
+  ['Birth date', 'Required. Enter a calendar date in YYYY-MM-DD format.', '1989-04-12'],
+  ['Sex', 'Required. Choose MALE, FEMALE, OTHER or UNKNOWN.', 'MALE'],
+  ['Address', 'Required. Include the house or lot, street or sitio, barangay and city.', 'House 27, Sitio Grotto, Apas, Cebu City'],
   ['City / Municipality', 'Optional cross-check against the parent barangay. Include it when barangay names repeat across cities.', 'Cebu City'],
-  ['Barangay', 'Required. Use an existing barangay or choose one for the file. Barangay staff can import only their assigned area.', 'San Nicolas, Cebu City'],
-  ['Sitio / Purok', 'Optional. Use a confirmed area in this barangay. Unlisted text is retained for staff review; leave blank if unknown.', 'Purok 2'],
-  ['Mobile number', 'Optional. Keep the cell as Text to preserve the leading zero.', '09171234567'],
-  ['Email', 'Optional. Leave blank if unavailable.', 'maria@example.com'],
+  ['Barangay', 'Required. Match an active barangay by code or name, or select a barangay for the file. Facilitators use their assigned barangay.', 'Apas, Cebu City'],
+  ['Sitio / Purok', 'Optional. Use a confirmed area in the selected barangay. Staff review any unlisted area.', 'Sitio Grotto'],
+  ['Mobile number', 'Optional. Keep the 11-digit number as Text to preserve its leading zero.', '09000000302'],
+  ['Email', 'Optional. Enter the beneficiary’s contact email if available.', 'jonel.ramas@example.invalid'],
   ['PhilSys number', 'Optional. Enter only a verified number; keep it as Text. Do not invent a value.', ''],
-  ['Assistance program', 'Required for program applications. Use an existing active program code or name, or select one program for the file during import.', 'FOOD-2026'],
+  ['Assistance program', 'Use the code or name of an active program accepting applications, or select one program for the file during import.', 'TUPAD'],
 ]
 
 export const barangayTemplateGuide = [
-  ['Barangay name', 'Required. Enter the official barangay name.', 'San Nicolas'],
-  ['Barangay code', 'Optional. Use the official code if available. Keep as Text to preserve leading zeroes. Leave blank if unknown.', ''],
+  ['Barangay name', 'Required. Enter the official barangay name.', 'Apas'],
+  ['Barangay code', 'Optional. Use the official code when available. Keep the cell as Text to preserve leading zeroes.', '0730600003'],
   ['City / Municipality', 'Required. Use the official city or municipality name.', 'Cebu City'],
   ['Province', 'Required. Use the official province name.', 'Cebu'],
-  ['Sitios / Puroks', 'Optional. Confirm each area belongs to this barangay. Separate names with | and retain the Sitio or Purok label.', ''],
+  ['Sitios / Puroks', 'Optional. Separate confirmed names with | and keep the Sitio or Purok label.', 'Sitio Grotto'],
 ]
 
 export const programTemplateGuide = [
-  ['Program name', 'Required. Use the full assistance program name (up to 150 characters).', 'Emergency Food Assistance'],
-  ['Program code', 'Required and unique. Use 3-30 letters, numbers or hyphens. No spaces.', 'FOOD-2026'],
-  ['Program type', 'Required. Use 2-20 letters, numbers or underscores, such as FOOD or CASH.', 'FOOD'],
-  ['Description', 'Optional. Describe the assistance and intended recipients.', 'Food packs for affected households.'],
-  ['Grant amount', 'Optional. Amount per beneficiary in PHP. Use a number without a currency symbol or thousands separator.', '1500.00'],
-  ['Budget amount', 'Optional. Total program budget in PHP. Use a number without a currency symbol or thousands separator.', '150000.00'],
-  ['Application start date', 'Optional. Use YYYY-MM-DD.', '2026-11-01'],
-  ['Application end date', 'Optional. Use YYYY-MM-DD, on or after the start date.', '2026-11-30'],
-  ['Required documents', 'Optional. Separate document types with semicolons: VALID_ID; BIRTH_CERTIFICATE; BARANGAY_CERTIFICATE; PROOF_OF_RESIDENCY; MEDICAL_CERTIFICATE; PWD_ID; SENIOR_CITIZEN_ID; OTHER.', 'VALID_ID; BARANGAY_CERTIFICATE'],
+  ['Program name', 'Required. Use the full assistance program name (up to 150 characters).', 'Tulong Panghanapbuhay sa Ating Disadvantaged Workers'],
+  ['Program code', 'Required. Use a unique code of 3–30 letters, numbers or hyphens. Reuse it on beneficiary applications.', 'TUPAD'],
+  ['Program type', 'Required. Use 2–20 letters, numbers or underscores.', 'EMERGENCY_EMPLOYMENT'],
+  ['Description', 'Optional. Describe the assistance and intended recipients.', 'Short-term paid community work for disadvantaged workers.'],
+  ['Grant amount', 'Optional. Enter pesos per beneficiary, up to two decimal places. Leave blank if unconfirmed.', '5820.00'],
+  ['Budget amount', 'Optional. Enter the total approved budget in pesos. The example covers 25 participants.', '145500.00'],
+  ['Application start date', 'Optional. Use YYYY-MM-DD.', '2026-11-02'],
+  ['Application end date', 'Optional. Use YYYY-MM-DD, on or after the start date.', '2027-01-29'],
+  ['Required documents', 'Optional. Separate multiple types with semicolons. Supported values include VALID_ID, BIRTH_CERTIFICATE, BARANGAY_CERTIFICATE, PROOF_OF_RESIDENCY, MEDICAL_CERTIFICATE, PWD_ID, SENIOR_CITIZEN_ID and OTHER.', 'VALID_ID'],
 ]
 
 export const importTemplateGuides = { staff: staffTemplateGuide, beneficiaries: beneficiaryTemplateGuide, programs: programTemplateGuide, barangays: barangayTemplateGuide }
 export const importTemplateNotes = {
-  staff: 'Create DSWD Staff or Barangay Facilitator accounts. Facilitators need a unique username and an existing active barangay. Do not include passwords.',
-  beneficiaries: 'Use actual beneficiary details. Match existing barangays during import. Include an assistance program only when importing program applications.',
-  programs: 'Imported programs are saved as Draft. Review eligibility rules and documents before activation.',
-  barangays: 'Create new barangays only. Existing records, including inactive barangays, are checked for duplicates.',
+  staff: 'Register the barangay before importing its facilitators. Each facilitator needs a unique username and an active barangay assignment.',
+  beneficiaries: 'Register the barangay first. Match each person to an active barangay using its code or its name and city.',
+  programs: 'Use approved local figures on Data. Amounts, dates and documents shown here illustrate one batch. Programs import as Draft and need an eligibility criterion before activation.',
+  barangays: 'Import new barangays first. Staff and beneficiaries can then use the same barangay code or name. Existing locations are checked for duplicates.',
 }
 
 export const IMPORT_TEMPLATE_INSTRUCTIONS = 'INSTRUCTIONS AND EXAMPLES - not imported'

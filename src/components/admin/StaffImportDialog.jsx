@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import ImportTemplateGuide from '../ui/ImportTemplateGuide.jsx'
 import { staffTemplateGuide, templateFileName } from '../../utils/importTemplateGuides.js'
-import { importTemplateRows } from '../../utils/staffImport.js'
+import { importTemplateRows, initialImportSheet } from '../../utils/staffImport.js'
 import { startStaffImport, resumeStaffImport, isSessionExpiredError, previewStaffImport, STAFF_ROLE_LABELS } from '../../auth/staffAuth.js'
 import { LoadingLabel } from '../ui/spinner.jsx'
 import StaffImportProgress, { ImportPagination, StaffImportHistory } from './StaffImportProgress.jsx'
@@ -154,7 +154,7 @@ export default function StaffImportDialog({ accessToken, barangays, onClose, onI
           const file = event.target.files?.[0]
           if (!file) return
           setTable(null); setSheets([]); setFileName(file.name)
-          run(async () => { const workbook = await readStaffImportFile(file); setSheets(workbook); chooseSheet(0, workbook) })
+          run(async () => { const workbook = await readStaffImportFile(file); setSheets(workbook); chooseSheet(initialImportSheet(workbook, 'Staff'), workbook) })
         }} /></div>
         {sheets.length > 1 && <div><label htmlFor="staff-import-sheet" className="ga-label">Worksheet</label><select id="staff-import-sheet" value={sheetIndex} disabled={busy} onChange={event => run(() => chooseSheet(Number(event.target.value)))} className="ga-input mt-2">{sheets.map((sheet, index) => <option key={index} value={index}>{sheet.sheet}</option>)}</select></div>}
         {table && <p className="text-sm text-copy">{fileName} · {table.rows.length} staff {table.rows.length === 1 ? 'row' : 'rows'} · {table.headers.length} columns</p>}

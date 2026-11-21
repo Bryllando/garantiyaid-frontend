@@ -1,10 +1,10 @@
 import { copyFile, mkdir, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { IMPORT_TEMPLATE_TITLES, STAFF_IMPORT_FIELDS, importTemplateRows } from '../src/utils/staffImport.js'
+import { IMPORT_TEMPLATE_TITLES, STAFF_IMPORT_FIELDS, STAFF_IMPORT_LIMIT } from '../src/utils/staffImport.js'
 import { BENEFICIARY_IMPORT_FIELDS } from '../src/utils/beneficiaryImport.js'
 import { PROGRAM_IMPORT_FIELDS } from '../src/utils/programImport.js'
-import { BARANGAY_IMPORT_FIELDS } from '../src/utils/barangayImport.js'
-import { importTemplateGuides, importTemplateGroups, importTemplateNotes, templateFileName } from '../src/utils/importTemplateGuides.js'
+import { BARANGAY_IMPORT_FIELDS, BARANGAY_IMPORT_LIMIT } from '../src/utils/barangayImport.js'
+import { importTemplateGuides, importTemplateNotes, templateFileName, templateHeading } from '../src/utils/importTemplateGuides.js'
 
 // Run with the authoring runtime's Artifact Tool; the app serves the saved files without a workbook dependency.
 export async function generateImportTemplates({ Workbook, SpreadsheetFile }) {
@@ -27,34 +27,25 @@ export async function generateImportTemplates({ Workbook, SpreadsheetFile }) {
     const data = workbook.worksheets.add('Data')
     const guide = workbook.worksheets.add('Guide')
     const last = String.fromCharCode(64 + fields.length)
-    const lastRow = label === 'barangays' ? 505 : 5005
+    const lastRow = 2 + (label === 'barangays' ? BARANGAY_IMPORT_LIMIT : STAFF_IMPORT_LIMIT)
     data.showGridLines = false; guide.showGridLines = false
     data.tabColor = '#08274C'; guide.tabColor = '#64748B'
     data.getRange(`A1:${last}105`).format = { font: { name: 'Arial', size: 10, color: '#172B43' }, rowHeight: 24, verticalAlignment: 'center' }
-    data.getRange(`A1:${last}5`).values = importTemplateRows(label, fields)
+    data.getRange('A1').values = [[title]]
     data.getRange(`A1:${last}1`).merge()
-    data.getRange('A1').format.font = { name: 'Arial', size: 14, bold: true, color: '#08274C' }
-    data.getRange(`A1:${last}1`).format.rowHeight = 34
-    data.getRange(`A2:${last}2`).merge()
-    data.getRange(`A2:${last}2`).format = { wrapText: true, rowHeight: 26, font: { name: 'Arial', size: 10, color: '#526278' } }
-    data.getRange(`A3:${last}3`).format = { fill: '#DCE6F0', font: { name: 'Arial', size: 10, bold: true, color: '#08274C' }, rowHeight: 24 }
-    for (const [, start, end] of importTemplateGroups[label]) {
-      if (start >= fields.length) continue
-      const group = data.getRange(`${String.fromCharCode(65 + start)}3:${String.fromCharCode(65 + Math.min(end, fields.length - 1))}3`)
-      group.merge()
-      group.format.borders = { right: { style: 'thin', color: '#FFFFFF' } }
-    }
-    header(data.getRange(`A4:${last}4`))
-    data.getRange(`A5:${last}5`).format = { fill: '#F3F6FA', wrapText: true, rowHeight: 42, font: { name: 'Arial', size: 10, color: '#526278' }, borders: { bottom: { style: 'thin', color: '#8FA4BD' }, insideVertical: { style: 'thin', color: '#DCE3EC' } } }
-    data.getRange(`A6:${last}105`).format.borders = { preset: 'all', style: 'thin', color: '#E2E8F0' }
-    for (let row = 8; row <= 104; row += 2) data.getRange(`A${row}:${last}${row}`).format.fill = '#F1F5F9'
-    data.freezePanes.freezeRows(5)
+    data.getRange(`A1:${last}1`).format = { fill: '#E6F1F4', font: { name: 'Arial', size: 14, color: '#12374D', bold: true }, rowHeight: 36, verticalAlignment: 'center' }
+    data.getRange(`A2:${last}2`).values = [fields.map(templateHeading)]
+    header(data.getRange(`A2:${last}2`))
+    data.getRange(`A3:${last}102`).format.borders = { preset: 'all', style: 'thin', color: '#D9E4E9' }
+    for (let row = 4; row <= 102; row += 2) data.getRange(`A${row}:${last}${row}`).format.fill = '#F1F6F7'
+    data.freezePanes.freezeRows(2)
     data.freezePanes.freezeColumns(1)
     for (let index = 0; index < fields.length; index++) {
-      const [field] = fields[index], col = String.fromCharCode(65 + index)
+      const [field, , required] = fields[index], col = String.fromCharCode(65 + index)
       data.getRange(`${col}1:${col}105`).format.columnWidth = widths[field] || 24
-      const cells = data.getRange(`${col}6:${col}${lastRow}`)
+      const cells = data.getRange(`${col}3:${col}${lastRow}`)
       cells.setNumberFormat(field.toLowerCase().includes('date') ? 'yyyy-mm-dd' : field.endsWith('Amount') ? '#,##0.00' : '@')
+      if (required) cells.conditionalFormats.add('expression', { formula: `AND(COUNTA($A3:$${last}3)>0,${col}3="")`, format: { fill: '#FFF0CA' } })
       if (field === 'role') cells.dataValidation = { rule: { type: 'list', values: ['DSWD Staff', 'Barangay Facilitator'] } }
       if (field === 'sex') cells.dataValidation = { rule: { type: 'list', values: ['MALE', 'FEMALE', 'OTHER', 'UNKNOWN'] } }
     }
@@ -70,11 +61,12 @@ export async function generateImportTemplates({ Workbook, SpreadsheetFile }) {
     guide.getRange('A1').format.font = { name: 'Arial', size: 14, bold: true, color: '#08274C' }
     guide.getRange('A1:D1').format.rowHeight = 34
     guide.getRange('A2:D2').merge()
-    guide.getRange('A2').values = [['Fill in Data from row 6. These examples are for reference; this Guide tab is not imported.']]
+    guide.getRange('A2').values = [['Enter one record per row on Data, starting at row 3. Fields marked * are required. Amber cells show missing required values in a started row.']]
     guide.getRange('A3:D3').merge()
-    guide.getRange('A3').values = [[importTemplateNotes[label]]]
+    const note = includeProgram ? 'Register the barangay first, then activate the program. Match its code in Assistance program to create an application for review.' : importTemplateNotes[label]
+    guide.getRange('A3').values = [[note]]
     guide.getRange('A2:D3').format = { wrapText: true, rowHeight: 30, font: { name: 'Arial', size: 10, color: '#526278' } }
-    guide.getRange('A4:D4').values = [['Column', 'Required?', 'Format and rules', 'Example only']]
+    guide.getRange('A4:D4').values = [['Column', 'When to fill it in', 'Entry instructions', 'Illustrative example']]
     header(guide.getRange('A4:D4'))
     guide.getRange(`D5:D${instructions.length + 4}`).setNumberFormat('@')
     guide.getRange(`A5:D${instructions.length + 4}`).values = instructions.map(([name, instruction, example], index) => {
@@ -89,6 +81,7 @@ export async function generateImportTemplates({ Workbook, SpreadsheetFile }) {
       if (index % 2 === 0) guide.getRange(`A${row}:D${row}`).format.fill = '#F1F5F9'
       if (instructions[index][1].length > 150) guide.getRange(`A${row}:D${row}`).format.rowHeight = 70
     }
+    guide.freezePanes.freezeRows(4)
     workbook.recalculate()
     const inspection = await workbook.inspect({ kind: 'table', range: `Data!A1:${last}6`, include: 'values', tableMaxRows: 6, tableMaxCols: fields.length, maxChars: 1000 })
     if (!inspection.ndjson.includes(title)) throw new Error(`Missing title in ${fileName}`)
@@ -108,7 +101,7 @@ export async function generateImportTemplates({ Workbook, SpreadsheetFile }) {
       if (field.endsWith('Amount') && example) return Number(example)
       return example || ''
     })
-    data.getRange(`A6:${last}6`).values = [sample]
+    data.getRange(`A3:${last}3`).values = [sample]
     workbook.recalculate()
     const filled = await SpreadsheetFile.exportXlsx(workbook)
     await filled.save(`${previews}/filled-${fileName}`)

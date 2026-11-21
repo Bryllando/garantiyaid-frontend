@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { isSessionExpiredError, previewProgramImport, startProgramImport, requestProgramImports, requestProgramImport, requestProgramImportResults, resumeProgramImport } from '../../auth/staffAuth.js'
 import ImportProgress, { ImportPagination, StaffImportHistory as ImportHistory } from '../admin/StaffImportProgress.jsx'
-import { downloadStaffCsv, importTemplateRows, STAFF_IMPORT_LIMIT, STAFF_IMPORT_FILE_LIMIT_MB } from '../../utils/staffImport.js'
+import { downloadStaffCsv, importTemplateRows, initialImportSheet, STAFF_IMPORT_LIMIT, STAFF_IMPORT_FILE_LIMIT_MB } from '../../utils/staffImport.js'
 import ImportTemplateGuide from '../ui/ImportTemplateGuide.jsx'
 import { Icon } from '../ui/icon.jsx'
 import { LoadingLabel, Spinner } from '../ui/spinner.jsx'
@@ -112,7 +112,7 @@ export default function ProgramImportDialog({ accessToken, onClose, onImported, 
         <div><label htmlFor="program-import-file" className="ga-label">Program list file</label><input id="program-import-file" type="file" accept=".csv,.xlsx" disabled={busy} className="ga-input mt-2 py-2 file:mr-3 file:rounded file:border-0 file:bg-info-soft file:px-3 file:py-2 file:font-semibold file:text-brand-blue" onChange={event => {
           const file = event.target.files?.[0]; if (!file) return
           setTable(null); setSheets([])
-          run(async () => { const workbook = await readProgramImportFile(file); setSheets(workbook); chooseSheet(0, workbook) })
+          run(async () => { const workbook = await readProgramImportFile(file); setSheets(workbook); chooseSheet(initialImportSheet(workbook, 'Programs'), workbook) })
         }} /></div>
         {sheets.length > 1 && <div><label htmlFor="program-import-sheet" className="ga-label">Worksheet</label><select id="program-import-sheet" value={sheetIndex} disabled={busy} onChange={event => run(() => chooseSheet(Number(event.target.value)))} className="ga-input mt-2">{sheets.map((sheet, index) => <option key={index} value={index}>{sheet.sheet}</option>)}</select></div>}
         {table && <p className="text-sm text-copy">{table.rows.length.toLocaleString('en-US')} program rows · {table.headers.length} columns</p>}

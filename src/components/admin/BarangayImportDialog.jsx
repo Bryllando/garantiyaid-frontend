@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { confirmBarangayImport, isSessionExpiredError, previewBarangayImport } from '../../auth/staffAuth.js'
-import { downloadStaffCsv, importTemplateRows, readStaffImportFile, STAFF_IMPORT_FILE_LIMIT_MB } from '../../utils/staffImport.js'
+import { downloadStaffCsv, importTemplateRows, initialImportSheet, readStaffImportFile, STAFF_IMPORT_FILE_LIMIT_MB } from '../../utils/staffImport.js'
 import { BARANGAY_IMPORT_FIELDS, BARANGAY_IMPORT_LIMIT, barangayCorrectionsCsv, barangayTableFromSheet, barangayTemplateGuide, mapBarangayImportRows, suggestBarangayColumns } from '../../utils/barangayImport.js'
 import ImportTemplateGuide from '../ui/ImportTemplateGuide.jsx'
 import { templateFileName } from '../../utils/importTemplateGuides.js'
@@ -101,7 +101,7 @@ export default function BarangayImportDialog({ accessToken, onClose, onImported,
         <div><label htmlFor="barangay-import-file" className="ga-label">Barangay list file</label><input id="barangay-import-file" type="file" accept=".csv,.xlsx" disabled={busy} className="ga-input mt-2 py-2 file:mr-3 file:rounded file:border-0 file:bg-info-soft file:px-3 file:py-2 file:font-semibold file:text-brand-blue" onChange={event => {
           const file = event.target.files?.[0]; if (!file) return
           setTable(null); setSheets([]); setFileName(file.name)
-          run(async () => { const workbook = await readStaffImportFile(file, { label: 'barangay' }); setSheets(workbook); chooseSheet(0, workbook) })
+          run(async () => { const workbook = await readStaffImportFile(file, { label: 'barangay' }); setSheets(workbook); chooseSheet(initialImportSheet(workbook, 'Barangays'), workbook) })
         }} /></div>
         {sheets.length > 1 && <div><label htmlFor="barangay-import-sheet" className="ga-label">Worksheet</label><select id="barangay-import-sheet" className="ga-input mt-2" value={sheetIndex} disabled={busy} onChange={event => run(() => chooseSheet(Number(event.target.value)))}>{sheets.map((sheet, index) => <option key={index} value={index}>{sheet.sheet}</option>)}</select></div>}
         {table && <p className="break-words text-sm text-copy">{fileName} · {table.rows.length} barangay {table.rows.length === 1 ? 'row' : 'rows'} · {table.headers.length} columns</p>}

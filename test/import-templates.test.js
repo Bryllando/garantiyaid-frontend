@@ -3,12 +3,21 @@ import assert from 'node:assert/strict'
 import Papa from 'papaparse'
 import readXlsxFile from 'read-excel-file/node'
 import { fileURLToPath } from 'node:url'
-import { IMPORT_TEMPLATE_TITLES, STAFF_IMPORT_FIELDS, importTemplateRows, suggestStaffColumns, tableFromSheet } from '../src/utils/staffImport.js'
+import { IMPORT_TEMPLATE_TITLES, STAFF_IMPORT_FIELDS, importTemplateRows, initialImportSheet, suggestStaffColumns, tableFromSheet } from '../src/utils/staffImport.js'
 import { BENEFICIARY_IMPORT_FIELDS, beneficiaryTableFromSheet, suggestBeneficiaryColumns } from '../src/utils/beneficiaryImport.js'
 import { BARANGAY_IMPORT_FIELDS, barangayTableFromSheet, mapBarangayImportRows, suggestBarangayColumns } from '../src/utils/barangayImport.js'
 import { previewBarangayImport, confirmBarangayImport } from '../src/auth/staffAuth.js'
 import { PROGRAM_IMPORT_FIELDS, programTableFromSheet, suggestProgramColumns } from '../src/utils/programImport.js'
 import { IMPORT_TEMPLATE_DATA, IMPORT_TEMPLATE_INSTRUCTIONS, importTemplateGuides, templateHeading, templateFileName } from '../src/utils/importTemplateGuides.js'
+
+test('linked workbooks open the matching sheet while templates prefer Data and CSV keeps its only sheet', () => {
+  const linked = ['Guide', 'Barangays', 'Programs', 'Beneficiaries'].map(sheet => ({ sheet }))
+  assert.equal(initialImportSheet(linked, 'Barangays'), 1)
+  assert.equal(initialImportSheet(linked, 'Programs'), 2)
+  assert.equal(initialImportSheet(linked, 'Beneficiaries'), 3)
+  assert.equal(initialImportSheet([...linked, { sheet: ' Data ' }], 'Programs'), 4)
+  assert.equal(initialImportSheet([{ sheet: 'Imported list' }], 'Staff'), 0)
+})
 
 test('guided CSV templates skip examples and preserve actual physical source row numbers', () => {
   for (const [label, fields, read, suggest] of [
@@ -63,7 +72,7 @@ test('all downloadable Excel templates have a blank Data sheet and a complete se
     const file = fileURLToPath(new URL(`../public/import-templates/${templateFileName(label, includeProgram)}`, import.meta.url))
     const sheets = await readXlsxFile(file, { parseNumber: value => value })
     assert.deepEqual(sheets.map(item => item.sheet), ['Data', 'Guide'])
-    assert.deepEqual(sheets[0].data[3], fields.map(templateHeading))
+    assert.deepEqual(sheets[0].data[1], fields.map(templateHeading))
     assert.throws(() => read(sheets[0].data), /details below/)
     assert.throws(() => read(sheets[1].data), /Data worksheet/)
     assert.equal(sheets[1].data.slice(4).length, fields.length)
@@ -71,12 +80,12 @@ test('all downloadable Excel templates have a blank Data sheet and a complete se
       const example = importTemplateGuides[label].find(([name]) => name === heading)[2]
       return example ? (/^\d+(\.\d+)?$/.test(example) ? `e.g. ${example}` : example) : 'Leave blank if unavailable'
     }))
-    const completed = sheets[0].data.slice(0, 5)
-    completed.push(fields.map(() => '00123'))
+    const exampleRow = fields.map(([, heading]) => importTemplateGuides[label].find(([name]) => name === heading)[2])
+    const completed = [...sheets[0].data.slice(0, 2), exampleRow]
     const table = read(completed)
     assert.equal(table.rows.length, 1)
-    assert.equal(table.rows[0].sourceRow, 6)
-    assert.equal(table.rows[0].values[0], '00123')
+    assert.equal(table.rows[0].sourceRow, 3)
+    assert.deepEqual(table.rows[0].values, exampleRow)
   }
 })
 

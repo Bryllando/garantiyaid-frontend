@@ -23,6 +23,12 @@ export const STAFF_IMPORT_FIELDS = [
   ['fullName', 'Full name', true], ['email', 'Email', true], ['role', 'Role'],
   ['username', 'Username'], ['contactNumber', 'Contact number'], ['barangayId', 'Barangay'],
 ]
+
+export function initialImportSheet(sheets, sheetName) {
+  const names = sheets.map(({ sheet }) => sheet.trim().toLowerCase())
+  const data = names.indexOf('data')
+  return data >= 0 ? data : Math.max(0, names.indexOf(sheetName.toLowerCase()))
+}
 const key = value => String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9]/g, '')
 const aliases = {
   fullName: ['fullname', 'name', 'employeename', 'staffname'], email: ['email', 'emailaddress', 'workemail'],

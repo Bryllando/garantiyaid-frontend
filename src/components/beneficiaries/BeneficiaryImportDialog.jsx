@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import ImportTemplateGuide from '../ui/ImportTemplateGuide.jsx'
 import { beneficiaryTemplateGuide, templateFileName } from '../../utils/importTemplateGuides.js'
-import { importTemplateRows } from '../../utils/staffImport.js'
+import { importTemplateRows, initialImportSheet } from '../../utils/staffImport.js'
 import { isSessionExpiredError, previewBeneficiaryImport, startBeneficiaryImport, requestBeneficiaryImports, requestBeneficiaryImport, requestBeneficiaryImportResults, resumeBeneficiaryImport } from '../../auth/staffAuth.js'
 import ImportProgress, { ImportPagination, StaffImportHistory as ImportHistory } from '../admin/StaffImportProgress.jsx'
 import { columnValues, downloadStaffCsv, suggestStaffBarangay, STAFF_IMPORT_LIMIT, STAFF_IMPORT_FILE_LIMIT_MB } from '../../utils/staffImport.js'
@@ -119,7 +119,7 @@ export default function BeneficiaryImportDialog({ accessToken, user, barangays, 
         <div><label htmlFor="beneficiary-import-file" className="ga-label">Beneficiary list file</label><input id="beneficiary-import-file" type="file" accept=".csv,.xlsx" disabled={busy} className="ga-input mt-2 py-2 file:mr-3 file:rounded file:border-0 file:bg-info-soft file:px-3 file:py-2 file:font-semibold file:text-brand-blue" onChange={event => {
           const file = event.target.files?.[0]; if (!file) return
           setTable(null); setSheets([])
-          run(async () => { const workbook = await readBeneficiaryImportFile(file); setSheets(workbook); chooseSheet(0, workbook) })
+          run(async () => { const workbook = await readBeneficiaryImportFile(file); setSheets(workbook); chooseSheet(initialImportSheet(workbook, 'Beneficiaries'), workbook) })
         }} /></div>
         {sheets.length > 1 && <div><label htmlFor="beneficiary-import-sheet" className="ga-label">Worksheet</label><select id="beneficiary-import-sheet" value={sheetIndex} disabled={busy} onChange={event => run(() => chooseSheet(Number(event.target.value)))} className="ga-input mt-2">{sheets.map((sheet, index) => <option key={index} value={index}>{sheet.sheet}</option>)}</select></div>}
         {table && <p className="text-sm text-copy">{table.rows.length.toLocaleString('en-US')} beneficiary rows · {table.headers.length} columns</p>}
