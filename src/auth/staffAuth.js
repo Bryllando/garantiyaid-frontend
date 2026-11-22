@@ -1269,7 +1269,7 @@ export async function requestStaffAssistantMessage(token, message, { onText, onS
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'text/event-stream' },
     body: JSON.stringify(message),
-    signal: AbortSignal.any([AbortSignal.timeout(40_000), ...(signal ? [signal] : [])]),
+    signal: AbortSignal.any([AbortSignal.timeout(100_000), ...(signal ? [signal] : [])]),
   })
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
