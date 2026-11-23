@@ -59,7 +59,9 @@ export function watchStaffSession(token, { renew, expire, warn, dismiss }) {
     clearTimeout(timer)
     if (!owns()) return
     const timing = staffTokenTimes(liveToken)
-    if (!timing || timing.expires <= serverNow()) return expire()
+    // Without readable token dates, authenticated API responses decide expiry.
+    if (!timing) return
+    if (timing.expires <= serverNow()) return expire()
     const remaining = timing.expires - serverNow()
     if (remaining <= 120000 && warnedToken !== liveToken) {
       warnedToken = liveToken
