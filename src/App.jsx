@@ -4,7 +4,9 @@ import { StaffShellContext } from './components/layout/staff-shell-context.js'
 import HomePage from './pages/HomePage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
 import { NotFoundPage, PrivacyPage, SessionExpiredPage } from './pages/SystemPages.jsx'
-import { clearStaffSession, getDashboardNavigation, getStoredStaffSession, requestStaffLogout } from './auth/staffAuth.js'
+import { clearStaffSession, getDashboardNavigation, getStoredStaffSession, renewStaffSession, requestStaffLogout } from './auth/staffAuth.js'
+import { watchStaffSession } from './auth/staff-session.js'
+import { toast } from 'sonner'
 import { accountReturnPath } from './auth/account-return-path.js'
 import { Toaster } from './components/ui/sonner.jsx'
 import { ContentLoader, PageLoader } from './components/ui/spinner.jsx'
@@ -299,6 +301,23 @@ function App() {
   }
 
   const isStaffPage = Boolean(session.accessToken && session.user && staffPaths.has(path))
+  useEffect(() => {
+    if (!isStaffPage) return
+    const notice = 'staff-session-ending'
+    return watchStaffSession(session.accessToken, {
+      renew: renewStaffSession,
+      expire: expireSession,
+      warn: (final, stay) => toast.warning('Your staff session is about to end', {
+        id: notice, duration: Infinity,
+        description: final ? 'Save your work. Sign in again when this session ends.' : 'Select Stay signed in to continue working.',
+        ...(final ? {} : { action: { label: 'Stay signed in', onClick: (event) => {
+          event.preventDefault()
+          stay()
+        } } }),
+      }),
+      dismiss: () => toast.dismiss(notice),
+    })
+  }, [isStaffPage, session.accessToken, expireSession])
   const navigation = isStaffPage ? getDashboardNavigation(session.user.role) : []
   const navigationItem = navigation.flatMap((item) => item.children ?? [item]).find((item) => item.href === path)
   const shellDetails = pageDetails?.currentPath === path ? pageDetails : null

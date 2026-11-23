@@ -1,4 +1,5 @@
 import { io } from 'socket.io-client'
+import { currentStaffToken } from '../auth/staff-session.js'
 import { API_BASE_URL } from '../config/api.js'
 
 export const DSWD_LIVE_EVENTS = Object.freeze([
@@ -48,7 +49,7 @@ export function realtimeServerUrl(apiUrl = API_BASE_URL) {
 
 function connectRealtime(accessToken, events, handlers = {}, createSocket = io) {
   const socket = createSocket(realtimeServerUrl(), {
-    auth: { accessToken },
+    auth: { get accessToken() { return currentStaffToken(accessToken) } },
     transports: ['polling', 'websocket'],
     tryAllTransports: true,
     reconnection: true,

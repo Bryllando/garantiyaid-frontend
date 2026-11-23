@@ -16,7 +16,7 @@ import {
   requestDashboardOverview,
   requestDistributionList,
   requestOwnAccount,
-  storeStaffSession,
+  updateStoredStaffUser,
   STAFF_ROLE_LABELS,
 } from '../auth/staffAuth.js'
 import { connectOverviewRealtime } from '../realtime/staffRealtime.js'
@@ -189,7 +189,7 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
           const account = await requestOwnAccount(session.accessToken)
           if (!active) return
           if (account.user.userId !== session.user.userId || account.user.barangayId !== data.scope.barangayId) throw new Error('Account details could not be confirmed. Refresh or sign in again.')
-          storeStaffSession({ accessToken: session.accessToken, user: account.user })
+          updateStoredStaffUser(session.accessToken, account.user)
           onNavigate('/dashboard')
           return
         }

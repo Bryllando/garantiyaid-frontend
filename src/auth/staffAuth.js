@@ -1,4 +1,5 @@
 import { API_BASE_URL } from '../config/api.js'
+import { bindStaffToken, clearLoginToken, currentStaffToken, noteLoginTime, storeLoginToken } from './staff-session.js'
 import { ASSISTANT_HISTORY_KEY } from '../components/assistant/conversation-history.js'
 import { PUSH_DRAFTS_KEY } from '../utils/pushDrafts.js'
 import { BIOMETRIC_FOLLOW_UP_KEY } from '../utils/biometricFollowUp.js'
@@ -63,7 +64,7 @@ async function performJsonRequest(path, { body, headers, token, signal, method =
       ...(signal ? { signal } : {}),
       headers: {
         ...(body && !isFormData ? { 'Content-Type': 'application/json' } : {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(token ? { Authorization: `Bearer ${currentStaffToken(token)}` } : {}),
         ...headers,
       },
       ...(body ? { body: isFormData ? body : JSON.stringify(body) } : {}),
@@ -121,7 +122,7 @@ export async function requestStaffLogin(credentials) {
     throw new Error('The server returned an unexpected authentication response.')
   }
 
-  return data
+  return noteLoginTime(data)
 }
 
 export async function requestPasswordReset(account) {
@@ -157,7 +158,7 @@ export async function confirmTotpSetup(token, code) {
     throw new Error('The server returned an unexpected TOTP confirmation response.')
   }
 
-  return data
+  return noteLoginTime(data)
 }
 
 export async function requestStaffUsers(token) {
@@ -909,7 +910,7 @@ export async function removeBeneficiaryDocument(token, beneficiaryId, documentId
 
 export async function downloadBeneficiaryDocument(token, beneficiaryId, documentId, { signal } = {}) {
   const response = await fetch(`${API_BASE_URL}/beneficiaries/${beneficiaryId}/documents/${documentId}/download`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${currentStaffToken(token)}` },
     ...(signal ? { signal } : {}),
   })
   if (!response.ok) {
@@ -1267,7 +1268,7 @@ export async function recordStaffAssistantFeedback(token, feedback) {
 export async function requestStaffAssistantMessage(token, message, { onText, onStatus, signal } = {}) {
   const response = await fetch(`${API_BASE_URL}/chatbot/staff-assistant/messages`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: { Authorization: `Bearer ${currentStaffToken(token)}`, 'Content-Type': 'application/json', Accept: 'text/event-stream' },
     body: JSON.stringify(message),
     signal: AbortSignal.any([AbortSignal.timeout(100_000), ...(signal ? [signal] : [])]),
   })
@@ -1477,7 +1478,7 @@ export const resubmitEnrollment = (token, enrollmentId) => enrollmentAction(toke
 export async function requestDistributionCsv(token, distributionId) {
   const response = await fetch(`${API_BASE_URL}/reports/distributions/${distributionId}/export.csv`, {
     method: 'GET',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${currentStaffToken(token)}` },
   })
 
   if (!response.ok) {
@@ -1498,14 +1499,25 @@ export async function requestDistributionCsv(token, distributionId) {
 export function storeStaffSession(data) {
   // ponytail: session storage matches the current Bearer-token API; switch to
   // HttpOnly cookie sessions when the backend supports them.
-  sessionStorage.setItem('garantiyaid.accessToken', data.accessToken)
+  storeLoginToken(data)
   sessionStorage.setItem('garantiyaid.user', JSON.stringify(data.user))
+}
+
+export function updateStoredStaffUser(token, user) {
+  if (currentStaffToken(token) === sessionStorage.getItem('garantiyaid.accessToken')) {
+    sessionStorage.setItem('garantiyaid.user', JSON.stringify(user))
+  }
+}
+
+export async function renewStaffSession(token, continuationToken) {
+  const result = await requestJson('/auth/session/continue', { token, body: { continuationToken } })
+  return result.accessToken
 }
 
 export function getStoredStaffSession() {
   try {
     return {
-      accessToken: sessionStorage.getItem('garantiyaid.accessToken'),
+      accessToken: bindStaffToken(sessionStorage.getItem('garantiyaid.accessToken')),
       user: JSON.parse(sessionStorage.getItem('garantiyaid.user')),
     }
   } catch {
@@ -1517,13 +1529,13 @@ export function clearStaffSession() {
   sessionStorage.removeItem(ASSISTANT_HISTORY_KEY)
   sessionStorage.removeItem(PUSH_DRAFTS_KEY)
   sessionStorage.removeItem(BIOMETRIC_FOLLOW_UP_KEY)
-  sessionStorage.removeItem('garantiyaid.accessToken')
+  clearLoginToken()
   sessionStorage.removeItem('garantiyaid.user')
   sessionStorage.removeItem('garantiyaid.totpSetupToken')
 }
 
 export function isSessionExpiredError(error) {
-  return error?.status === 401
+  return error?.status === 401 && (!error.code || ['INVALID_TOKEN', 'INVALID_SESSION', 'AUTHENTICATION_REQUIRED', 'ACCOUNT_INACTIVE'].includes(error.code))
 }
 
 export const STAFF_ROLE_LABELS = Object.freeze({

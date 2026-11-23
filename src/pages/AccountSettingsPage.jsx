@@ -22,7 +22,7 @@ import {
   revokeOwnOtherSessions,
   STAFF_ROLE_LABELS,
   startOwnTotpReplacement,
-  storeStaffSession,
+  updateStoredStaffUser,
   updateOwnProfile,
 } from '../auth/staffAuth.js'
 
@@ -272,7 +272,7 @@ function AccountSettingsPage({ session, onLogout, onNavigate, onSessionExpired }
 
   function updateAccountUser(user) {
     setAccount((current) => ({ ...current, user }))
-    storeStaffSession({ accessToken: session.accessToken, user })
+    updateStoredStaffUser(session.accessToken, user)
   }
 
   async function saveProfile(event) {
