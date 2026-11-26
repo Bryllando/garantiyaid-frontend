@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
-import QrIssuancePanel from '../components/distributions/QrIssuancePanel.jsx'
 import { DistributionSessionPlanner, DistributionSessionSummary } from '../components/distributions/DistributionSessionPlanner.jsx'
 import SlotCapacityDialog from '../components/distributions/SlotCapacityDialog.jsx'
 import AiScheduleDraft from '../components/distributions/AiScheduleDraft.jsx'
@@ -165,7 +164,6 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
   const [pendingAttempt, setPendingAttempt] = useState(null)
   const [isPreviewing, setIsPreviewing] = useState(false)
   const [isVerifying, setIsVerifying] = useState(false)
-  const [isQrIssuing, setIsQrIssuing] = useState(false)
   const qrRequestPending = useRef(false)
   const isFacilitator = session.user.role === 'BARANGAY_FACILITATOR'
   const isAdmin = session.user.role === 'SYSTEM_ADMIN'
@@ -562,7 +560,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
           <p className="ga-eyebrow">{isAdmin ? 'Distribution administration' : isDswd ? 'DSWD claim review' : 'Assigned barangay operations'}</p>
           <h1 className="ga-page-title mt-2">{pageTitle}</h1>
           <p className="ga-page-copy">
-            {view === 'queue' ? 'Find a beneficiary by name or queue number to see their next step.' : 'Check the beneficiary and event before confirming the QR claim. Assistance is released in a separate step.'}
+            {view === 'queue' ? 'Find a beneficiary by name or queue number to see their next step.' : 'Check the beneficiary, event, and approved allocation before confirming the claim.'}
           </p>
         </div>
         <div className="ga-page-actions">
@@ -604,7 +602,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
       ) : (
         <>
           <section className={`${distributionPickerLayout} ${openQueue ? '' : distributionPickerColumns}`} aria-label="Selected distribution event">
-            <DistributionSelector distributions={distributions} selectedId={selectedId} onChange={selectDistribution} disabled={isPreviewing || isVerifying || isQrIssuing || isScheduleBusy || Boolean(scheduleAction) || Boolean(reschedule)} />
+            <DistributionSelector distributions={distributions} selectedId={selectedId} onChange={selectDistribution} disabled={isPreviewing || isVerifying || isScheduleBusy || Boolean(scheduleAction) || Boolean(reschedule)} />
             {view === 'queue' && <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <DistributionLiveStatus connection={liveStatus} />
               {currentQueue && <p className="text-sm text-copy">Queue last synced <time dateTime={currentQueue.updatedAt.toISOString()}>{queueSyncTime.format(currentQueue.updatedAt)} PHT</time></p>}
@@ -618,7 +616,6 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
             {view === 'queue' && !isAdmin && selectedDistribution?.status === 'OPEN' && manualVerificationAllowed(selectedDistribution) && <button type="button" disabled={isScheduleBusy || Boolean(scheduleAction) || Boolean(reschedule)} onClick={() => onNavigate(`/manual-verification?distribution=${encodeURIComponent(selectedId)}`)} className="ga-btn-secondary justify-self-start">Open manual identity review</button>}
           </section>
 
-          {isDswd && view === 'qr' && selectedDistribution && <QrIssuancePanel key={selectedId} distribution={selectedDistribution} accessToken={session.accessToken} onSessionExpired={onSessionExpired} claimId={verificationResult?.claim?.claimId} onBusyChange={setIsQrIssuing} />}
 
           {!openQueue && serviceSessions}
 
@@ -1033,12 +1030,13 @@ function QrVerificationView({ role, distribution, qrToken, setQrToken, error, pr
               <div><dt className="text-xs font-semibold text-muted-copy">Release handled by</dt><dd className="mt-1 font-bold text-ink">{distribution.deliveryMode === 'PHYSICAL_GOODS' ? 'Barangay Facilitator' : 'DSWD Staff'}</dd></div>
             </dl>
 
-            {distribution.verificationRequirement === 'QR_OR_BIOMETRIC' && <div className="mt-4 border-l-2 border-brand-blue bg-info-soft p-4 text-sm leading-6"><p>QR or live face match is enough for this event. A printed QR works without a phone.</p>{!isAdmin && !result && <button type="button" disabled={busy} onClick={() => onNavigate(`/biometrics?view=verify&distribution=${encodeURIComponent(distribution.distributionId)}${preview?.beneficiary ? `&beneficiary=${encodeURIComponent(preview.beneficiary.beneficiaryId)}` : ''}`)} className="ga-btn-secondary mt-3"><Icon name="biometrics" className="size-4" />Use face match instead</button>}</div>}
+            {distribution.verificationRequirement === 'QR_OR_BIOMETRIC' && <div className="mt-4 border-l-2 border-brand-blue bg-info-soft p-4 text-sm leading-6"><p>QR or live face match is enough for this event. Beneficiaries present their pass from the mobile app.</p>{!isAdmin && !result && <button type="button" disabled={busy} onClick={() => onNavigate(`/biometrics?view=verify&distribution=${encodeURIComponent(distribution.distributionId)}${preview?.beneficiary ? `&beneficiary=${encodeURIComponent(preview.beneficiary.beneficiaryId)}` : ''}`)} className="ga-btn-secondary mt-3"><Icon name="biometrics" className="size-4" />Use face match instead</button>}</div>}
 
             {!isAdmin && manualVerificationAllowed(distribution) && !result && !preview && <button type="button" disabled={busy} onClick={() => onNavigate(`/manual-verification?distribution=${encodeURIComponent(distribution.distributionId)}`)} className="ga-btn-secondary mt-4">Use permitted manual identity review</button>}
 
             <form onSubmit={onSubmit} className="mt-6" aria-busy={busy}>
               {isAdmin ? <>
+                {!preview && !result && <button type="button" disabled={busy} onClick={() => setCameraOpen(true)} className="ga-btn-primary mb-4">Scan mobile pass with camera</button>}
                 <label htmlFor="admin-qr-credential" className="ga-label">QR credential</label>
                 <div className="relative mt-2"><Icon name="qr" className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-copy" /><input ref={inputRef} id="admin-qr-credential" type="password" autoComplete="off" spellCheck="false" maxLength="512" required placeholder="Paste the full QR credential" value={qrToken} onChange={(event) => setQrToken(event.target.value)} disabled={busy || Boolean(preview) || Boolean(result)} aria-describedby={`admin-qr-hint${error ? ' qr-token-error' : ''}`} aria-invalid={Boolean(error)} className="ga-input pl-11" /></div>
                 <p id="admin-qr-hint" className="mt-2 text-sm leading-6 text-muted-copy">Paste the full backup credential printed on the beneficiary’s QR card. A claim reference or beneficiary number will not work.</p>
@@ -1064,7 +1062,7 @@ function QrVerificationView({ role, distribution, qrToken, setQrToken, error, pr
 
             {!isAdmin && <details className="mt-5 rounded-xl border border-line bg-slate-50 p-4 text-sm">
               <summary className="cursor-pointer font-bold text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue">Having trouble scanning?</summary>
-              <ul className="mt-3 space-y-2 leading-6 text-muted-copy"><li>Increase screen brightness or flatten the printed QR card.</li><li>Use the camera or an authorized USB handheld scanner.</li><li>For a damaged or expired credential, ask the System Administrator to reissue it.</li></ul>
+              <ul className="mt-3 space-y-2 leading-6 text-muted-copy"><li>Increase screen brightness or flatten the printed QR card.</li><li>Use the camera or an authorized USB handheld scanner.</li><li>For a damaged or expired credential, check the appointment and pass status with staff.</li></ul>
             </details>}
           </div>
         </section>
@@ -1074,8 +1072,9 @@ function QrVerificationView({ role, distribution, qrToken, setQrToken, error, pr
             <section ref={resultRef} tabIndex={-1} aria-label="QR validation result" className={`rounded-xl border p-6 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue ${result.verificationComplete ? 'border-emerald-200 bg-success-soft' : 'border-amber-200 bg-warning-soft'}`}>
               <span aria-hidden="true" className={`grid size-12 place-items-center rounded-full text-white ${result.verificationComplete ? 'bg-brand-green' : 'bg-brand-amber'}`}><Icon name={result.verificationComplete ? 'check' : 'info'} className="size-6" strokeWidth={2.5} /></span>
               <p className="mt-4 text-xs font-bold uppercase tracking-[0.1em] text-muted-copy">Verification recorded</p>
+              {result.walletTransactionCreated && <p role="status" className="mt-2 font-bold">Simulated wallet credited · {result.ledgerReference}</p>}
               <h2 className="mt-1 text-xl font-bold text-ink">{result.verificationComplete ? 'Claim verification complete' : 'QR accepted — biometric required'}</h2>
-              <p className="mt-2 text-sm leading-6 text-copy">{result.verificationComplete ? distribution.deliveryMode === 'PHYSICAL_GOODS' ? 'Next: the assigned Barangay Facilitator records the physical handover. This verification does not mark assistance as received.' : 'Next: DSWD records the simulated wallet credit. This verification does not credit the beneficiary’s wallet.' : 'Next: DSWD or the assigned Barangay Facilitator completes the live face check. The claim remains pending until all identity checks pass.'}</p>
+              <p className="mt-2 text-sm leading-6 text-copy">{result.walletTransactionCreated ? 'The beneficiary can see the updated balance and ledger reference in My Wallet.' : result.verificationComplete ? distribution.deliveryMode === 'PHYSICAL_GOODS' ? 'Next: the assigned Barangay Facilitator records the physical handover. This verification does not mark assistance as received.' : 'Next: DSWD records the simulated wallet credit. This verification does not credit the beneficiary’s wallet.' : 'Next: DSWD or the assigned Barangay Facilitator completes the live face check. The claim remains pending until all identity checks pass.'}</p>
               <dl className="mt-5 space-y-3 border-t border-current/10 pt-4 text-sm"><div className="flex justify-between gap-4"><dt className="text-muted-copy">Beneficiary</dt><dd className="text-right font-bold text-ink">{beneficiaryName(claim?.beneficiary) || 'Verified beneficiary'}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-copy">Queue number</dt><dd className="font-bold tabular-nums text-ink">{claim?.schedule?.queueNumber ? `#${claim.schedule.queueNumber}` : 'Recorded'}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-copy">Claim status</dt><dd className="font-bold text-ink">{humanize(claim?.claimStatus)}</dd></div><div className="flex justify-between gap-4"><dt className="text-muted-copy">Claim reference</dt><dd className="max-w-48 truncate font-mono text-xs font-bold text-ink" title={claim?.claimId}>{claim?.claimId}</dd></div></dl>
               {needsBiometric && !isAdmin
                 ? <button type="button" onClick={() => onNavigate(`/biometrics?view=verify&distribution=${encodeURIComponent(claim.distributionId)}&beneficiary=${encodeURIComponent(claim.beneficiaryId)}`)} className="ga-btn-primary mt-5 w-full">Continue to biometric <Icon name="arrowRight" /></button>
@@ -1086,6 +1085,7 @@ function QrVerificationView({ role, distribution, qrToken, setQrToken, error, pr
             <section role="status" aria-live="polite" className="rounded-xl border border-blue-200 bg-white p-6 shadow-sm">
               <div className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-info-soft px-3 py-1.5 text-xs font-bold text-brand-blue"><Icon name="security" className="size-4" /> Review required</span><span className="text-xs font-bold text-brand-green">Credential valid</span></div>
               <h2 className="mt-5 text-2xl font-bold text-ink">{beneficiaryName(preview.beneficiary)}</h2>
+              {preview.amount != null && <p className="mt-2 font-semibold">Approved allocation: PHP {preview.amount}{role === 'DSWD_STAFF' && ' · Confirming authorizes one simulated credit after all identity checks pass.'}</p>}
               <p className="mt-2 text-sm leading-6 text-copy">Match the person present with the name and queue number below before confirming.</p>
               <dl className="mt-5 divide-y divide-line rounded-xl border border-line bg-slate-50 px-4 text-sm">
                 <div className="flex justify-between gap-4 py-3"><dt className="text-muted-copy">Queue number</dt><dd className="font-bold tabular-nums text-ink">#{preview.schedule.queueNumber}</dd></div>
@@ -1094,7 +1094,7 @@ function QrVerificationView({ role, distribution, qrToken, setQrToken, error, pr
                 <div className="flex justify-between gap-4 py-3"><dt className="text-muted-copy">Next requirement</dt><dd className="text-right font-bold text-ink">{preview.nextRequiredVerification ? humanize(preview.nextRequiredVerification) : 'None'}</dd></div>
               </dl>
               <p className="mt-4 flex gap-3 rounded-lg border border-emerald-200 bg-success-soft p-4 text-sm leading-6 text-copy"><Icon name="info" className="mt-0.5 size-5 shrink-0 text-brand-green" /><span>No queue or claim record has changed yet. Confirmation is required.</span></p>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2"><button type="button" disabled={isVerifying} onClick={onReset} className="ga-btn-secondary">Use a different QR</button><button ref={confirmRef} type="button" disabled={isVerifying} onClick={onConfirm} className="ga-btn-primary">{isVerifying ? <LoadingLabel>Recording verification...</LoadingLabel> : <><Icon name="check" /> {isAdmin ? 'Confirm QR validation' : preview.checksInBeneficiary ? 'Confirm check-in' : 'Confirm QR verification'}</>}</button></div>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2"><button type="button" disabled={isVerifying} onClick={onReset} className="ga-btn-secondary">Use a different QR</button><button ref={confirmRef} type="button" disabled={isVerifying} onClick={onConfirm} className="ga-btn-primary">{isVerifying ? <LoadingLabel>Recording verification...</LoadingLabel> : <><Icon name="check" /> {isAdmin ? 'Confirm QR validation' : role === 'DSWD_STAFF' && preview.amount != null ? 'Confirm and authorize credit' : preview.checksInBeneficiary ? 'Confirm check-in' : 'Confirm QR verification'}</>}</button></div>
             </section>
           ) : isPreviewing ? (
             <section className="ga-card p-6" role="status">

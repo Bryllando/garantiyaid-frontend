@@ -16,7 +16,7 @@ const scenarios = [
     title: 'Allocation, schedule, and QR',
     handoff: 'Administrator → Facilitator',
     evidence: 'Local distribution verifiers passed',
-    steps: ['Create a physical-goods distribution and assign eligible beneficiaries.', 'Generate capacity-bound slots and schedules.', 'Open the event, issue QR credentials, and inspect the assigned queue.'],
+    steps: ['Create a physical-goods distribution and assign eligible beneficiaries.', 'Generate capacity-bound slots and schedules.', 'Open the event, review the queue, and scan each mobile pass at check-in.'],
     result: 'One beneficiary has one valid allocation and a scheduled place; QR credentials are issued only for an open event.',
     remaining: 'Confirm the final QR and queue in two signed-in staff browsers.',
     links: { SYSTEM_ADMIN: ['/distributions/manage', 'Distribution setup'], BARANGAY_FACILITATOR: ['/facilitator/queue', 'Queue & schedules'] },

@@ -683,6 +683,10 @@ export async function requestMobileAccounts(token, filters = {}) {
   return data
 }
 
+export function reviewMobileIdentity(token, accountId, body) {
+  return requestJson(`/mobile-account-requests/${encodeURIComponent(accountId)}/identity`, { token, body })
+}
+
 export async function reviewMobileAccount(token, accountId, decision) {
   const data = await requestJson(`/mobile-account-requests/${encodeURIComponent(accountId)}/decision`, { token, body: decision })
   if (!data?.account) throw new Error('The server returned an unexpected mobile-account review response.')

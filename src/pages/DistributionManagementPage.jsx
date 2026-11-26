@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import QrCredentialsDialog from '../components/distributions/QrCredentialsDialog.jsx'
-import QrCredentialIssuance from '../components/distributions/QrCredentialIssuance.jsx'
 import { toast } from 'sonner'
 import DashboardShell from '../components/layout/DashboardShell.jsx'
 import { ConfirmationDialog } from '../components/ui/confirmation-dialog.jsx'
@@ -20,7 +19,6 @@ import {
   cancelDistribution,
   createDistribution,
   createDistributionAllocations,
-  generateDistributionQrTokens,
   generateDistributionSchedules,
   generateDistributionSlots,
   getAuthErrorMessage,
@@ -37,7 +35,6 @@ import {
   requestProgram,
   requestPrograms,
   requestQrEligibleSchedules,
-  reissueDistributionQrToken,
   updateDistribution,
   updateDistributionSlotCapacity,
 } from '../auth/staffAuth.js'
@@ -52,7 +49,7 @@ const verificationGuides = {
   QR: {
     scenario: 'For beneficiaries presenting a printed or digital QR credential.',
     checks: [['qr', 'Scan the current QR credential for this event.']],
-    preparation: 'Generate and distribute QR credentials after the event opens. A printed credential can be used without a phone.',
+    preparation: 'Beneficiaries open their QR pass in the mobile app after identity approval and scheduling.',
   },
   BIOMETRIC: {
     scenario: 'For a venue equipped to verify identity using a live camera capture.',
@@ -62,7 +59,7 @@ const verificationGuides = {
   QR_OR_BIOMETRIC: {
     scenario: 'Complete ONE of these methods, based on what is available to the beneficiary. The other method is not required.',
     checks: [['qr', 'Scan the current event QR credential, printed or on a phone.'], ['biometrics', 'OR complete a live face match against the enrolled profile.']],
-    preparation: 'Provide printed QR credentials for beneficiaries without a phone. Face matching uses the staff camera and needs active consent and a cleared face profile.',
+    preparation: 'Beneficiaries can present their mobile QR pass. Face matching uses the staff camera and needs active consent and a cleared face profile.',
   },
   QR_AND_BIOMETRIC: {
     scenario: 'For events requiring both a QR credential and a live identity check.',
@@ -509,14 +506,6 @@ function DistributionManagementPage({ session, onLogout, onNavigate, onSessionEx
   async function generateSchedules() {
     try { await runAction('schedules', () => generateDistributionSchedules(session.accessToken, selectedId), 'Queue schedules generated for all active allocations.') } catch { /* Inline feedback is already shown. */ }
   }
-  async function generateQr() {
-    const result = await runAction('qr', () => generateDistributionQrTokens(session.accessToken, selectedId), 'QR cards generated. Save or print them now.')
-    setRawTokens({ distribution: selected, tokens: result.qrTokens })
-  }
-  async function replaceQr(item) {
-    const result = await runAction('replace-qr', () => reissueDistributionQrToken(session.accessToken, selectedId, item.qrTokenId), 'Replacement QR created. Save the new card now.')
-    setRawTokens({ distribution: selected, tokens: [result] })
-  }
   function eventClosed(distribution) {
     linkedEventRef.current = distribution.distributionId
     setSelected(distribution)
@@ -647,8 +636,8 @@ function DistributionManagementPage({ session, onLogout, onNavigate, onSessionEx
                   ['Queue coverage', 'queue', scheduled >= activeAllocations && activeAllocations > 0, activeAllocations > 0 ? `${scheduled} of ${activeAllocations} allocations scheduled` : 'Waiting for beneficiary allocations'],
                 ].map(([label, stage, complete, description]) => <li key={label} className="flex flex-wrap items-center gap-3 p-4"><span aria-hidden="true" className={`grid size-7 shrink-0 place-items-center rounded-full ${complete ? 'bg-success-soft text-brand-green' : 'bg-warning-soft text-brand-amber'}`}><Icon name={complete ? 'check' : 'clock'} className="size-4" /></span><div className="min-w-0 flex-1"><p className="text-sm font-bold text-ink">{label}<span className="ml-2 text-xs font-normal text-muted-copy">{complete ? 'Complete' : 'Needs attention'}</span></p><p className="mt-1 text-sm leading-5 text-copy">{description}</p></div><button type="button" disabled={!workflow.stages.find((item) => item.key === stage).available} onClick={() => { setActiveStage(stage); requestAnimationFrame(() => document.getElementById('distribution-stage-panel')?.focus()) }} aria-label={`Review ${label.toLowerCase()}`} className="ga-admin-link">Review</button></li>)}</ul>{selected.deliveryMode === 'PHYSICAL_GOODS' && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-y border-line py-4"><div><p className="text-sm font-bold text-ink">Assistance package</p><p className="mt-1 text-sm text-copy">{workflow.packageComplete ? `${selected.packageName}: ${selected.packageQuantity} ${selected.packageUnit} per beneficiary` : 'Define the package, unit and quantity before opening.'}</p></div><button type="button" onClick={() => setEventForm({ distribution: selected, packageOnly: true })} className="ga-admin-link">Edit assistance package</button></div>}<div id="opening-readiness" className={`mt-5 rounded-xl border p-4 ${readyToOpen ? 'border-emerald-200 bg-success-soft' : 'border-amber-200 bg-warning-soft'}`}><p className={`font-extrabold ${readyToOpen ? 'text-brand-green' : 'text-brand-amber'}`}>{readyToOpen ? 'Ready to open' : 'Complete the remaining setup steps'}</p><p className="mt-1 text-sm leading-6 text-copy">{readyToOpen ? 'Opening lets field staff begin. Package details, sessions, beneficiary assignments, and schedules will be locked.' : workflow.packageComplete ? 'Use Review beside an incomplete item to return to that stage.' : 'Use Edit assistance package to complete the package definition.'}</p></div><div className="mt-5 flex flex-col gap-3 sm:flex-row"><button type="button" aria-describedby="opening-readiness" disabled={!readyToOpen || Boolean(actionBusy)} onClick={() => setConfirmation({ kind: 'open', title: 'Open this distribution event?', description: 'Package details, allocations, slots, and schedules will be frozen so field operations can begin.', actionLabel: 'Open event' })} className="ga-btn-primary">Open distribution event</button><button type="button" disabled={Boolean(actionBusy)} onClick={() => setConfirmation({ kind: 'cancel', title: 'Cancel this distribution event?', description: 'This permanently cancels its slots, allocations, and schedules. Use only when the event will not proceed.', actionLabel: 'Cancel event', destructive: true })} className="ga-btn-danger">Cancel event</button></div></div>}
                 {selected.status === 'OPEN' && <div className="space-y-5 p-5 sm:p-6">
-                  {['QR', 'QR_AND_BIOMETRIC', 'QR_OR_BIOMETRIC'].includes(selected.verificationRequirement) ? <QrCredentialIssuance key={selectedId} accessToken={session.accessToken} busy={actionBusy} data={detail.qrTokens} distribution={selected} onGenerate={generateQr} onReplace={replaceQr} onSessionExpired={onSessionExpired} readyCount={detail.qrEligible.summary.qrEligibleScheduleCount} eligibility={detail.qrEligible.summary} onCreate={() => setEventForm({})} onViewQueue={() => onNavigate(`/admin/schedules?distribution=${encodeURIComponent(selectedId)}`)} /> : <div className="rounded-xl border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">{verificationLabels[selected.verificationRequirement] ?? humanize(selected.verificationRequirement)}:</strong> {selected.verificationRequirement === 'BIOMETRIC_AND_SIGNATURE' ? 'Facilitators complete a live face match, then collect the beneficiary signature in the biometric workspace.' : 'QR token issuance is not required for this event.'}</div>}
-                  <section aria-label="Next actions for this event" className="border-y border-line py-4"><h4 className="font-bold text-ink">{['QR', 'QR_AND_BIOMETRIC', 'QR_OR_BIOMETRIC'].includes(selected.verificationRequirement) ? 'Use the beneficiary QR card' : 'Verification and notices'}</h4><p className="mt-2 text-sm leading-6 text-copy">{['QR', 'QR_AND_BIOMETRIC', 'QR_OR_BIOMETRIC'].includes(selected.verificationRequirement) ? 'Admin: paste the full backup token from the saved card or CSV in Verify QR claims. Barangay staff can scan the printed card using the device camera or a USB QR scanner. ' : ''}{selected.deliveryMode === 'PHYSICAL_GOODS' ? 'After all required identity checks, the Barangay Facilitator records the handover and release evidence.' : 'After all required identity checks, DSWD records the simulated wallet credit.'}</p><div className="mt-4 flex flex-wrap gap-3">{['QR', 'QR_AND_BIOMETRIC', 'QR_OR_BIOMETRIC'].includes(selected.verificationRequirement) && <button type="button" onClick={() => onNavigate(`/admin/verify-claims?distribution=${encodeURIComponent(selectedId)}`)} className="ga-btn-primary">Verify QR claims</button>}<button type="button" onClick={() => onNavigate(`/notifications?distribution=${encodeURIComponent(selectedId)}`)} className="ga-btn-secondary">Send schedule notices</button></div></section>
+                  {['QR', 'QR_AND_BIOMETRIC', 'QR_OR_BIOMETRIC'].includes(selected.verificationRequirement) ? <p className="rounded-lg border border-line p-4 text-sm">Approved beneficiaries open their QR pass in the mobile app. Staff scan the pass at check-in.</p> : <div className="rounded-xl border border-blue-200 bg-info-soft p-4 text-sm leading-6 text-copy"><strong className="text-ink">{verificationLabels[selected.verificationRequirement] ?? humanize(selected.verificationRequirement)}:</strong> {selected.verificationRequirement === 'BIOMETRIC_AND_SIGNATURE' ? 'Facilitators complete a live face match, then collect the beneficiary signature in the biometric workspace.' : 'QR token issuance is not required for this event.'}</div>}
+                  <section aria-label="Next actions for this event" className="border-y border-line py-4"><h4 className="font-bold text-ink">{['QR', 'QR_AND_BIOMETRIC', 'QR_OR_BIOMETRIC'].includes(selected.verificationRequirement) ? 'Use the beneficiary QR card' : 'Verification and notices'}</h4><p className="mt-2 text-sm leading-6 text-copy">{['QR', 'QR_AND_BIOMETRIC', 'QR_OR_BIOMETRIC'].includes(selected.verificationRequirement) ? 'Open Verify QR claims and scan the beneficiary’s mobile pass. ' : ''}{selected.deliveryMode === 'PHYSICAL_GOODS' ? 'After all required identity checks, the Barangay Facilitator records the handover and release evidence.' : 'The simulated wallet is credited once all identity checks and DSWD authorization are complete.'}</p><div className="mt-4 flex flex-wrap gap-3">{['QR', 'QR_AND_BIOMETRIC', 'QR_OR_BIOMETRIC'].includes(selected.verificationRequirement) && <button type="button" onClick={() => onNavigate(`/admin/verify-claims?distribution=${encodeURIComponent(selectedId)}`)} className="ga-btn-primary">Verify QR claims</button>}<button type="button" onClick={() => onNavigate(`/notifications?distribution=${encodeURIComponent(selectedId)}`)} className="ga-btn-secondary">Send schedule notices</button></div></section>
                   <EventOperationsStatus key={`notices:${selectedId}`} distribution={selected} qrRemaining={detail.qrEligible.summary.qrEligibleScheduleCount} qrIssuedCount={detail.qrTokens.summary.matchingTokenCount} qrEligibility={detail.qrEligible.summary} token={session.accessToken} onNavigate={onNavigate} onSessionExpired={onSessionExpired} />
                   <EventOperationsReview key={`review:${selectedId}`} onClosed={eventClosed} distribution={selected} token={session.accessToken} onNavigate={onNavigate} onSessionExpired={onSessionExpired} />
                 </div>}

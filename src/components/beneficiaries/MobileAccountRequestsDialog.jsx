@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { ConfirmationDialog } from '../ui/confirmation-dialog.jsx'
 import { Icon } from '../ui/icon.jsx'
 import { SkeletonRows } from '../ui/skeleton.jsx'
-import { getAuthErrorMessage, isSessionExpiredError, requestBeneficiaryList, requestMobileAccounts, reviewMobileAccount } from '../../auth/staffAuth.js'
+import { getAuthErrorMessage, isSessionExpiredError, requestBeneficiaryList, requestMobileAccounts, reviewMobileAccount, reviewMobileIdentity } from '../../auth/staffAuth.js'
 
 const fullName = person => [person.firstName, person.middleName, person.lastName].filter(Boolean).join(' ')
 const date = value => new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(value))
 
-function LinkReview({ account, token, onSessionExpired, onReviewed, onOpenRecord }) {
+function LinkReview({ isAdmin, account, token, onSessionExpired, onReviewed, onOpenRecord }) {
   const [search, setSearch] = useState(account.lastName)
   const [filters, setFilters] = useState({ search: account.lastName, page: 1 })
   const [results, setResults] = useState(null)
@@ -36,12 +36,17 @@ function LinkReview({ account, token, onSessionExpired, onReviewed, onOpenRecord
   async function confirm(note) {
     setDecisionError('')
     try {
+      if (['APPROVE','RETURN'].includes(decision.type)) {
+        await reviewMobileIdentity(token, account.accountId, { decision: decision.type, revision: account.revision, note })
+        onReviewed(decision.type === 'APPROVE' ? 'Account identity approved.' : 'Identity returned for correction.')
+        return
+      }
       await reviewMobileAccount(token, account.accountId, {
         decision: decision.type, revision: account.revision, note,
-        ...(decision.type === 'LINK' ? { beneficiaryId: decision.person.beneficiaryId, confirmedIdentity: true } : {}),
+        ...(decision.type === 'LINK' ? { beneficiaryId: decision.person.beneficiaryId, confirmedIdentity: true } : decision.type === 'RECOVERY' ? { beneficiaryId: decision.person.beneficiaryId } : {}),
       })
       setDecision(null)
-      onReviewed(decision.type === 'LINK' ? 'Mobile account linked to the existing beneficiary.' : 'Request returned for correction.')
+      onReviewed(decision.type === 'LINK' ? 'Mobile account linked to the existing beneficiary.' : decision.type === 'RECOVERY' ? 'Applicant referred to account recovery.' : 'Request returned for correction.')
     } catch (failure) {
       if (isSessionExpiredError(failure)) onSessionExpired()
       else setDecisionError(`${getAuthErrorMessage(failure)} Close this confirmation and refresh the requests if the record changed.`)
@@ -57,6 +62,8 @@ function LinkReview({ account, token, onSessionExpired, onReviewed, onOpenRecord
     {account.status !== 'PENDING' ? <div className="mt-5 rounded-lg border border-line p-4">
       <h4 className="font-semibold">{account.status === 'LINKED' ? 'Linked beneficiary record' : 'Correction requested'}</h4>
       {account.beneficiary && <><p className="mt-2 text-sm">{fullName(account.beneficiary)} · {date(account.beneficiary.birthDate)}</p><button type="button" className="ga-btn-secondary mt-3" onClick={() => onOpenRecord(account.beneficiaryId)}>Open beneficiary record<Icon name="arrowRight" className="size-4" /></button></>}
+      {account.status === 'LINKED' && <p className="mt-3 text-sm">Identity review: {account.identityStatus === 'MATCHED' ? 'Face matched ? Pending admin approval' : account.identityStatus?.toLowerCase()}</p>}
+      {isAdmin && account.identityStatus === 'MATCHED' && <div className="mt-3 flex flex-wrap gap-2"><p className="w-full text-sm">Review the photo ID in the linked beneficiary record before approving. Document {account.identityDocumentId}</p><button className="ga-btn-primary" onClick={() => setDecision({ type: 'APPROVE' })}>Approve verified identity</button><button className="ga-btn-secondary" onClick={() => setDecision({ type: 'RETURN' })}>Return for correction</button></div>}
       <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-copy">{account.reviewNote}</p>
     </div> : <>
       <form className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-end" onSubmit={findRecords}>
@@ -72,6 +79,7 @@ function LinkReview({ account, token, onSessionExpired, onReviewed, onOpenRecord
               <input type="radio" name="mobile-beneficiary-match" className="mt-1 size-4 shrink-0 accent-brand-blue" checked={selected?.beneficiaryId === person.beneficiaryId} disabled={person.mobileAccount?.status === 'LINKED'} onChange={() => setSelected(person)} />
               <span className="min-w-0 text-sm"><strong className="block break-words">{fullName(person)}</strong><span className="mt-1 block text-copy">{date(person.birthDate)} · {person.barangay?.barangayName}</span><span className="mt-1 block break-words text-muted-copy">{person.address}</span>{person.mobileAccount?.status === 'LINKED' && <span className="mt-1 block font-medium text-muted-copy">Already linked to a mobile account</span>}</span>
             </label>
+            {person.mobileAccount?.status === 'LINKED' && <button className="ga-btn-secondary mt-2" onClick={() => { setDecisionError(''); setDecision({ type: 'RECOVERY', person }) }}>Refer to account recovery</button>}
           </li>)}
           {results.beneficiaries.length === 0 && <li className="p-4 text-sm leading-6 text-copy">No records found. Try another spelling or check the imported records. If this is a new person, register one verified beneficiary record first, then return here to link it.</li>}
         </ul>
@@ -83,17 +91,17 @@ function LinkReview({ account, token, onSessionExpired, onReviewed, onOpenRecord
       </div>
     </>}
     <ConfirmationDialog open={Boolean(decision)} onCancel={() => setDecision(null)} onConfirm={confirm} error={decisionError}
-      title={decision?.type === 'LINK' ? 'Link this mobile account?' : 'Request an identity correction'}
-      description={decision?.type === 'LINK' ? `Link ${fullName(account)} to ${fullName(decision.person)}, born ${date(decision.person.birthDate)}. This uses the existing record and keeps its documents and applications.` : 'Explain which identity details or evidence the account owner must correct. They can resubmit from the mobile app.'}
-      reasonLabel={decision?.type === 'LINK' ? 'Evidence checked and account ownership confirmed' : 'Correction needed'}
-      actionLabel={decision?.type === 'LINK' ? 'Confirm account link' : 'Send correction request'}
+      title={decision?.type === 'RECOVERY' ? 'Refer this person for assisted recovery?' : decision?.type === 'APPROVE' ? 'Approve this account identity?' : decision?.type === 'LINK' ? 'Link this mobile account?' : 'Request an identity correction'}
+      description={decision?.type === 'RECOVERY' ? 'The applicant will be directed to the barangay office to recover the existing account. Record why this referral is needed.' : decision?.type === 'APPROVE' ? 'Confirm that the accepted photo ID belongs to the linked beneficiary. The beneficiary will see Verified in the mobile app.' : decision?.type === 'LINK' ? `Link ${fullName(account)} to ${fullName(decision.person)}, born ${date(decision.person.birthDate)}. This uses the existing record and keeps its documents and applications.` : 'Explain which identity details or evidence the account owner must correct. They can resubmit from the mobile app.'}
+      reasonLabel={decision?.type === 'APPROVE' ? 'Identity evidence reviewed' : decision?.type === 'LINK' ? 'Evidence checked and account ownership confirmed' : 'Correction needed'}
+      actionLabel={decision?.type === 'RECOVERY' ? 'Refer for recovery' : decision?.type === 'APPROVE' ? 'Approve identity' : decision?.type === 'LINK' ? 'Confirm account link' : 'Send correction request'}
       confirmDisabled={decision?.type === 'LINK' && !identityChecked}>
       {decision?.type === 'LINK' && <label className="mt-4 flex items-start gap-3 text-sm leading-6"><input type="checkbox" className="mt-1 size-4 shrink-0 accent-brand-blue" checked={identityChecked} onChange={event => setIdentityChecked(event.target.checked)} /><span>I verified that this mobile account belongs to the person in this beneficiary record.</span></label>}
     </ConfirmationDialog>
   </section>
 }
 
-export default function MobileAccountRequestsDialog({ token, barangays, onClose, onNavigate, onSessionExpired }) {
+export default function MobileAccountRequestsDialog({ isAdmin, token, barangays, onClose, onNavigate, onSessionExpired }) {
   const dialogRef = useRef(null)
   const [status, setStatus] = useState('PENDING')
   const [page, setPage] = useState(1)
@@ -121,7 +129,7 @@ export default function MobileAccountRequestsDialog({ token, barangays, onClose,
       {!data.mobileAuthenticationConfigured && <p className="border-b border-line bg-slate-50 px-6 py-3 text-sm leading-6 text-copy">Mobile integration is not connected yet. Requests will appear after your mobile backend is configured.</p>}
       {data.accounts.length === 0 ? <div className="px-6 py-10 text-center"><Icon name="mobile" className="mx-auto size-8 text-muted-copy" /><h3 className="mt-3 font-semibold">{status === 'PENDING' ? 'No accounts waiting for review' : 'No requests in this status'}</h3><p className="mt-2 text-sm leading-6 text-muted-copy">Existing imported beneficiaries stay in the beneficiary register. Mobile registration will request a link rather than create a second person.</p></div> : <div className="grid min-w-0 md:grid-cols-[16rem_minmax(0,1fr)]">
         <nav aria-label="Mobile account requests" className={`border-b border-line md:border-b-0 md:border-r ${selected ? 'hidden md:block' : ''}`}><ul className="divide-y divide-line">{data.accounts.map(account => <li key={account.accountId}><button type="button" aria-current={selectedId === account.accountId ? 'true' : undefined} onClick={() => setSelectedId(account.accountId)} className={`w-full p-5 text-left hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-brand-blue ${selectedId === account.accountId ? 'bg-info-soft' : ''}`}><strong className="block break-words text-sm">{fullName(account)}</strong><span className="mt-1 block text-xs text-muted-copy">{date(account.birthDate)} · {barangays.find(item => item.barangayId === account.barangayId)?.barangayName ?? 'Service barangay'}</span><span className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-brand-blue">Review request<Icon name="chevronRight" className="size-3" /></span></button></li>)}</ul></nav>
-        <div className="min-w-0">{selected ? <><button type="button" onClick={() => setSelectedId('')} className="ga-btn-secondary m-5 mb-0 md:hidden"><Icon name="arrowLeft" className="size-4" />All requests</button><LinkReview key={`${selected.accountId}:${selected.revision}`} account={selected} token={token} onSessionExpired={onSessionExpired} onReviewed={message => { setNotice(message); refresh() }} onOpenRecord={beneficiaryId => { onClose(); onNavigate(`/beneficiaries?beneficiary=${beneficiaryId}`) }} /></> : <p className="p-6 text-sm leading-6 text-muted-copy">Choose a request to compare its submitted identity with existing beneficiary records.</p>}</div>
+        <div className="min-w-0">{selected ? <><button type="button" onClick={() => setSelectedId('')} className="ga-btn-secondary m-5 mb-0 md:hidden"><Icon name="arrowLeft" className="size-4" />All requests</button><LinkReview isAdmin={isAdmin} key={`${selected.accountId}:${selected.revision}`} account={selected} token={token} onSessionExpired={onSessionExpired} onReviewed={message => { setNotice(message); refresh() }} onOpenRecord={beneficiaryId => { onClose(); onNavigate(`/beneficiaries?beneficiary=${beneficiaryId}`) }} /></> : <p className="p-6 text-sm leading-6 text-muted-copy">Choose a request to compare its submitted identity with existing beneficiary records.</p>}</div>
       </div>}
       {data.pagination.totalPages > 1 && <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-6 py-4 text-sm"><span>Page {page} of {data.pagination.totalPages}</span><div className="flex gap-2">{[-1, 1].map(direction => <button type="button" key={direction} className="ga-btn-secondary" disabled={direction < 0 ? page <= 1 : page >= data.pagination.totalPages} onClick={() => { setPage(page + direction); setLoading(true); setSelectedId('') }}>{direction < 0 ? 'Previous' : 'Next'}</button>)}</div></footer>}
     </>}

@@ -292,7 +292,7 @@ function DashboardPage({ session, onLogout, onNavigate, onSessionExpired }) {
             <dl className="grid divide-y divide-line text-sm md:grid-cols-3 md:divide-x md:divide-y-0">
               <div className="p-4"><dt className="font-semibold text-ink"><Icon name="office" />Barangay staff</dt><dd className="mt-2 leading-6 text-copy">Register and update residents, submit enrollment documents, record face consent and enrollment, assist claim checks, and record physical release.</dd></div>
               <div className="p-4"><dt className="font-semibold text-ink"><Icon name="enrollments" />DSWD</dt><dd className="mt-2 leading-6 text-copy">Review eligibility and enrollment, verify claims, and record simulated wallet credits. Refer review concerns to DSWD.</dd></div>
-              <div className="p-4"><dt className="font-semibold text-ink"><Icon name="distributions" />Admin</dt><dd className="mt-2 leading-6 text-copy">Set up events, allocations and sessions, issue QR credentials, and close events. Barangay staff can adjust assigned schedules while an event is still a draft.</dd></div>
+              <div className="p-4"><dt className="font-semibold text-ink"><Icon name="distributions" />Admin</dt><dd className="mt-2 leading-6 text-copy">Set up events, allocations and sessions, review claim credentials, and close events. Barangay staff can adjust assigned schedules while an event is still a draft.</dd></div>
             </dl>
           </section>
 
