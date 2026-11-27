@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import AuthShell from '../components/auth/AuthShell.jsx'
 import PasswordStrengthField from '../components/auth/PasswordStrengthField.jsx'
 import { Icon } from '../components/ui/icon.jsx'
 import { LoadingLabel } from '../components/ui/spinner.jsx'
-import { clearStaffSession, completeStaffPasswordReset, getAuthErrorMessage, requestPasswordReset } from '../auth/staffAuth.js'
+import { checkStaffPasswordReset, clearStaffSession, completeStaffPasswordReset, getAuthErrorMessage, requestPasswordReset } from '../auth/staffAuth.js'
 
 const genericRequestMessage = 'If the account is eligible, a password-reset link will be sent to its registered email address.'
 const textLink = 'inline-flex min-h-11 items-center text-sm font-semibold text-brand-blue underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-blue'
@@ -83,9 +83,39 @@ function CompleteReset() {
   const [revealed, setRevealed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [complete, setComplete] = useState(false)
-  const [linkRejected, setLinkRejected] = useState(false)
+  const [linkCheck, setLinkCheck] = useState(null)
+  const [checkAttempt, setCheckAttempt] = useState(0)
   const [error, setError] = useState('')
+  const tokenHasValidFormat = /^[A-Za-z0-9_-]{43,200}$/.test(token)
   const mismatch = confirmationTouched && confirmation !== password
+
+  const rejectLink = useCallback(() => {
+    setPassword('')
+    setConfirmation('')
+    setLinkCheck({ status: 'rejected' })
+    window.history.replaceState({}, '', '/reset-password')
+  }, [])
+
+  useEffect(() => {
+    if (!tokenHasValidFormat || complete) return
+    const controller = new AbortController()
+    let expiryTimer
+    checkStaffPasswordReset(token, { signal: controller.signal })
+      .then((remainingMs) => {
+        if (controller.signal.aborted) return
+        expiryTimer = window.setTimeout(rejectLink, remainingMs)
+        setLinkCheck({ status: 'valid' })
+      })
+      .catch((checkError) => {
+        if (controller.signal.aborted) return
+        if (checkError.code === 'INVALID_OR_EXPIRED_PASSWORD_RESET_TOKEN') rejectLink()
+        else setLinkCheck({ status: 'error', message: getAuthErrorMessage(checkError) })
+      })
+    return () => {
+      controller.abort()
+      window.clearTimeout(expiryTimer)
+    }
+  }, [token, tokenHasValidFormat, rejectLink, checkAttempt, complete])
 
   async function submit(event) {
     event.preventDefault()
@@ -106,8 +136,7 @@ function CompleteReset() {
       setComplete(true)
     } catch (requestError) {
       if (requestError.code === 'INVALID_OR_EXPIRED_PASSWORD_RESET_TOKEN') {
-        setPassword(''); setConfirmation(''); setLinkRejected(true)
-        window.history.replaceState({}, '', '/reset-password')
+        rejectLink()
       } else setError(getAuthErrorMessage(requestError))
     } finally { setBusy(false) }
   }
@@ -117,12 +146,21 @@ function CompleteReset() {
     <p className="text-sm leading-6">Your authenticator has not changed. Use it, or a recovery code, when you sign in.</p>
   </RecoveryNotice>
 
-  if (linkRejected || !/^[A-Za-z0-9_-]{43,200}$/.test(token)) return <RecoveryNotice title="Reset link unavailable" icon="info" action={<>
+  if (linkCheck?.status === 'rejected' || !tokenHasValidFormat) return <RecoveryNotice title="Reset link unavailable" icon="info" action={<>
     <a href="/forgot-password" className="ga-btn-primary w-full">Request a new link</a>
     <a href="/login" className={textLink}>Back to sign in</a>
   </>}>
-    <p>{linkRejected ? 'This link has expired, has already been used, or is no longer valid. Request a new link to continue.' : 'Open the complete reset link from your email, or request a new one below.'}</p>
+    <p>{tokenHasValidFormat ? 'This link has expired, has already been used, or is no longer valid. Request a new link to continue.' : 'Open the complete reset link from your email, or request a new one below.'}</p>
     <p className="text-sm leading-6">If you requested more than one email, use the newest link.</p>
+  </RecoveryNotice>
+
+  if (!linkCheck) return <p role="status" className="text-sm text-copy"><LoadingLabel>Checking your reset link...</LoadingLabel></p>
+
+  if (linkCheck.status === 'error') return <RecoveryNotice title="Could not check the reset link" icon="info" action={<>
+    <button type="button" className="ga-btn-primary w-full" onClick={() => { setLinkCheck(null); setCheckAttempt((attempt) => attempt + 1) }}>Try again</button>
+    <a href="/login" className={textLink}>Back to sign in</a>
+  </>}>
+    <p>{linkCheck.message}</p>
   </RecoveryNotice>
 
   return <>

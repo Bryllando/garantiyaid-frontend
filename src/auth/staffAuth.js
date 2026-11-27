@@ -131,6 +131,14 @@ export async function requestPasswordReset(account) {
   return data
 }
 
+export async function checkStaffPasswordReset(token, { signal } = {}) {
+  const data = await requestJson('/auth/password-reset/check', { body: { token }, signal })
+  if (!Number.isSafeInteger(data?.remainingMs) || data.remainingMs <= 0) {
+    throw new Error('The server returned an unexpected password-reset response.')
+  }
+  return data.remainingMs
+}
+
 export async function completeStaffPasswordReset(token, newPassword) {
   const data = await requestJson('/auth/password-reset/complete', {
     body: { token, newPassword },

@@ -2,13 +2,19 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import {
+  checkStaffPasswordReset,
   completeStaffPasswordReset,
   requestPasswordReset,
 } from '../src/auth/staffAuth.js'
 
-test('password recovery preserves enumeration-safe request and single-use completion contracts', async (context) => {
+test('password recovery checks the link without sending a password or staff credentials', async (context) => {
   const originalFetch = globalThis.fetch
   const requests = []
+  const responses = [
+    { message: 'If the account is eligible, instructions will be sent.' },
+    { remainingMs: 29_000 },
+    { message: 'Password reset complete.', revokedSessionCount: 3 },
+  ]
   context.after(() => { globalThis.fetch = originalFetch })
   globalThis.fetch = async (url, options) => {
     requests.push({ url, options })
@@ -16,24 +22,25 @@ test('password recovery preserves enumeration-safe request and single-use comple
       ok: true,
       json: async () => ({
         success: true,
-        data: requests.length === 1
-          ? { message: 'If the account is eligible, instructions will be sent.' }
-          : { message: 'Password reset complete.', revokedSessionCount: 3 },
+        data: responses[requests.length - 1],
       }),
     }
   }
 
   await requestPasswordReset('staff@example.test')
-  await completeStaffPasswordReset('a'.repeat(43), 'A replacement private password')
+  const token = 'a'.repeat(43)
+  assert.equal(await checkStaffPasswordReset(token), 29_000)
+  await completeStaffPasswordReset(token, 'A replacement private password')
   assert.match(requests[0].url, /\/auth\/password-reset\/request$/)
   assert.deepEqual(JSON.parse(requests[0].options.body), { account: 'staff@example.test' })
-  assert.match(requests[1].url, /\/auth\/password-reset\/complete$/)
-  assert.deepEqual(JSON.parse(requests[1].options.body), {
-    token: 'a'.repeat(43),
+  assert.match(requests[1].url, /\/auth\/password-reset\/check$/)
+  assert.deepEqual(JSON.parse(requests[1].options.body), { token })
+  assert.match(requests[2].url, /\/auth\/password-reset\/complete$/)
+  assert.deepEqual(JSON.parse(requests[2].options.body), {
+    token,
     newPassword: 'A replacement private password',
   })
-  assert.equal(Object.hasOwn(requests[0].options.headers, 'Authorization'), false)
-  assert.equal(Object.hasOwn(requests[1].options.headers, 'Authorization'), false)
+  for (const { options } of requests) assert.equal(Object.hasOwn(options.headers, 'Authorization'), false)
 })
 
 test('login and recovery pages provide the complete accessible recovery path', async () => {
