@@ -428,7 +428,9 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     try {
       const data = await requestDistributionSlots(session.accessToken, selectedId)
       const area = schedule.beneficiary.sitioPurok?.trim().toLocaleLowerCase('en-PH')
+      const now = Date.now()
       const slots = data.slots.filter((slot) => slot.slotId !== schedule.slotId && slot.slotStatus === 'AVAILABLE'
+        && new Date(slot.slotEnd).getTime() > now
         && (!slot.serviceAreas.length || (area && slot.serviceAreas.some((name) => name.trim().toLocaleLowerCase('en-PH') === area))))
       if (slots.length === 0) {
         setQueueError(isAdmin ? 'No other available time slot covers this beneficiary’s service area. Return to the event to review capacity.' : 'No other available time slot covers this beneficiary’s service area. Review Service sessions and capacity.')
@@ -709,7 +711,7 @@ function RescheduleDialog({ schedule, slots, onClose, onSave }) {
       <form onSubmit={submit} className="p-6 sm:p-7">
         <div className="flex items-start justify-between gap-5"><div><p className="ga-eyebrow">Change session</p><h2 id="reschedule-title" className="mt-2 text-2xl font-extrabold">Move {beneficiaryName(schedule.beneficiary)}</h2><p className="mt-2 text-sm leading-6 text-muted-copy">Choose another available session in this distribution event. Capacity and service-area coverage are checked again before saving.</p></div><button type="button" disabled={isSaving} onClick={() => dialogRef.current?.close()} aria-label="Close reschedule dialog" className="grid size-11 shrink-0 place-items-center rounded-lg border border-line text-copy hover:bg-slate-50"><Icon name="close" /></button></div>
         <label htmlFor="reschedule-slot" className="ga-label mt-6 block">Available session</label>
-        <select id="reschedule-slot" required value={slotId} onChange={(event) => setSlotId(event.target.value)} className="ga-input mt-2 cursor-pointer">{slots.map((slot) => <option key={slot.slotId} value={slot.slotId}>{slot.sessionLabel} · {dateFormatter.format(new Date(slot.slotStart))} · {timeFormatter.format(new Date(slot.slotStart))}</option>)}</select>
+        <select id="reschedule-slot" required value={slotId} onChange={(event) => setSlotId(event.target.value)} className="ga-input mt-2 cursor-pointer">{slots.map((slot) => <option key={slot.slotId} value={slot.slotId}>{slot.sessionLabel} · {dateFormatter.format(new Date(slot.slotStart))} · {timeFormatter.format(new Date(slot.slotStart))}–{timeFormatter.format(new Date(slot.slotEnd))} PHT</option>)}</select>
         {error && <p ref={errorRef} tabIndex={-1} role="alert" className="mt-4 rounded-lg border border-red-200 bg-danger-soft p-4 text-sm text-brand-red">{error}</p>}
         <div className="mt-6 flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end"><button type="button" disabled={isSaving} onClick={() => dialogRef.current?.close()} className="ga-btn-secondary">Keep current session</button><button type="submit" disabled={isSaving || !slotId} className="ga-btn-primary">{isSaving ? <LoadingLabel>Moving...</LoadingLabel> : 'Move beneficiary'}</button></div>
       </form>

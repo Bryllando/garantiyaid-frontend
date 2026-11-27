@@ -75,12 +75,12 @@ function LoadingState() {
   return <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(26rem,0.9fr)]" role="status" aria-label="Loading assistance programs"><div className="ga-card p-5"><Skeleton className="h-12 w-full" />{Array.from({ length: 5 }, (_, index) => <Skeleton key={index} className="mt-4 h-24 w-full" />)}</div><div className="ga-card p-6"><Skeleton className="h-7 w-3/4" /><Skeleton className="mt-5 h-28 w-full" /><Skeleton className="mt-4 h-48 w-full" /></div></div>
 }
 
-function ProgramFormDialog({ program, onClose, onSave }) {
+function ProgramFormDialog({ barangays, program, onClose, onSave }) {
   const dialogRef = useRef(null)
   const errorRef = useRef(null)
   const [form, setForm] = useState(() => program ? {
     programName: program.programName ?? '', programCode: program.programCode ?? '', programType: program.programType ?? '',
-    description: program.description ?? '', grantAmount: program.grantAmount ?? '', budgetAmount: program.budgetAmount ?? '',
+    description: program.description ?? '', grantAmount: String(program.grantAmount ?? ''), budgetAmount: String(program.budgetAmount ?? ''),
     applicationStartDate: dateOnly(program.applicationStartDate), applicationEndDate: dateOnly(program.applicationEndDate),
     requiredDocumentTypes: program.requiredDocumentTypes ?? [],
     otherRequiredDocumentNames: otherDocumentNames(program),
@@ -89,6 +89,8 @@ function ProgramFormDialog({ program, onClose, onSave }) {
   const [formError, setFormError] = useState('')
   const [documentDraft, setDocumentDraft] = useState('')
   const [documentError, setDocumentError] = useState('')
+  const [initialCriterion, setInitialCriterion] = useState(null)
+  const [editingCriterion, setEditingCriterion] = useState(false)
 
   useEffect(() => { dialogRef.current?.showModal(); dialogRef.current?.querySelector('#program-name')?.focus() }, [])
   useEffect(() => { if (formError) errorRef.current?.focus() }, [formError])
@@ -110,23 +112,40 @@ function ProgramFormDialog({ program, onClose, onSave }) {
     event.preventDefault()
     if (isSaving) return
     const names = form.requiredDocumentTypes.includes('OTHER') ? [...form.otherRequiredDocumentNames, ...(documentDraft.trim() ? [documentDraft.trim()] : [])] : []
+    const isPositiveAmount = (value, max) => /^\d+(?:\.\d{1,2})?$/.test(value) && Number(value) > 0 && Number(value) <= max
+    const budget = form.budgetAmount.trim()
+    const grant = form.grantAmount.trim()
+    const missing = []
+    if (!budget) missing.push('Enter the total program budget.')
+    if (!program && !initialCriterion) missing.push('Add at least one eligibility criterion.')
     let issue = ''
-    if (form.applicationStartDate && form.applicationEndDate && form.applicationEndDate < form.applicationStartDate) issue = 'Application end date must be on or after the start date.'
-    else if (form.grantAmount && form.budgetAmount && Number(form.budgetAmount) < Number(form.grantAmount)) issue = 'Program budget cannot be lower than the grant per beneficiary.'
+    if (missing.length) issue = missing.join(' ')
+    else if (!isPositiveAmount(budget, 999_999_999_999.99)) issue = 'Enter a total budget greater than zero with up to two decimal places.'
+    else if (grant && !isPositiveAmount(grant, 9_999_999_999.99)) issue = 'Enter a grant greater than zero with up to two decimal places.'
+    else if (form.applicationStartDate && form.applicationEndDate && form.applicationEndDate < form.applicationStartDate) issue = 'Application end date must be on or after the start date.'
+    else if (grant && Number(budget) < Number(grant)) issue = 'Program budget cannot be lower than the grant per beneficiary.'
     else if (form.requiredDocumentTypes.includes('OTHER') && !names.length) issue = 'Add at least one other required document.'
     else if (names.length > 20) issue = 'You can add up to 20 other documents.'
     else if (new Set(names.map(name => name.toLowerCase().replace(/\s+/g, ' '))).size !== names.length) issue = 'Remove duplicate document names before saving.'
     if (issue) { setFormError(issue); return }
     setIsSaving(true)
     try {
-      await onSave({ ...form, programCode: form.programCode.trim().toUpperCase(), programType: form.programType.trim().toUpperCase(), otherRequiredDocumentNames: names })
+      await onSave({
+        ...form,
+        programCode: form.programCode.trim().toUpperCase(),
+        programType: form.programType.trim().toUpperCase(),
+        budgetAmount: budget,
+        grantAmount: grant,
+        otherRequiredDocumentNames: names,
+        ...(!program ? { criteria: [initialCriterion] } : {}),
+      })
       dialogRef.current?.close()
     } catch (error) {
       setFormError(getAuthErrorMessage(error))
     } finally { setIsSaving(false) }
   }
 
-  return (
+  return <>
     <dialog ref={dialogRef} onClose={onClose} onCancel={(event) => { if (isSaving) event.preventDefault() }} aria-labelledby="program-form-title" aria-describedby="program-form-description" className="m-auto max-h-[calc(100dvh-2rem)] w-[min(54rem,calc(100%-2rem))] overflow-hidden rounded-2xl border border-line bg-white p-0 text-ink shadow-lg backdrop:bg-slate-950/55">
       <form onSubmit={submit} aria-busy={isSaving} className="flex max-h-[calc(100dvh-3rem)] flex-col">
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-line px-4 py-4 sm:px-7 sm:py-5"><div className="min-w-0"><p className="text-xs font-semibold text-brand-blue">Program configuration · Draft</p><h2 id="program-form-title" className="mt-1 text-xl font-extrabold sm:text-2xl">{program ? 'Edit draft program' : 'Create assistance program'}</h2><p id="program-form-description" className="mt-2 text-sm leading-6 text-muted-copy">Set the assistance details and documents staff need for enrollment.</p></div><button type="button" onClick={() => dialogRef.current?.close()} disabled={isSaving} aria-label="Close program form" className="ga-btn-secondary size-11 shrink-0 p-0"><Icon name="close" /></button></header>
@@ -146,14 +165,19 @@ function ProgramFormDialog({ program, onClose, onSave }) {
             </section>
             <section aria-labelledby="program-funding-heading" className="border-b border-line pb-6">
               <h3 id="program-funding-heading" className="flex items-center gap-2 font-bold"><Icon name="calendar" className="size-5 text-brand-blue" />Funding and application period</h3>
-              <p className="mt-1 text-sm leading-6 text-muted-copy">Amounts are in Philippine pesos (PHP). Leave amounts or dates blank if not yet set.</p>
+              <p className="mt-1 text-sm leading-6 text-muted-copy">Enter a total budget in Philippine pesos. Add a grant amount if this program pays an amount per beneficiary.</p>
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <Field id="program-grant" label="Grant per beneficiary" type="number" min="0" step="0.01" placeholder="0.00" value={form.grantAmount} onChange={(value) => change('grantAmount', value)} />
-                <Field id="program-budget" label="Total program budget" type="number" min="0" step="0.01" placeholder="0.00" value={form.budgetAmount} onChange={(value) => change('budgetAmount', value)} />
+                <Field id="program-grant" label="Grant per beneficiary" inputMode="decimal" value={form.grantAmount} onChange={(value) => change('grantAmount', value)} />
+                <Field id="program-budget" label="Total program budget" inputMode="decimal" aria-required="true" value={form.budgetAmount} onChange={(value) => change('budgetAmount', value)} />
                 <Field id="program-start" label="Application start" type="date" value={form.applicationStartDate} onChange={(value) => change('applicationStartDate', value)} />
                 <Field id="program-end" label="Application end" type="date" min={form.applicationStartDate} value={form.applicationEndDate} onChange={(value) => change('applicationEndDate', value)} />
               </div>
             </section>
+            {!program && <section aria-labelledby="program-initial-criterion" className="border-b border-line pb-6">
+              <h3 id="program-initial-criterion" className="font-bold">Eligibility criterion <span aria-hidden="true" className="text-brand-red">*</span></h3>
+              <p className="mt-1 text-sm text-copy">{initialCriterion ? initialCriterion.criterionName : 'Add one rule to check during enrollment review.'}</p>
+              <button type="button" className="ga-btn-secondary mt-3" onClick={() => setEditingCriterion(true)}>{initialCriterion ? 'Edit eligibility criterion' : 'Add eligibility criterion'}</button>
+            </section>}
             <fieldset aria-describedby="program-documents-help" className="min-w-0">
               <legend className="flex items-center gap-2 font-bold"><Icon name="reports" className="size-5 text-brand-blue" />Required documents</legend>
               <div className="mt-2 flex flex-wrap items-start justify-between gap-3"><p id="program-documents-help" className="max-w-xl text-sm leading-6 text-muted-copy">Staff must attach each selected document type before submitting an enrollment. Select only the requirements specified for this program.</p><p role="status" aria-atomic="true" className="rounded-md border border-line bg-slate-50 px-2.5 py-1 text-xs font-semibold text-copy">{form.requiredDocumentTypes.length} of {documentTypes.length} selected</p></div>
@@ -169,11 +193,15 @@ function ProgramFormDialog({ program, onClose, onSave }) {
         <footer className="flex shrink-0 flex-col-reverse gap-3 border-t border-line bg-white px-4 py-4 sm:flex-row sm:justify-end sm:px-7"><button type="button" onClick={() => dialogRef.current?.close()} disabled={isSaving} className="ga-btn-secondary">Cancel</button><button type="submit" disabled={isSaving} className="ga-btn-primary">{isSaving ? <LoadingLabel>Saving...</LoadingLabel> : <><Icon name={program ? 'check' : 'plus'} className="size-4" />{program ? 'Save program' : 'Create draft program'}</>}</button></footer>
       </form>
     </dialog>
-  )
+    {editingCriterion && <CriterionDialog barangays={barangays} criterion={initialCriterion} onClose={() => setEditingCriterion(false)} onSave={(criterion) => {
+      setInitialCriterion(criterion)
+      setFormError('')
+    }} />}
+  </>
 }
 
 function Field({ id, label, icon, onChange, ...inputProps }) {
-  return <div><label htmlFor={id} className="ga-label">{label}{inputProps.required && <span aria-hidden="true" className="ml-1 text-brand-red after:content-['*']" />}</label><div className="relative mt-2">{icon && <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-muted-copy"><Icon name={icon} className="size-5" /></span>}<input id={id} onChange={(event) => onChange(event.target.value)} className={`ga-input ${icon ? 'pl-11' : ''}`} {...inputProps} /></div></div>
+  return <div><label htmlFor={id} className="ga-label">{label}{(inputProps.required || inputProps['aria-required']) && <span aria-hidden="true" className="ml-1 text-brand-red after:content-['*']" />}</label><div className="relative mt-2">{icon && <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-muted-copy"><Icon name={icon} className="size-5" /></span>}<input id={id} onChange={(event) => onChange(event.target.value)} className={`ga-input ${icon ? 'pl-11' : ''}`} {...inputProps} /></div></div>
 }
 
 function criterionInputValue(criterion) {
@@ -424,12 +452,12 @@ function ProgramManagementPage({ session, onLogout, onNavigate, onSessionExpired
             {canManage && selected.status === 'DRAFT' && <div className="border-b border-line bg-warning-soft/50 p-5 text-sm leading-6 sm:p-6"><p className="font-bold text-ink">Next step: {selected.criteria.length ? 'review and activate the program' : 'add an eligibility criterion'}</p><p className="mt-1 text-copy">{selected.criteria.length ? 'Confirm the budget, requirements, and rules below before opening this program for enrollment.' : 'A draft needs at least one rule before it can be activated for enrollment.'}</p></div>}
             {session.user.role === 'SYSTEM_ADMIN' && selected.status === 'ACTIVE' && <div className="flex flex-col gap-4 border-b border-blue-200 bg-info-soft p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6"><div><p className="text-xs font-bold uppercase tracking-wide text-brand-blue">Ready for distribution planning</p><p className="mt-1 text-sm leading-6 text-copy">Use this active program to create a distribution draft. Service sessions and beneficiaries are added in the next workspace.</p></div><a href={`/distributions/manage?program=${encodeURIComponent(selected.programId)}&create=1`} onClick={(event) => { event.preventDefault(); onNavigate(`/distributions/manage?program=${encodeURIComponent(selected.programId)}&create=1`) }} className="ga-btn-primary shrink-0">Plan distribution</a></div>}
             <div className="border-b border-line p-5 sm:p-6"><div className="flex items-center justify-between gap-4"><div><h3 className="font-extrabold">Eligibility criteria</h3><p className="mt-1 text-sm text-muted-copy">Rules evaluated during enrollment review.</p></div>{canManage && selected.status === 'DRAFT' && <button type="button" onClick={() => setCriterionForm({ criterion: null })} className="ga-btn-secondary min-h-11 px-4 text-sm">Add criterion</button>}</div>{selected.criteria.length === 0 ? <div className="mt-4 rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm text-brand-amber">No eligibility criterion has been recorded.</div> : <ul className="mt-4 space-y-3">{selected.criteria.map((criterion) => <li key={criterion.criterionId} className="rounded-lg border border-line p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-bold">{criterion.criterionName}</p><p className="mt-1 text-sm text-muted-copy">{humanize(criterion.fieldName)} · {humanize(criterion.operator)} · {Array.isArray(criterion.expectedValue) ? criterion.expectedValue.join(', ') : String(criterion.expectedValue)}</p></div>{criterion.isRequired && <span className="rounded-full bg-info-soft px-2.5 py-1 text-xs font-bold text-brand-blue">Required</span>}</div>{canManage && selected.status === 'DRAFT' && <div className="mt-3 flex gap-2"><button type="button" onClick={() => setCriterionForm({ criterion })} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft">Edit</button><button type="button" onClick={() => setConfirmation({ kind: 'delete-criterion', criterion, success: 'Eligibility criterion removed.', title: 'Remove this criterion?', description: 'The rule will no longer be used when determining program eligibility.', actionLabel: 'Remove criterion', destructive: true })} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-red hover:bg-danger-soft">Remove</button></div>}</li>)}</ul>}</div>
-            <div className="p-5 sm:p-6"><h3 className="font-extrabold">Required documents</h3><div className="mt-3 flex flex-wrap gap-2">{selected.requiredDocumentTypes.length ? programDocumentRequirements(selected).map((requirement) => <span key={requirement.label} className="rounded-full border border-line bg-slate-50 px-3 py-1.5 text-xs font-bold text-copy">{requirement.documentType === 'OTHER' ? requirement.label : humanize(requirement.documentType)}</span>) : <span className="text-sm text-muted-copy">No documentary requirements configured.</span>}</div>{canManage && <div className="mt-6 flex flex-wrap gap-3">{selected.status === 'DRAFT' && <><button type="button" onClick={() => setProgramForm({ program: selected })} className="ga-btn-secondary">Edit details</button><button type="button" disabled={selected.criteria.length === 0} onClick={() => setConfirmation({ kind: 'activate', success: 'Program activated for enrollment.', title: 'Activate this program?', description: 'Its eligibility rules and requirements will become available to staff handling enrollments.', actionLabel: 'Activate program' })} className="ga-btn-primary">Activate program</button></>}{selected.status === 'ACTIVE' && <button type="button" onClick={() => setConfirmation({ kind: 'close', success: 'Program closed to new enrollments.', title: 'Close this program?', description: 'New enrollments will stop. Existing records remain available for official processing.', actionLabel: 'Close program' })} className="ga-btn-secondary">Close enrollment</button>}{['DRAFT', 'ACTIVE'].includes(selected.status) && <button type="button" onClick={() => setConfirmation({ kind: 'cancel', success: 'Program cancelled.', title: 'Cancel this program?', description: 'Cancellation is permanent and should only be used when the assistance program will not proceed.', actionLabel: 'Cancel program', destructive: true })} className="ga-btn-danger">Cancel program</button>}</div>}</div>
+            <div className="p-5 sm:p-6"><h3 className="font-extrabold">Required documents</h3><div className="mt-3 flex flex-wrap gap-2">{selected.requiredDocumentTypes.length ? programDocumentRequirements(selected).map((requirement) => <span key={requirement.label} className="rounded-full border border-line bg-slate-50 px-3 py-1.5 text-xs font-bold text-copy">{requirement.documentType === 'OTHER' ? requirement.label : humanize(requirement.documentType)}</span>) : <span className="text-sm text-muted-copy">No documentary requirements configured.</span>}</div>{canManage && <div className="mt-6 flex flex-wrap gap-3">{selected.status === 'DRAFT' && <><button type="button" onClick={() => setProgramForm({ program: selected })} className="ga-btn-secondary">Edit details</button><button type="button" disabled={selected.criteria.length === 0} onClick={() => setConfirmation({ kind: 'activate', success: 'Program activated for enrollment.', title: 'Activate this program?', description: 'Its eligibility rules and requirements will become available to staff handling enrollments.', actionLabel: 'Activate program' })} className="ga-btn-primary">Activate program</button></>}{selected.status === 'ACTIVE' && <button type="button" onClick={() => setConfirmation({ kind: 'close', success: 'Program closed to new enrollments.', title: 'Close this program?', description: 'New enrollments will stop. Resolve pending and verified claims before closing.', actionLabel: 'Close program' })} className="ga-btn-secondary">Close enrollment</button>}{['DRAFT', 'ACTIVE'].includes(selected.status) && <button type="button" onClick={() => setConfirmation({ kind: 'cancel', success: 'Program cancelled.', title: 'Cancel this program?', description: 'Cancellation is permanent and should only be used when the assistance program will not proceed.', actionLabel: 'Cancel program', destructive: true })} className="ga-btn-danger">Cancel program</button>}</div>}</div>
           </>}</section>
         </div>}
       </>}
       {canManage && importOpen && <ProgramImportDialog accessToken={session.accessToken} onClose={() => setImportOpen(false)} onImported={() => setReload(value => value + 1)} onSessionExpired={onSessionExpired} onOpenProgram={program => { const next = { search: program.programCode, status: '' }; setDraft(next); setFilters(next); setPage(1); setIsLoading(true); openProgram(program.programId) }} />}
-      {canManage && programForm && <ProgramFormDialog program={programForm.program} onClose={() => setProgramForm(null)} onSave={saveProgram} />}
+      {canManage && programForm && <ProgramFormDialog barangays={barangays} program={programForm.program} onClose={() => setProgramForm(null)} onSave={saveProgram} />}
       {canManage && criterionForm && <CriterionDialog barangays={barangays} criterion={criterionForm.criterion} onClose={() => setCriterionForm(null)} onSave={saveCriterion} />}
       <ConfirmationDialog open={Boolean(confirmation)} title={confirmation?.title} description={confirmation?.description} actionLabel={confirmation?.actionLabel} destructive={confirmation?.destructive} onCancel={() => setConfirmation(null)} onConfirm={confirmAction} />
     </DashboardShell>
