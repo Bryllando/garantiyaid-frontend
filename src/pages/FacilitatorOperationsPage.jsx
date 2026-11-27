@@ -485,7 +485,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     } catch (error) {
       if (isSessionExpiredError(error)) return onSessionExpired()
       const retryable = error instanceof TypeError || ['API_UNREACHABLE', 'QR_CLAIM_CONCURRENT_CHANGE'].includes(error.code) || error.status >= 500
-      setVerificationError({ message: getAuthErrorMessage(error), code: error.code, claimId: error.details?.claimId, retryable })
+      setVerificationError({ message: getAuthErrorMessage(error), code: error.code, claimId: error.details?.claimId, beneficiaryId: error.details?.beneficiaryId, retryable })
       if (!retryable) {
         setPendingAttempt(null)
         setQrPreview(null)
@@ -517,7 +517,7 @@ function FacilitatorOperationsPage({ view, session, onLogout, onNavigate, onSess
     } catch (error) {
       if (isSessionExpiredError(error)) return onSessionExpired()
       setQrToken('')
-      setVerificationError({ message: getAuthErrorMessage(error), code: error.code, claimId: error.details?.claimId })
+      setVerificationError({ message: getAuthErrorMessage(error), code: error.code, claimId: error.details?.claimId, beneficiaryId: error.details?.beneficiaryId })
     } finally {
       qrRequestPending.current = false
       setIsPreviewing(false)
@@ -982,9 +982,14 @@ function QrVerificationView({ role, distribution, qrToken, setQrToken, error, pr
   const cameraButtonRef = useRef(null)
   const handheldRequestedRef = useRef(false)
   const duplicateError = ['QR_TOKEN_ALREADY_USED', 'DUPLICATE_CLAIM'].includes(error?.code)
+  const biometricRequired = error?.code === 'BIOMETRIC_REQUIRED_BEFORE_QR'
   const errorClaimHref = error?.claimId ? `/claim-accountability?${new URLSearchParams({ distribution: distribution.distributionId, claim: error.claimId })}` : ''
   const isAdmin = role === 'SYSTEM_ADMIN'
   const isFacilitator = role === 'BARANGAY_FACILITATOR'
+  const faceVerificationPath = `/biometrics?${new URLSearchParams({
+    view: 'verify', distribution: distribution.distributionId,
+    ...(biometricRequired && error.beneficiaryId ? { beneficiary: error.beneficiaryId } : {}),
+  })}`
   const needsBiometric = result?.nextRequiredVerification === 'BIOMETRIC'
   const claim = result?.claim
   const currentStep = result ? 3 : preview ? 2 : 1
@@ -1034,6 +1039,11 @@ function QrVerificationView({ role, distribution, qrToken, setQrToken, error, pr
 
             {distribution.verificationRequirement === 'QR_OR_BIOMETRIC' && <div className="mt-4 border-l-2 border-brand-blue bg-info-soft p-4 text-sm leading-6"><p>QR or live face match is enough for this event. Beneficiaries present their pass from the mobile app.</p>{!isAdmin && !result && <button type="button" disabled={busy} onClick={() => onNavigate(`/biometrics?view=verify&distribution=${encodeURIComponent(distribution.distributionId)}${preview?.beneficiary ? `&beneficiary=${encodeURIComponent(preview.beneficiary.beneficiaryId)}` : ''}`)} className="ga-btn-secondary mt-3"><Icon name="biometrics" className="size-4" />Use face match instead</button>}</div>}
 
+            {distribution.verificationRequirement === 'QR_AND_BIOMETRIC' && !result && !preview && <div className="mt-4 border-l-2 border-brand-blue bg-info-soft p-4 text-sm leading-6">
+              <p>Complete live face verification first, then scan the beneficiary’s QR credential.</p>
+              {isAdmin ? <p className="mt-1">Ask DSWD Staff or the assigned Barangay Facilitator to complete the face check.</p>
+                : <button type="button" disabled={busy} onClick={() => onNavigate(faceVerificationPath)} className="ga-btn-secondary mt-3"><Icon name="biometrics" className="size-4" />Go to face verification</button>}
+            </div>}
             {!isAdmin && manualVerificationAllowed(distribution) && !result && !preview && <button type="button" disabled={busy} onClick={() => onNavigate(`/manual-verification?distribution=${encodeURIComponent(distribution.distributionId)}`)} className="ga-btn-secondary mt-4">Use permitted manual identity review</button>}
 
             <form onSubmit={onSubmit} className="mt-6" aria-busy={busy}>
@@ -1059,7 +1069,7 @@ function QrVerificationView({ role, distribution, qrToken, setQrToken, error, pr
               {qrToken && !preview && !result && <button type="submit" disabled={busy} className="ga-btn-secondary mt-3 w-full">{isPreviewing ? <LoadingLabel>Checking credential...</LoadingLabel> : 'Review detected QR'}</button>}
               </>}
 
-              {error && <div id="qr-token-error" role="alert" className={`mt-4 rounded-lg border p-4 ${duplicateError ? 'border-red-200 bg-danger-soft' : 'border-amber-200 bg-warning-soft'}`}><p className={`font-bold ${duplicateError ? 'text-brand-red' : 'text-brand-amber'}`}>{duplicateError ? 'Possible duplicate claim' : error.retryable ? 'Verification not confirmed' : 'Credential not accepted'}</p><p className="mt-1 text-sm leading-6 text-copy">{error.message}</p><p className="mt-2 text-xs text-muted-copy">{error.retryable ? 'Retry the confirmation using the review shown here. The same confirmation will be reused.' : duplicateError ? 'Open the existing claim to check completed verification, release, and any review hold. Do not scan again to create another claim.' : 'Check the selected event and use the beneficiary’s current QR credential. Used or expired credentials cannot be accepted.'}</p>{errorClaimHref && <a href={errorClaimHref} onClick={(event) => { event.preventDefault(); onNavigate(errorClaimHref) }} className="ga-admin-link mt-3 inline-flex min-h-11 items-center">Review existing claim</a>}</div>}
+              {error && <div id="qr-token-error" role="alert" className={`mt-4 rounded-lg border p-4 ${duplicateError ? 'border-red-200 bg-danger-soft' : 'border-amber-200 bg-warning-soft'}`}><p className={`font-bold ${duplicateError ? 'text-brand-red' : 'text-brand-amber'}`}>{duplicateError ? 'Possible duplicate claim' : error.retryable ? 'Verification not confirmed' : biometricRequired ? 'Face verification required' : 'Credential not accepted'}</p><p className="mt-1 text-sm leading-6 text-copy">{error.message}</p><p className="mt-2 text-xs text-muted-copy">{error.retryable ? 'Retry the confirmation using the review shown here. The same confirmation will be reused.' : duplicateError ? 'Open the existing claim to check completed verification, release, and any review hold. Do not scan again to create another claim.' : biometricRequired ? 'Scan the same QR again after face verification.' : 'Check the selected event and use the beneficiary’s current QR credential. Used or expired credentials cannot be accepted.'}</p>{errorClaimHref && <a href={errorClaimHref} onClick={(event) => { event.preventDefault(); onNavigate(errorClaimHref) }} className="ga-admin-link mt-3 inline-flex min-h-11 items-center">Review existing claim</a>}</div>}
             </form>
 
             {!isAdmin && <details className="mt-5 rounded-xl border border-line bg-slate-50 p-4 text-sm">

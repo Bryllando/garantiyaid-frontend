@@ -19,6 +19,7 @@ import {
   programCriterionExpectedValue,
   requestBarangayList,
   requestProgram,
+  requestProgramEligibilityPreview,
   requestPrograms,
   updateProgram,
   updateProgramCriterion,
@@ -339,6 +340,41 @@ function CriterionDialog({ barangays, criterion, onClose, onSave }) {
   )
 }
 
+function ProgramEligibilityPreview({ barangays, programId, token, onSessionExpired }) {
+  const [barangayId, setBarangayId] = useState('')
+  const [page, setPage] = useState(1)
+  const [data, setData] = useState(null)
+  const [error, setError] = useState('')
+  const [reload, setReload] = useState(0)
+  useEffect(() => {
+    let active = true
+    requestProgramEligibilityPreview(token, programId, { page, pageSize: 10, barangayId })
+      .then((result) => { if (active) setData(result) })
+      .catch((issue) => {
+        if (!active) return
+        if (isSessionExpiredError(issue)) return onSessionExpired()
+        setError(getAuthErrorMessage(issue))
+      })
+    return () => { active = false }
+  }, [barangayId, onSessionExpired, page, programId, reload, token])
+  function changePage(value) { setData(null); setError(''); setPage(value) }
+  const labels = { ELIGIBLE: 'Meets criteria', REVIEW_REQUIRED: 'Needs staff review', INELIGIBLE: 'Criteria not met' }
+  const tones = { ELIGIBLE: 'ga-status-success', REVIEW_REQUIRED: 'ga-status-warning', INELIGIBLE: 'border-line bg-slate-100 text-copy' }
+
+  return <section aria-labelledby="program-eligibility-preview" className="border-b border-line p-5 sm:p-6">
+    <h3 id="program-eligibility-preview" className="font-extrabold">Beneficiary eligibility preview</h3>
+    <p className="mt-1 text-sm text-muted-copy">See how active beneficiaries match these criteria. Staff still review and approve each enrollment.</p>
+    {barangays.length > 0 && <label className="ga-label mt-4 block">Barangay<select value={barangayId} onChange={(event) => { changePage(1); setBarangayId(event.target.value) }} className="ga-input mt-2"><option value="">All barangays</option>{barangays.map((barangay) => <option key={barangay.barangayId} value={barangay.barangayId}>{barangay.barangayName}</option>)}</select></label>}
+    {error ? <div className="mt-4 text-sm" role="alert"><p className="text-brand-red">{error}</p><button type="button" className="ga-btn-secondary mt-2" onClick={() => { setError(''); setReload((value) => value + 1) }}>Try again</button></div>
+      : !data ? <p className="mt-4 text-sm" role="status"><LoadingLabel>Checking eligibility…</LoadingLabel></p>
+        : <>
+          <p className="mt-4 text-xs text-muted-copy" role="status">{data.pagination.total} active beneficiaries · {displayDate(data.referenceDate)}</p>
+          {data.candidates.length ? <ul className="mt-2 divide-y divide-line border-y border-line">{data.candidates.map((person) => <li key={person.beneficiaryId} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm"><div><p className="font-semibold">{person.firstName} {person.lastName}</p><p className="text-xs text-muted-copy">{person.barangayName}</p></div><span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${tones[person.status] ?? tones.REVIEW_REQUIRED}`}>{labels[person.status] ?? labels.REVIEW_REQUIRED}</span></li>)}</ul> : <p className="mt-2 text-sm text-muted-copy">No active beneficiaries in this view.</p>}
+          {data.pagination.totalPages > 1 && <div className="mt-4 flex items-center justify-between gap-2 text-xs"><button type="button" className="ga-btn-secondary" disabled={page <= 1} onClick={() => changePage(page - 1)}>Previous</button><span>Page {page} of {data.pagination.totalPages}</span><button type="button" className="ga-btn-secondary" disabled={page >= data.pagination.totalPages} onClick={() => changePage(page + 1)}>Next</button></div>}
+        </>}
+  </section>
+}
+
 function ProgramManagementPage({ session, onLogout, onNavigate, onSessionExpired }) {
   const [draft, setDraft] = useState({ search: '', status: '' })
   const [filters, setFilters] = useState(draft)
@@ -453,6 +489,7 @@ function ProgramManagementPage({ session, onLogout, onNavigate, onSessionExpired
             {session.user.role === 'SYSTEM_ADMIN' && selected.status === 'ACTIVE' && <div className="flex flex-col gap-4 border-b border-blue-200 bg-info-soft p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6"><div><p className="text-xs font-bold uppercase tracking-wide text-brand-blue">Ready for distribution planning</p><p className="mt-1 text-sm leading-6 text-copy">Use this active program to create a distribution draft. Service sessions and beneficiaries are added in the next workspace.</p></div><a href={`/distributions/manage?program=${encodeURIComponent(selected.programId)}&create=1`} onClick={(event) => { event.preventDefault(); onNavigate(`/distributions/manage?program=${encodeURIComponent(selected.programId)}&create=1`) }} className="ga-btn-primary shrink-0">Plan distribution</a></div>}
             <div className="border-b border-line p-5 sm:p-6"><div className="flex items-center justify-between gap-4"><div><h3 className="font-extrabold">Eligibility criteria</h3><p className="mt-1 text-sm text-muted-copy">Rules evaluated during enrollment review.</p></div>{canManage && selected.status === 'DRAFT' && <button type="button" onClick={() => setCriterionForm({ criterion: null })} className="ga-btn-secondary min-h-11 px-4 text-sm">Add criterion</button>}</div>{selected.criteria.length === 0 ? <div className="mt-4 rounded-lg border border-amber-200 bg-warning-soft p-4 text-sm text-brand-amber">No eligibility criterion has been recorded.</div> : <ul className="mt-4 space-y-3">{selected.criteria.map((criterion) => <li key={criterion.criterionId} className="rounded-lg border border-line p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-bold">{criterion.criterionName}</p><p className="mt-1 text-sm text-muted-copy">{humanize(criterion.fieldName)} · {humanize(criterion.operator)} · {Array.isArray(criterion.expectedValue) ? criterion.expectedValue.join(', ') : String(criterion.expectedValue)}</p></div>{criterion.isRequired && <span className="rounded-full bg-info-soft px-2.5 py-1 text-xs font-bold text-brand-blue">Required</span>}</div>{canManage && selected.status === 'DRAFT' && <div className="mt-3 flex gap-2"><button type="button" onClick={() => setCriterionForm({ criterion })} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-blue hover:bg-info-soft">Edit</button><button type="button" onClick={() => setConfirmation({ kind: 'delete-criterion', criterion, success: 'Eligibility criterion removed.', title: 'Remove this criterion?', description: 'The rule will no longer be used when determining program eligibility.', actionLabel: 'Remove criterion', destructive: true })} className="min-h-11 rounded-lg px-3 text-sm font-bold text-brand-red hover:bg-danger-soft">Remove</button></div>}</li>)}</ul>}</div>
             <div className="p-5 sm:p-6"><h3 className="font-extrabold">Required documents</h3><div className="mt-3 flex flex-wrap gap-2">{selected.requiredDocumentTypes.length ? programDocumentRequirements(selected).map((requirement) => <span key={requirement.label} className="rounded-full border border-line bg-slate-50 px-3 py-1.5 text-xs font-bold text-copy">{requirement.documentType === 'OTHER' ? requirement.label : humanize(requirement.documentType)}</span>) : <span className="text-sm text-muted-copy">No documentary requirements configured.</span>}</div>{canManage && <div className="mt-6 flex flex-wrap gap-3">{selected.status === 'DRAFT' && <><button type="button" onClick={() => setProgramForm({ program: selected })} className="ga-btn-secondary">Edit details</button><button type="button" disabled={selected.criteria.length === 0} onClick={() => setConfirmation({ kind: 'activate', success: 'Program activated for enrollment.', title: 'Activate this program?', description: 'Its eligibility rules and requirements will become available to staff handling enrollments.', actionLabel: 'Activate program' })} className="ga-btn-primary">Activate program</button></>}{selected.status === 'ACTIVE' && <button type="button" onClick={() => setConfirmation({ kind: 'close', success: 'Program closed to new enrollments.', title: 'Close this program?', description: 'New enrollments will stop. Resolve pending and verified claims before closing.', actionLabel: 'Close program' })} className="ga-btn-secondary">Close enrollment</button>}{['DRAFT', 'ACTIVE'].includes(selected.status) && <button type="button" onClick={() => setConfirmation({ kind: 'cancel', success: 'Program cancelled.', title: 'Cancel this program?', description: 'Cancellation is permanent and should only be used when the assistance program will not proceed.', actionLabel: 'Cancel program', destructive: true })} className="ga-btn-danger">Cancel program</button>}</div>}</div>
+            {canManage && selected.criteria.length > 0 && <ProgramEligibilityPreview key={`${selected.programId}:${reload}`} barangays={barangays} programId={selected.programId} token={session.accessToken} onSessionExpired={onSessionExpired} />}
           </>}</section>
         </div>}
       </>}

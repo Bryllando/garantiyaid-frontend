@@ -949,6 +949,14 @@ export async function requestProgram(token, programId) {
   return data.program
 }
 
+export async function requestProgramEligibilityPreview(token, programId, filters) {
+  const data = await requestJson(`/programs/${programId}/eligibility-preview${queryString(filters)}`, { token, method: 'GET' })
+  if (!Array.isArray(data?.candidates) || !data?.pagination || !data?.referenceDate) {
+    throw new Error('The server returned an unexpected eligibility preview.')
+  }
+  return data
+}
+
 export async function createProgram(token, program) {
   const data = await requestJson('/programs', { token, body: program })
   if (!data?.program) throw new Error('The server returned an unexpected program response.')
